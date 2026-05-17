@@ -1,0 +1,248 @@
+package api
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/labstack/echo/v4"
+	"github.com/wellch4n/cattery/internal/config"
+	"github.com/wellch4n/cattery/internal/db"
+	"github.com/wellch4n/cattery/internal/harness"
+	"github.com/wellch4n/cattery/internal/k8s"
+	"github.com/wellch4n/cattery/internal/model"
+)
+
+var harnessImages = map[string]string{
+	"opencode": "opencode-sandbox:dev",
+}
+
+type SessionHandler struct {
+	sessionStore  *db.SessionStore
+	agentStore    *db.AgentStore
+	k8sClient     *k8s.Client
+	harnessClient *harness.Client
+	cfg           *config.Config
+}
+
+func NewSessionHandler(
+	sessionStore *db.SessionStore,
+	agentStore *db.AgentStore,
+	k8sClient *k8s.Client,
+	harnessClient *harness.Client,
+	cfg *config.Config,
+) *SessionHandler {
+	return &SessionHandler{sessionStore, agentStore, k8sClient, harnessClient, cfg}
+}
+
+func (h *SessionHandler) Create(c echo.Context) error {
+	agentID, err := uuid.Parse(c.Param("agent_id"))
+	if err != nil {
+		return echo.ErrBadRequest
+	}
+	agent, err := h.agentStore.GetByID(c.Request().Context(), agentID)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusNotFound, "agent not found")
+	}
+
+	sess := &model.Session{
+		SessionID: uuid.New(),
+		AgentID:   agentID,
+		Status:    "creating",
+	}
+	if err := h.sessionStore.Create(c.Request().Context(), sess); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	go h.bringUp(sess.SessionID, agent)
+
+	return c.JSON(http.StatusCreated, sess)
+}
+
+// bringUp 确保 agent 的 sandbox 在线，然后在里面创建 harness session。
+func (h *SessionHandler) bringUp(sessionID uuid.UUID, agent *model.Agent) {
+	ctx := context.Background()
+
+	sandboxURL, err := h.ensureSandbox(ctx, agent)
+	if err != nil {
+		_ = h.sessionStore.UpdateStatus(ctx, sessionID, "failed", "sandbox_error")
+		return
+	}
+
+	_ = h.sessionStore.UpdateStatus(ctx, sessionID, "creating", "handshake")
+	harnessSessionID, err := h.harnessClient.CreateSession(ctx, sandboxURL)
+	if err != nil {
+		_ = h.sessionStore.UpdateStatus(ctx, sessionID, "failed", "handshake_error")
+		return
+	}
+
+	_ = h.sessionStore.UpdateReady(ctx, sessionID, harnessSessionID)
+}
+
+// ensureSandbox 若 sandbox 已 ready 直接返回 URL；否则启动并等待。
+func (h *SessionHandler) ensureSandbox(ctx context.Context, agent *model.Agent) (string, error) {
+	// 已经 ready，直接用
+	if agent.SandboxStatus == "ready" && agent.SandboxURL != nil {
+		return *agent.SandboxURL, nil
+	}
+
+	sandboxName := fmt.Sprintf("cattery-%s", agent.AgentID.String())
+
+	// 若已在 starting，等它就绪
+	if agent.SandboxStatus == "starting" {
+		return h.waitSandboxURL(ctx, sandboxName, agent.AgentID)
+	}
+
+	// idle / failed / 空：重新启动
+	image, ok := harnessImages[agent.HarnessID]
+	if !ok {
+		image = harnessImages["opencode"]
+	}
+
+	env := make(map[string]string)
+	for k, v := range agent.EnvVars {
+		env[k] = v
+	}
+	if agent.RepoURL != nil {
+		env["REPO_URL"] = *agent.RepoURL
+	}
+	env["BRANCH"] = agent.Branch
+	env["MODEL"] = agent.Model
+	if agent.Prompt != nil {
+		env["AGENT_PROMPT"] = *agent.Prompt
+	}
+	env["PORT"] = fmt.Sprintf("%d", agent.ContainerPort)
+	env["AGENT_ID"] = agent.AgentID.String()
+
+	if h.cfg.ModelAPIStyle == "anthropic" {
+		base := strings.TrimRight(h.cfg.ModelAPIBase, "/")
+		env["ANTHROPIC_BASE_URL"] = base + "/v1"
+		env["ANTHROPIC_API_KEY"] = h.cfg.ModelAPIKey
+	} else {
+		env["OPENAI_BASE_URL"] = strings.TrimRight(h.cfg.ModelAPIBase, "/") + "/v1"
+		env["OPENAI_API_KEY"] = h.cfg.ModelAPIKey
+	}
+
+	spec := k8s.SandboxSpec{
+		Name:          sandboxName,
+		SessionID:     agent.AgentID.String(),
+		AgentID:       agent.AgentID.String(),
+		HarnessImage:  image,
+		ContainerPort: agent.ContainerPort,
+		Env:           env,
+	}
+
+	_ = h.agentStore.UpdateSandboxStarting(ctx, agent.AgentID, sandboxName)
+	if err := h.k8sClient.RunTask(ctx, spec); err != nil {
+		_ = h.agentStore.UpdateSandboxStatus(ctx, agent.AgentID, "failed")
+		return "", fmt.Errorf("run sandbox: %w", err)
+	}
+
+	return h.waitSandboxURL(ctx, sandboxName, agent.AgentID)
+}
+
+func (h *SessionHandler) waitSandboxURL(ctx context.Context, sandboxName string, agentID uuid.UUID) (string, error) {
+	sandboxURL, err := h.k8sClient.WaitReady(ctx, sandboxName, 3*time.Minute)
+	if err != nil {
+		_ = h.agentStore.UpdateSandboxStatus(ctx, agentID, "failed")
+		return "", err
+	}
+	if err := h.harnessClient.WaitHTTPReady(ctx, sandboxURL, 2*time.Minute); err != nil {
+		_ = h.agentStore.UpdateSandboxStatus(ctx, agentID, "failed")
+		return "", err
+	}
+	_ = h.agentStore.UpdateSandboxReady(ctx, agentID, sandboxURL)
+	return sandboxURL, nil
+}
+
+func (h *SessionHandler) Get(c echo.Context) error {
+	id, err := uuid.Parse(c.Param("session_id"))
+	if err != nil {
+		return echo.ErrBadRequest
+	}
+	sess, err := h.sessionStore.GetByID(c.Request().Context(), id)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusNotFound, "session not found")
+	}
+	return c.JSON(http.StatusOK, sess)
+}
+
+func (h *SessionHandler) SendMessage(c echo.Context) error {
+	id, err := uuid.Parse(c.Param("session_id"))
+	if err != nil {
+		return echo.ErrBadRequest
+	}
+	sess, err := h.sessionStore.GetByID(c.Request().Context(), id)
+	if err != nil || sess.Status != "ready" {
+		return echo.NewHTTPError(http.StatusBadRequest, "session not ready")
+	}
+	agent, err := h.agentStore.GetByID(c.Request().Context(), sess.AgentID)
+	if err != nil || agent.SandboxURL == nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "sandbox not ready")
+	}
+
+	var req struct {
+		Text string `json:"text"`
+	}
+	if err := c.Bind(&req); err != nil || req.Text == "" {
+		return echo.ErrBadRequest
+	}
+
+	reply, err := h.harnessClient.SendMessage(c.Request().Context(), *agent.SandboxURL, *sess.HarnessSessionID, req.Text)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadGateway, err.Error())
+	}
+
+	go h.sessionStore.MarkSeen(context.Background(), id)
+	return c.JSONBlob(http.StatusOK, reply)
+}
+
+func (h *SessionHandler) Stream(c echo.Context) error {
+	id, err := uuid.Parse(c.Param("session_id"))
+	if err != nil {
+		return echo.ErrBadRequest
+	}
+	sess, err := h.sessionStore.GetByID(c.Request().Context(), id)
+	if err != nil || sess.Status != "ready" {
+		return echo.NewHTTPError(http.StatusBadRequest, "session not ready")
+	}
+	agent, err := h.agentStore.GetByID(c.Request().Context(), sess.AgentID)
+	if err != nil || agent.SandboxURL == nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "sandbox not ready")
+	}
+
+	c.Response().Header().Set("Content-Type", "text/event-stream")
+	c.Response().Header().Set("Cache-Control", "no-cache")
+	c.Response().Header().Set("Connection", "keep-alive")
+	c.Response().WriteHeader(http.StatusOK)
+
+	return h.harnessClient.StreamEvents(c.Request().Context(), *agent.SandboxURL, *sess.HarnessSessionID, c.Response())
+}
+
+func (h *SessionHandler) Delete(c echo.Context) error {
+	id, err := uuid.Parse(c.Param("session_id"))
+	if err != nil {
+		return echo.ErrBadRequest
+	}
+	_ = h.sessionStore.MarkStopped(c.Request().Context(), id)
+	return c.NoContent(http.StatusNoContent)
+}
+
+// StopSandbox 停止 agent 的 sandbox（agent 级操作）
+func (h *SessionHandler) StopSandbox(c echo.Context) error {
+	agentID, err := uuid.Parse(c.Param("agent_id"))
+	if err != nil {
+		return echo.ErrBadRequest
+	}
+	agent, err := h.agentStore.GetByID(c.Request().Context(), agentID)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusNotFound, "agent not found")
+	}
+	sandboxName := fmt.Sprintf("cattery-%s", agent.AgentID.String())
+	_ = h.k8sClient.StopTask(c.Request().Context(), sandboxName)
+	_ = h.agentStore.UpdateSandboxStatus(c.Request().Context(), agentID, "idle")
+	return c.NoContent(http.StatusNoContent)
+}

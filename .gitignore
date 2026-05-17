@@ -1,0 +1,29 @@
+# Go
+backend/bin/
+*.exe
+*.test
+*.out
+
+# Node / bun
+web/node_modules/
+web/.next/
+web/.env.local
+
+# Env
+.env
+.env.*
+!.env.example
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+
+# Claude
+.claude/
+
+# Go module cache
+backend/vendor/
