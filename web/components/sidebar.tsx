@@ -144,12 +144,14 @@ export function Sidebar() {
                   )}
                 />
                 <Bot className="size-3.5 text-muted-foreground shrink-0" />
-                <span className="truncate flex-1">
-                  {agent.agent_name ?? "Untitled"}
+                <span className="flex items-center gap-1.5 min-w-0 flex-1">
+                  <span className="truncate">
+                    {agent.agent_name ?? "Untitled"}
+                  </span>
+                  <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 font-normal shrink-0">
+                    {agent.harness_id}
+                  </Badge>
                 </span>
-                <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 font-normal shrink-0">
-                  {agent.harness_id}
-                </Badge>
               </button>
               <button
                 className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 inline-flex items-center justify-center size-6 rounded text-muted-foreground hover:bg-foreground/10 hover:text-foreground disabled:opacity-50 transition-colors"
