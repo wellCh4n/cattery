@@ -230,6 +230,54 @@ func (h *SessionHandler) Delete(c echo.Context) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
+// Abort 中止当前 session 的进行中对话
+func (h *SessionHandler) Abort(c echo.Context) error {
+	id, err := uuid.Parse(c.Param("session_id"))
+	if err != nil {
+		return echo.ErrBadRequest
+	}
+	sess, err := h.sessionStore.GetByID(c.Request().Context(), id)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusNotFound, "session not found")
+	}
+	agent, err := h.agentStore.GetByID(c.Request().Context(), sess.AgentID)
+	if err != nil || agent.SandboxURL == nil || sess.HarnessSessionID == nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "session not active")
+	}
+	if err := h.harnessClient.Abort(c.Request().Context(), *agent.SandboxURL, *sess.HarnessSessionID); err != nil {
+		return echo.NewHTTPError(http.StatusBadGateway, err.Error())
+	}
+	return c.NoContent(http.StatusNoContent)
+}
+
+// History 拉取 session 的历史消息（统一平台格式）
+func (h *SessionHandler) History(c echo.Context) error {
+	id, err := uuid.Parse(c.Param("session_id"))
+	if err != nil {
+		return echo.ErrBadRequest
+	}
+	sess, err := h.sessionStore.GetByID(c.Request().Context(), id)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusNotFound, "session not found")
+	}
+	agent, err := h.agentStore.GetByID(c.Request().Context(), sess.AgentID)
+	if err != nil || agent.SandboxURL == nil || sess.HarnessSessionID == nil {
+		return c.JSON(http.StatusOK, []harness.PlatformHistoryItem{})
+	}
+	raw, err := h.harnessClient.History(c.Request().Context(), *agent.SandboxURL, *sess.HarnessSessionID)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadGateway, err.Error())
+	}
+	items, err := harness.TranslateOpencodeHistory(raw)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	if items == nil {
+		items = []harness.PlatformHistoryItem{}
+	}
+	return c.JSON(http.StatusOK, items)
+}
+
 // StopSandbox 停止 agent 的 sandbox（agent 级操作）
 func (h *SessionHandler) StopSandbox(c echo.Context) error {
 	agentID, err := uuid.Parse(c.Param("agent_id"))

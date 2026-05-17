@@ -75,3 +75,19 @@ export async function sendMessage(sessionId: string, text: string): Promise<void
   })
   if (!res.ok) throw new Error("failed to send message")
 }
+
+export async function abortSession(sessionId: string): Promise<void> {
+  await fetch(`${API_BASE}/api/v1/sessions/${sessionId}/abort`, { method: "POST" })
+}
+
+export interface PlatformHistoryItem {
+  messageId: string
+  role: "user" | "assistant"
+  events: Array<{ type: string; data: Record<string, unknown> }>
+}
+
+export async function getHistory(sessionId: string): Promise<PlatformHistoryItem[]> {
+  const res = await fetch(`${API_BASE}/api/v1/sessions/${sessionId}/history`, { cache: "no-store" })
+  if (!res.ok) throw new Error("failed to get history")
+  return res.json()
+}

@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
-import { getSession, type Session, type Agent } from "@/lib/api"
+import { getSession, getHistory, abortSession, type Session, type Agent } from "@/lib/api"
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080"
 
@@ -52,6 +52,79 @@ export function ChatPanel({ session: initialSession, agent, onSessionUpdate }: P
     setSending(false)
     sessionIdRef.current = initialSession.session_id
   }, [initialSession.session_id])
+
+  // load history when session becomes ready
+  useEffect(() => {
+    if (session.status !== "ready") return
+    let cancelled = false
+    getHistory(session.session_id).then(items => {
+      if (cancelled || sessionIdRef.current !== session.session_id) return
+      const restored: Bubble[] = []
+      for (const item of items) {
+        if (item.role === "user") {
+          // 用户消息：合并 events 里所有 text
+          const text = item.events
+            .filter(e => e.type === "message.delta")
+            .map(e => (e.data as { text?: string }).text ?? "")
+            .join("")
+          if (text) {
+            restored.push({
+              id: item.messageId,
+              role: "user",
+              kind: "text",
+              content: text,
+              done: true,
+            })
+          }
+          continue
+        }
+        // assistant 消息：按 events 还原
+        for (const ev of item.events) {
+          if (ev.type === "message.delta") {
+            const d = ev.data as { partId?: string; text?: string }
+            if (!d.partId || !d.text) continue
+            const existing = restored.find(b => b.id === d.partId)
+            if (existing) {
+              existing.content = d.text
+            } else {
+              restored.push({
+                id: d.partId,
+                role: "assistant",
+                kind: "text",
+                content: d.text,
+                done: true,
+              })
+            }
+          } else if (ev.type === "tool.start") {
+            const d = ev.data as { toolId?: string; tool?: string; input?: string }
+            if (!d.toolId) continue
+            if (!restored.find(b => b.id === d.toolId)) {
+              restored.push({
+                id: d.toolId,
+                role: "assistant",
+                kind: "tool",
+                content: d.input ?? "",
+                toolName: d.tool,
+                toolStatus: "running",
+                done: false,
+              })
+            }
+          } else if (ev.type === "tool.done") {
+            const d = ev.data as { toolId?: string; output?: string }
+            if (!d.toolId) continue
+            const existing = restored.find(b => b.id === d.toolId)
+            if (existing) {
+              existing.toolStatus = "completed"
+              existing.toolOutput = d.output ?? ""
+              existing.done = true
+            }
+          }
+        }
+      }
+      setBubbles(restored)
+    }).catch(() => { /* ignore */ })
+    return () => { cancelled = true }
+  }, [session.session_id, session.status])
 
   // poll until ready
   useEffect(() => {
@@ -151,6 +224,15 @@ export function ChatPanel({ session: initialSession, agent, onSessionUpdate }: P
         break
       }
     }
+  }
+
+  async function handleStop() {
+    abortRef.current?.abort()
+    try {
+      await abortSession(session.session_id)
+    } catch { /* ignore */ }
+    setSending(false)
+    setBubbles(prev => prev.map(b => b.done ? b : { ...b, done: true }))
   }
 
   async function handleSend() {
@@ -257,13 +339,23 @@ export function ChatPanel({ session: initialSession, agent, onSessionUpdate }: P
             }
           }}
         />
-        <Button
-          className="self-end"
-          disabled={session.status !== "ready" || sending || !input.trim()}
-          onClick={handleSend}
-        >
-          {sending ? "…" : "Send"}
-        </Button>
+        {sending ? (
+          <Button
+            className="self-end"
+            variant="destructive"
+            onClick={handleStop}
+          >
+            Stop
+          </Button>
+        ) : (
+          <Button
+            className="self-end"
+            disabled={session.status !== "ready" || !input.trim()}
+            onClick={handleSend}
+          >
+            Send
+          </Button>
+        )}
       </div>
     </div>
   )

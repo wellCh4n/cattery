@@ -72,6 +72,45 @@ func (c *Client) PromptAsync(ctx context.Context, sandboxURL, harnessSessionID, 
 	return nil
 }
 
+func (c *Client) Abort(ctx context.Context, sandboxURL, harnessSessionID string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		fmt.Sprintf("%s/session/%s/abort", sandboxURL, harnessSessionID), nil,
+	)
+	if err != nil {
+		return err
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("harness abort: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("harness abort status %d: %s", resp.StatusCode, b)
+	}
+	return nil
+}
+
+// History 拉取 harness 内的历史消息原文（数组），原样返回 JSON。
+func (c *Client) History(ctx context.Context, sandboxURL, harnessSessionID string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		fmt.Sprintf("%s/session/%s/message", sandboxURL, harnessSessionID), nil,
+	)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("harness history: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		b, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("harness history status %d: %s", resp.StatusCode, b)
+	}
+	return io.ReadAll(resp.Body)
+}
+
 func (c *Client) WaitHTTPReady(ctx context.Context, sandboxURL string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
