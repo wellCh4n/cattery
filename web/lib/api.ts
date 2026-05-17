@@ -45,6 +45,12 @@ export async function deleteAgent(agentId: string): Promise<void> {
   await fetch(`${API_BASE}/api/v1/agents/${agentId}`, { method: "DELETE" })
 }
 
+export async function listSessions(agentId: string): Promise<Session[]> {
+  const res = await fetch(`${API_BASE}/api/v1/agents/${agentId}/sessions`, { cache: "no-store" })
+  if (!res.ok) throw new Error("failed to list sessions")
+  return res.json()
+}
+
 export async function createSession(agentId: string): Promise<Session> {
   const res = await fetch(`${API_BASE}/api/v1/agents/${agentId}/sessions`, {
     method: "POST",
@@ -61,12 +67,11 @@ export async function getSession(sessionId: string): Promise<Session> {
   return res.json()
 }
 
-export async function sendMessage(sessionId: string, text: string): Promise<unknown> {
+export async function sendMessage(sessionId: string, text: string): Promise<void> {
   const res = await fetch(`${API_BASE}/api/v1/sessions/${sessionId}/message`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text }),
   })
   if (!res.ok) throw new Error("failed to send message")
-  return res.json()
 }

@@ -1,12 +1,14 @@
 package harness
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -46,24 +48,28 @@ type sendMessageRequest struct {
 	Parts []messagePart `json:"parts"`
 }
 
-func (c *Client) SendMessage(ctx context.Context, sandboxURL, harnessSessionID, text string) (json.RawMessage, error) {
+func (c *Client) PromptAsync(ctx context.Context, sandboxURL, harnessSessionID, text string) error {
 	body, _ := json.Marshal(sendMessageRequest{
 		Parts: []messagePart{{Type: "text", Text: text}},
 	})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		fmt.Sprintf("%s/session/%s/message", sandboxURL, harnessSessionID),
+		fmt.Sprintf("%s/session/%s/prompt_async", sandboxURL, harnessSessionID),
 		bytes.NewReader(body),
 	)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("harness send message: %w", err)
+		return fmt.Errorf("harness prompt_async: %w", err)
 	}
 	defer resp.Body.Close()
-	return io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusNoContent {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("harness prompt_async status %d: %s", resp.StatusCode, b)
+	}
+	return nil
 }
 
 func (c *Client) WaitHTTPReady(ctx context.Context, sandboxURL string, timeout time.Duration) error {
@@ -86,18 +92,40 @@ func (c *Client) WaitHTTPReady(ctx context.Context, sandboxURL string, timeout t
 	return fmt.Errorf("timeout waiting for harness HTTP at %s", sandboxURL)
 }
 
-// StreamEvents opens the SSE /event endpoint on the sandbox and pipes raw bytes to w.
+// StreamEvents opens the SSE /event endpoint, filters by harnessSessionID, and forwards matching events to w.
+// Each forwarded event is written as "data: <json>\n\n".
 func (c *Client) StreamEvents(ctx context.Context, sandboxURL, harnessSessionID string, w io.Writer) error {
+	// no timeout for the SSE stream connection itself
+	streamClient := &http.Client{}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, sandboxURL+"/event", nil)
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Accept", "text/event-stream")
-	resp, err := c.httpClient.Do(req)
+	resp, err := streamClient.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-	_, err = io.Copy(w, resp.Body)
-	return err
+
+	scanner := bufio.NewScanner(resp.Body)
+	var dataLine string
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "data:") {
+			dataLine = strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			continue
+		}
+		if line == "" && dataLine != "" {
+			// filter by session
+			if harnessSessionID == "" || strings.Contains(dataLine, harnessSessionID) {
+				fmt.Fprintf(w, "data: %s\n\n", dataLine)
+				if f, ok := w.(http.Flusher); ok {
+					f.Flush()
+				}
+			}
+			dataLine = ""
+		}
+	}
+	return scanner.Err()
 }

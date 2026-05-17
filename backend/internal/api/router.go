@@ -24,6 +24,7 @@ func NewRouter(agentH *AgentHandler, sessionH *SessionHandler) *echo.Echo {
 	agents.GET("/:agent_id", agentH.Get)
 	agents.DELETE("/:agent_id", agentH.Delete)
 	agents.POST("/:agent_id/sessions", sessionH.Create)
+	agents.GET("/:agent_id/sessions", sessionH.ListByAgent)
 	agents.DELETE("/:agent_id/sandbox", sessionH.StopSandbox)
 
 	sessions := v1.Group("/sessions")

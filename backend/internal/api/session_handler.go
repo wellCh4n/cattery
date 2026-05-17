@@ -158,6 +158,21 @@ func (h *SessionHandler) waitSandboxURL(ctx context.Context, sandboxName string,
 	return sandboxURL, nil
 }
 
+func (h *SessionHandler) ListByAgent(c echo.Context) error {
+	agentID, err := uuid.Parse(c.Param("agent_id"))
+	if err != nil {
+		return echo.ErrBadRequest
+	}
+	sessions, err := h.sessionStore.ListByAgent(c.Request().Context(), agentID)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	if sessions == nil {
+		sessions = []*model.Session{}
+	}
+	return c.JSON(http.StatusOK, sessions)
+}
+
 func (h *SessionHandler) Get(c echo.Context) error {
 	id, err := uuid.Parse(c.Param("session_id"))
 	if err != nil {
@@ -191,13 +206,12 @@ func (h *SessionHandler) SendMessage(c echo.Context) error {
 		return echo.ErrBadRequest
 	}
 
-	reply, err := h.harnessClient.SendMessage(c.Request().Context(), *agent.SandboxURL, *sess.HarnessSessionID, req.Text)
-	if err != nil {
+	if err := h.harnessClient.PromptAsync(c.Request().Context(), *agent.SandboxURL, *sess.HarnessSessionID, req.Text); err != nil {
 		return echo.NewHTTPError(http.StatusBadGateway, err.Error())
 	}
 
 	go h.sessionStore.MarkSeen(context.Background(), id)
-	return c.JSONBlob(http.StatusOK, reply)
+	return c.NoContent(http.StatusNoContent)
 }
 
 func (h *SessionHandler) Stream(c echo.Context) error {
