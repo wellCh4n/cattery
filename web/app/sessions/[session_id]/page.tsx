@@ -8,29 +8,24 @@ import { getSession, sendMessage, type Session } from "@/lib/api"
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080"
 
-interface MessagePart {
-  type: string
-  text?: string
-  [key: string]: unknown
+// 平台统一事件格式
+interface PlatformEvent {
+  type: "message.delta" | "tool.start" | "tool.done" | "session.idle" | "session.error"
+  data: MessageDeltaData | ToolStartData | ToolDoneData | SessionErrorData | Record<string, never>
 }
 
-interface SSEEvent {
-  type: string
-  properties?: {
-    sessionID?: string
-    part?: MessagePart
-    [key: string]: unknown
-  }
-}
+interface MessageDeltaData { text: string }
+interface ToolStartData   { tool: string; input?: string }
+interface ToolDoneData    { tool: string; output?: string }
+interface SessionErrorData { message: string }
 
 export default function SessionPage({ params }: { params: Promise<{ session_id: string }> }) {
   const { session_id } = use(params)
   const [session, setSession] = useState<Session | null>(null)
-  const [messages, setMessages] = useState<SSEEvent[]>([])
+  const [events, setEvents] = useState<PlatformEvent[]>([])
   const [input, setInput] = useState("")
   const [sending, setSending] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
-  const esRef = useRef<EventSource | null>(null)
 
   // poll until ready
   useEffect(() => {
@@ -46,30 +41,50 @@ export default function SessionPage({ params }: { params: Promise<{ session_id: 
     return () => clearTimeout(timer)
   }, [session_id])
 
-  // open SSE when ready
-  useEffect(() => {
-    if (session?.status !== "ready") return
-    esRef.current?.close()
-    const es = new EventSource(`${API_BASE}/api/v1/sessions/${session_id}/stream`)
-    esRef.current = es
-    es.onmessage = (e) => {
-      try {
-        const event: SSEEvent = JSON.parse(e.data)
-        setMessages(prev => [...prev, event])
-        bottomRef.current?.scrollIntoView({ behavior: "smooth" })
-      } catch {
-        // ignore
-      }
-    }
-    return () => es.close()
-  }, [session?.status, session_id])
-
   async function handleSend() {
     if (!input.trim() || sending) return
     setSending(true)
+    const text = input.trim()
+    setInput("")
+
     try {
-      await sendMessage(session_id, input.trim())
-      setInput("")
+      // 1. 发送消息（SSE 响应）
+      const res = await fetch(`${API_BASE}/api/v1/sessions/${session_id}/message`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      })
+      if (!res.ok || !res.body) return
+
+      // 2. 用 ReadableStream 逐行解析 SSE
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buf = ""
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buf += decoder.decode(value, { stream: true })
+
+        // SSE 事件以 \n\n 分隔
+        const blocks = buf.split("\n\n")
+        buf = blocks.pop() ?? ""
+
+        for (const block of blocks) {
+          let dataLine = ""
+          for (const line of block.split("\n")) {
+            if (line.startsWith("data:")) {
+              dataLine = line.slice(5).trim()
+            }
+          }
+          if (!dataLine) continue
+          try {
+            const ev: PlatformEvent = JSON.parse(dataLine)
+            setEvents(prev => [...prev, ev])
+            bottomRef.current?.scrollIntoView({ behavior: "smooth" })
+          } catch { /* ignore */ }
+        }
+      }
     } finally {
       setSending(false)
     }
@@ -83,7 +98,6 @@ export default function SessionPage({ params }: { params: Promise<{ session_id: 
 
   return (
     <div className="flex flex-col h-screen">
-      {/* header */}
       <div className="border-b px-6 py-3 flex items-center gap-3">
         <a href="/" className="text-sm text-muted-foreground hover:underline">← Agents</a>
         <span className="text-sm font-mono text-muted-foreground">{session_id.slice(0, 8)}…</span>
@@ -94,9 +108,8 @@ export default function SessionPage({ params }: { params: Promise<{ session_id: 
         )}
       </div>
 
-      {/* messages */}
       <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
-        {messages.length === 0 && session?.status === "ready" && (
+        {events.length === 0 && session?.status === "ready" && (
           <p className="text-sm text-muted-foreground">Session ready. Send a message to start.</p>
         )}
         {session?.status === "creating" && (
@@ -105,15 +118,12 @@ export default function SessionPage({ params }: { params: Promise<{ session_id: 
           </p>
         )}
         {session?.status === "failed" && (
-          <p className="text-sm text-red-500">Session failed to start. Phase: {session.phase}</p>
+          <p className="text-sm text-red-500">Session failed. Phase: {session.phase}</p>
         )}
-        {messages.map((ev, i) => (
-          <EventRow key={i} event={ev} />
-        ))}
+        {events.map((ev, i) => <EventRow key={i} event={ev} />)}
         <div ref={bottomRef} />
       </div>
 
-      {/* input */}
       <div className="border-t px-6 py-4 flex gap-3">
         <Textarea
           className="flex-1 resize-none"
@@ -141,22 +151,41 @@ export default function SessionPage({ params }: { params: Promise<{ session_id: 
   )
 }
 
-function EventRow({ event }: { event: SSEEvent }) {
-  const part = event.properties?.part
-  if (!part) return null
-
-  if (part.type === "text" && part.text) {
-    return (
-      <div className="rounded-lg bg-muted px-4 py-3 text-sm whitespace-pre-wrap">
-        {part.text}
-      </div>
-    )
+function EventRow({ event }: { event: PlatformEvent }) {
+  switch (event.type) {
+    case "message.delta": {
+      const d = event.data as MessageDeltaData
+      return (
+        <div className="rounded-lg bg-muted px-4 py-3 text-sm whitespace-pre-wrap">
+          {d.text}
+        </div>
+      )
+    }
+    case "tool.start": {
+      const d = event.data as ToolStartData
+      return (
+        <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-xs font-mono text-blue-700">
+          ▶ {d.tool}
+          {d.input && <pre className="mt-1 text-xs opacity-70">{d.input}</pre>}
+        </div>
+      )
+    }
+    case "tool.done": {
+      const d = event.data as ToolDoneData
+      return (
+        <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-2 text-xs font-mono text-green-700">
+          ✓ {d.tool}
+          {d.output && <pre className="mt-1 text-xs opacity-70 max-h-32 overflow-auto">{d.output}</pre>}
+        </div>
+      )
+    }
+    case "session.idle":
+      return <div className="text-xs text-muted-foreground text-center py-1">— done —</div>
+    case "session.error": {
+      const d = event.data as SessionErrorData
+      return <div className="text-xs text-red-500 px-4 py-2">{d.message}</div>
+    }
+    default:
+      return null
   }
-
-  return (
-    <div className="rounded-lg border px-4 py-3 text-xs font-mono text-muted-foreground">
-      <span className="font-semibold">{event.type}</span>{" "}
-      {JSON.stringify(event.properties, null, 2)}
-    </div>
-  )
 }

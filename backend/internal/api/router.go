@@ -30,7 +30,6 @@ func NewRouter(agentH *AgentHandler, sessionH *SessionHandler) *echo.Echo {
 	sessions := v1.Group("/sessions")
 	sessions.GET("/:session_id", sessionH.Get)
 	sessions.POST("/:session_id/message", sessionH.SendMessage)
-	sessions.GET("/:session_id/stream", sessionH.Stream)
 	sessions.DELETE("/:session_id", sessionH.Delete)
 
 	return e

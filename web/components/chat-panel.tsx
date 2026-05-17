@@ -4,31 +4,28 @@ import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
-import { getSession, sendMessage, type Session, type Agent } from "@/lib/api"
+import { getSession, type Session, type Agent } from "@/lib/api"
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080"
 
-// opencode SSE event — all events share {id, type, properties}
-interface OpenCodeEvent {
-  id: string
-  type: string
-  properties: {
-    sessionID?: string
-    delta?: string       // session.next.text.delta
-    text?: string        // session.next.text.ended / session.next.synthetic
-    command?: string     // session.next.shell.started
-    output?: string      // session.next.shell.ended
-    callID?: string
-    error?: unknown      // session.error
-    [key: string]: unknown
-  }
+interface PlatformEvent {
+  type: "message.delta" | "tool.start" | "tool.done" | "session.idle" | "session.error"
+  data: MessageDeltaData | ToolStartData | ToolDoneData | SessionErrorData | Record<string, never>
 }
 
-// A rendered chat bubble
+interface MessageDeltaData  { partId: string; text: string }
+interface ToolStartData     { toolId: string; tool: string; input?: string }
+interface ToolDoneData      { toolId: string; tool: string; output?: string }
+interface SessionErrorData  { message: string }
+
 interface Bubble {
   id: string
-  kind: "text" | "tool" | "error" | "other"
+  role: "user" | "assistant"
+  kind: "text" | "tool" | "error"
   content: string
+  toolName?: string
+  toolStatus?: "pending" | "running" | "completed"
+  toolOutput?: string
   done: boolean
 }
 
@@ -44,16 +41,15 @@ export function ChatPanel({ session: initialSession, agent, onSessionUpdate }: P
   const [input, setInput] = useState("")
   const [sending, setSending] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
-  const esRef = useRef<EventSource | null>(null)
   const sessionIdRef = useRef(initialSession.session_id)
-  // accumulate text delta per opencode "text block" (one per assistant turn)
-  const textBubbleRef = useRef<string | null>(null)
+  const abortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
+    abortRef.current?.abort()
     setSession(initialSession)
     setBubbles([])
     setInput("")
-    textBubbleRef.current = null
+    setSending(false)
     sessionIdRef.current = initialSession.session_id
   }, [initialSession.session_id])
 
@@ -72,102 +68,88 @@ export function ChatPanel({ session: initialSession, agent, onSessionUpdate }: P
     return () => clearTimeout(timer)
   }, [session.session_id, session.status])
 
-  // SSE stream when ready
-  useEffect(() => {
-    if (session.status !== "ready") return
-    esRef.current?.close()
-    const es = new EventSource(`${API_BASE}/api/v1/sessions/${session.session_id}/stream`)
-    esRef.current = es
-    es.onmessage = (e) => {
-      try {
-        const ev: OpenCodeEvent = JSON.parse(e.data)
-        handleEvent(ev)
-        bottomRef.current?.scrollIntoView({ behavior: "smooth" })
-      } catch { /* ignore parse errors */ }
-    }
-    return () => es.close()
-  }, [session.status, session.session_id])
-
-  function handleEvent(ev: OpenCodeEvent) {
+  function handleEvent(ev: PlatformEvent) {
     switch (ev.type) {
-      case "session.next.text.started":
-        // begin a new text bubble
-        textBubbleRef.current = ""
-        setBubbles(prev => [...prev, {
-          id: ev.id,
-          kind: "text",
-          content: "",
-          done: false,
-        }])
-        break
-
-      case "session.next.text.delta":
-        if (ev.properties.delta) {
-          textBubbleRef.current = (textBubbleRef.current ?? "") + ev.properties.delta
-          const accumulated = textBubbleRef.current
-          setBubbles(prev => {
-            const last = prev[prev.length - 1]
-            if (last && last.kind === "text" && !last.done) {
-              return [...prev.slice(0, -1), { ...last, content: accumulated }]
-            }
-            return prev
-          })
-        }
-        break
-
-      case "session.next.text.ended":
-        textBubbleRef.current = null
+      case "message.delta": {
+        const d = ev.data as MessageDeltaData
+        if (!d.text || !d.partId) break
+        const partID = d.partId
+        const delta = d.text
         setBubbles(prev => {
-          const last = prev[prev.length - 1]
-          if (last && last.kind === "text" && !last.done) {
-            return [...prev.slice(0, -1), { ...last, done: true }]
+          const existing = prev.find(b => b.id === partID)
+          if (existing) {
+            return prev.map(b => b.id === partID ? { ...b, content: b.content + delta } : b)
           }
-          return prev
+          return [...prev, {
+            id: partID,
+            role: "assistant",
+            kind: "text",
+            content: delta,
+            done: false,
+          }]
+        })
+        bottomRef.current?.scrollIntoView({ behavior: "smooth" })
+        break
+      }
+
+      case "tool.start": {
+        const d = ev.data as ToolStartData
+        // 关闭未完成的 text bubble；按 toolId 创建/更新工具 bubble
+        setBubbles(prev => {
+          const next = prev.map(b =>
+            b.kind === "text" && !b.done ? { ...b, done: true } : b
+          )
+          const existing = next.find(b => b.id === d.toolId)
+          if (existing) {
+            // 同一 toolId 重复 start（input 在更新），刷新 input 即可
+            return next.map(b => b.id === d.toolId
+              ? { ...b, content: d.input ?? b.content }
+              : b
+            )
+          }
+          return [...next, {
+            id: d.toolId,
+            role: "assistant",
+            kind: "tool",
+            content: d.input ?? "",
+            toolName: d.tool,
+            toolStatus: "running",
+            done: false,
+          }]
         })
         break
+      }
 
-      case "session.next.shell.started":
-        setBubbles(prev => [...prev, {
-          id: ev.id,
-          kind: "tool",
-          content: `$ ${ev.properties.command ?? ""}`,
-          done: false,
-        }])
-        break
-
-      case "session.next.shell.ended":
+      case "tool.done": {
+        const d = ev.data as ToolDoneData
         setBubbles(prev => prev.map(b =>
-          b.kind === "tool" && !b.done
-            ? { ...b, content: b.content + "\n" + (ev.properties.output ?? ""), done: true }
+          b.id === d.toolId
+            ? { ...b, toolStatus: "completed", toolOutput: d.output ?? "", done: true }
             : b
         ))
         break
+      }
 
-      case "session.next.synthetic":
-        setBubbles(prev => [...prev, {
-          id: ev.id,
-          kind: "text",
-          content: ev.properties.text ?? "",
-          done: true,
-        }])
-        break
-
-      case "session.error":
-        setBubbles(prev => [...prev, {
-          id: ev.id,
-          kind: "error",
-          content: JSON.stringify(ev.properties.error ?? ev.properties),
-          done: true,
-        }])
-        break
-
-      case "session.idle":
+      case "session.idle": {
         setSending(false)
+        setBubbles(prev => prev.map((b, i) =>
+          i === prev.length - 1 && !b.done ? { ...b, done: true } : b
+        ))
         break
+      }
 
-      default:
-        // silently ignore other events (session.diff, session.status, etc.)
+      case "session.error": {
+        const d = ev.data as SessionErrorData
+        setSending(false)
+        setBubbles(prev => [...prev, {
+          id: `err-${Date.now()}`,
+          role: "assistant",
+          kind: "error",
+          content: d.message,
+          done: true,
+        }])
         break
+      }
     }
   }
 
@@ -176,17 +158,53 @@ export function ChatPanel({ session: initialSession, agent, onSessionUpdate }: P
     setSending(true)
     const text = input.trim()
     setInput("")
-    // show user bubble immediately
+
     setBubbles(prev => [...prev, {
       id: `user-${Date.now()}`,
+      role: "user",
       kind: "text",
       content: text,
       done: true,
     }])
+
+    const ctrl = new AbortController()
+    abortRef.current = ctrl
+
     try {
-      await sendMessage(session.session_id, text)
-      // response arrives via SSE; sending stays true until session.idle
-    } catch {
+      const res = await fetch(`${API_BASE}/api/v1/sessions/${session.session_id}/message`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+        signal: ctrl.signal,
+      })
+      if (!res.ok || !res.body) {
+        setSending(false)
+        return
+      }
+
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buf = ""
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buf += decoder.decode(value, { stream: true })
+        const lines = buf.split("\n")
+        buf = lines.pop() ?? ""
+        for (const line of lines) {
+          if (!line.startsWith("data:")) continue
+          const data = line.slice(5).trim()
+          if (!data) continue
+          try {
+            handleEvent(JSON.parse(data) as PlatformEvent)
+          } catch { /* ignore */ }
+        }
+      }
+    } catch (e: unknown) {
+      if (e instanceof Error && e.name !== "AbortError") setSending(false)
+    } finally {
+      abortRef.current = null
       setSending(false)
     }
   }
@@ -199,7 +217,6 @@ export function ChatPanel({ session: initialSession, agent, onSessionUpdate }: P
 
   return (
     <div className="flex flex-col h-full">
-      {/* header */}
       <div className="border-b px-4 py-2 flex items-center gap-3 shrink-0">
         <span className="text-sm font-medium truncate">{agent.agent_name ?? "Untitled"}</span>
         <span className="text-xs text-muted-foreground font-mono">{session.session_id.slice(0, 8)}…</span>
@@ -209,7 +226,6 @@ export function ChatPanel({ session: initialSession, agent, onSessionUpdate }: P
         {sending && <span className="text-xs text-muted-foreground animate-pulse ml-auto">thinking…</span>}
       </div>
 
-      {/* messages */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
         {session.status === "creating" && (
           <p className="text-sm text-muted-foreground animate-pulse">
@@ -226,7 +242,6 @@ export function ChatPanel({ session: initialSession, agent, onSessionUpdate }: P
         <div ref={bottomRef} />
       </div>
 
-      {/* input */}
       <div className="border-t px-4 py-3 flex gap-2 shrink-0">
         <Textarea
           className="flex-1 resize-none"
@@ -255,22 +270,6 @@ export function ChatPanel({ session: initialSession, agent, onSessionUpdate }: P
 }
 
 function BubbleRow({ bubble }: { bubble: Bubble }) {
-  if (bubble.kind === "text") {
-    return (
-      <div className="rounded-lg bg-muted px-4 py-3 text-sm whitespace-pre-wrap">
-        {bubble.content}
-        {!bubble.done && <span className="inline-block w-1.5 h-4 bg-current animate-pulse ml-0.5 align-text-bottom" />}
-      </div>
-    )
-  }
-  if (bubble.kind === "tool") {
-    return (
-      <div className="rounded-lg border bg-card px-4 py-3 text-xs font-mono text-muted-foreground whitespace-pre-wrap">
-        {bubble.content}
-        {!bubble.done && <span className="text-yellow-500"> ▶</span>}
-      </div>
-    )
-  }
   if (bubble.kind === "error") {
     return (
       <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-600 whitespace-pre-wrap">
@@ -278,6 +277,49 @@ function BubbleRow({ bubble }: { bubble: Bubble }) {
       </div>
     )
   }
-  return null
-}
 
+  if (bubble.kind === "tool") {
+    const statusColor =
+      bubble.toolStatus === "completed" ? "text-green-600" :
+      bubble.toolStatus === "running" ? "text-yellow-600 animate-pulse" :
+      "text-muted-foreground"
+    const statusIcon =
+      bubble.toolStatus === "completed" ? "✓" :
+      bubble.toolStatus === "running" ? "▶" : "○"
+    return (
+      <div className="flex justify-start">
+        <div className="max-w-[85%] rounded-xl border bg-card px-3 py-2 text-xs font-mono">
+          <div className="flex items-center gap-1.5">
+            <span className={statusColor}>{statusIcon}</span>
+            <span className="font-semibold text-muted-foreground">{bubble.toolName}</span>
+            {bubble.content && <span className="text-muted-foreground truncate">{bubble.content}</span>}
+          </div>
+          {bubble.toolOutput && (
+            <pre className="mt-1 max-h-32 overflow-y-auto text-[11px] text-muted-foreground whitespace-pre-wrap border-t pt-1">
+              {bubble.toolOutput}
+            </pre>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  if (bubble.role === "user") {
+    return (
+      <div className="flex justify-end">
+        <div className="max-w-[70%] rounded-2xl bg-primary text-primary-foreground px-4 py-2 text-sm whitespace-pre-wrap">
+          {bubble.content}
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex justify-start">
+      <div className="max-w-[85%] rounded-2xl bg-muted px-4 py-3 text-sm whitespace-pre-wrap">
+        {bubble.content}
+        {!bubble.done && <span className="inline-block w-1.5 h-4 bg-current animate-pulse ml-0.5 align-text-bottom" />}
+      </div>
+    </div>
+  )
+}

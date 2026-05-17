@@ -211,29 +211,14 @@ func (h *SessionHandler) SendMessage(c echo.Context) error {
 	}
 
 	go h.sessionStore.MarkSeen(context.Background(), id)
-	return c.NoContent(http.StatusNoContent)
-}
-
-func (h *SessionHandler) Stream(c echo.Context) error {
-	id, err := uuid.Parse(c.Param("session_id"))
-	if err != nil {
-		return echo.ErrBadRequest
-	}
-	sess, err := h.sessionStore.GetByID(c.Request().Context(), id)
-	if err != nil || sess.Status != "ready" {
-		return echo.NewHTTPError(http.StatusBadRequest, "session not ready")
-	}
-	agent, err := h.agentStore.GetByID(c.Request().Context(), sess.AgentID)
-	if err != nil || agent.SandboxURL == nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "sandbox not ready")
-	}
 
 	c.Response().Header().Set("Content-Type", "text/event-stream")
 	c.Response().Header().Set("Cache-Control", "no-cache")
 	c.Response().Header().Set("Connection", "keep-alive")
+	c.Response().Header().Set("X-Accel-Buffering", "no")
 	c.Response().WriteHeader(http.StatusOK)
 
-	return h.harnessClient.StreamEvents(c.Request().Context(), *agent.SandboxURL, *sess.HarnessSessionID, c.Response())
+	return h.harnessClient.StreamEventsUntilIdle(c.Request().Context(), *agent.SandboxURL, *sess.HarnessSessionID, c.Response())
 }
 
 func (h *SessionHandler) Delete(c echo.Context) error {

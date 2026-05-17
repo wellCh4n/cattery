@@ -92,10 +92,9 @@ func (c *Client) WaitHTTPReady(ctx context.Context, sandboxURL string, timeout t
 	return fmt.Errorf("timeout waiting for harness HTTP at %s", sandboxURL)
 }
 
-// StreamEvents opens the SSE /event endpoint, filters by harnessSessionID, and forwards matching events to w.
-// Each forwarded event is written as "data: <json>\n\n".
-func (c *Client) StreamEvents(ctx context.Context, sandboxURL, harnessSessionID string, w io.Writer) error {
-	// no timeout for the SSE stream connection itself
+// StreamEventsUntilIdle 连接 sandbox /event SSE，将原始事件翻译为平台统一格式后写入 w，
+// 直到 primary session 进入 idle 状态。
+func (c *Client) StreamEventsUntilIdle(ctx context.Context, sandboxURL, harnessSessionID string, w io.Writer) error {
 	streamClient := &http.Client{}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, sandboxURL+"/event", nil)
 	if err != nil {
@@ -108,7 +107,10 @@ func (c *Client) StreamEvents(ctx context.Context, sandboxURL, harnessSessionID 
 	}
 	defer resp.Body.Close()
 
+	childSessions := map[string]bool{}
 	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+
 	var dataLine string
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -116,15 +118,22 @@ func (c *Client) StreamEvents(ctx context.Context, sandboxURL, harnessSessionID 
 			dataLine = strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 			continue
 		}
-		if line == "" && dataLine != "" {
-			// filter by session
-			if harnessSessionID == "" || strings.Contains(dataLine, harnessSessionID) {
-				fmt.Fprintf(w, "data: %s\n\n", dataLine)
-				if f, ok := w.(http.Flusher); ok {
-					f.Flush()
-				}
+		if line != "" || dataLine == "" {
+			continue
+		}
+		// 空行 = 事件结束，处理 dataLine
+		platEv, isIdle := translateOpencode(dataLine, harnessSessionID, childSessions)
+		dataLine = ""
+
+		if platEv != nil {
+			b, _ := json.Marshal(platEv)
+			fmt.Fprintf(w, "event: message\ndata: %s\n\n", b)
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
 			}
-			dataLine = ""
+		}
+		if isIdle {
+			return nil
 		}
 	}
 	return scanner.Err()
