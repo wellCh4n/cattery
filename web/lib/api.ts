@@ -67,15 +67,6 @@ export async function getSession(sessionId: string): Promise<Session> {
   return res.json()
 }
 
-export async function sendMessage(sessionId: string, text: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/api/v1/sessions/${sessionId}/message`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text }),
-  })
-  if (!res.ok) throw new Error("failed to send message")
-}
-
 export async function abortSession(sessionId: string): Promise<void> {
   await fetch(`${API_BASE}/api/v1/sessions/${sessionId}/abort`, { method: "POST" })
 }

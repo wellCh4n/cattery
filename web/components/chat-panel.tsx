@@ -1,9 +1,22 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
+import {
+  Bot,
+  User as UserIcon,
+  Send,
+  Square,
+  Loader2,
+  CheckCircle2,
+  CircleAlert,
+  Wrench,
+  Sparkles,
+  AlertTriangle,
+} from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
+import { Markdown } from "@/components/markdown"
 import { getSession, getHistory, abortSession, type Session, type Agent } from "@/lib/api"
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080"
@@ -51,9 +64,8 @@ export function ChatPanel({ session: initialSession, agent, onSessionUpdate }: P
     setInput("")
     setSending(false)
     sessionIdRef.current = initialSession.session_id
-  }, [initialSession.session_id])
+  }, [initialSession.session_id, initialSession])
 
-  // load history when session becomes ready
   useEffect(() => {
     if (session.status !== "ready") return
     let cancelled = false
@@ -62,7 +74,6 @@ export function ChatPanel({ session: initialSession, agent, onSessionUpdate }: P
       const restored: Bubble[] = []
       for (const item of items) {
         if (item.role === "user") {
-          // 用户消息：合并 events 里所有 text
           const text = item.events
             .filter(e => e.type === "message.delta")
             .map(e => (e.data as { text?: string }).text ?? "")
@@ -78,7 +89,6 @@ export function ChatPanel({ session: initialSession, agent, onSessionUpdate }: P
           }
           continue
         }
-        // assistant 消息：按 events 还原
         for (const ev of item.events) {
           if (ev.type === "message.delta") {
             const d = ev.data as { partId?: string; text?: string }
@@ -122,11 +132,13 @@ export function ChatPanel({ session: initialSession, agent, onSessionUpdate }: P
         }
       }
       setBubbles(restored)
+      requestAnimationFrame(() => {
+        bottomRef.current?.scrollIntoView({ behavior: "auto" })
+      })
     }).catch(() => { /* ignore */ })
     return () => { cancelled = true }
   }, [session.session_id, session.status])
 
-  // poll until ready
   useEffect(() => {
     if (session.status !== "creating") return
     let timer: ReturnType<typeof setTimeout>
@@ -139,7 +151,7 @@ export function ChatPanel({ session: initialSession, agent, onSessionUpdate }: P
     }
     poll()
     return () => clearTimeout(timer)
-  }, [session.session_id, session.status])
+  }, [session.session_id, session.status, onSessionUpdate])
 
   function handleEvent(ev: PlatformEvent) {
     switch (ev.type) {
@@ -167,14 +179,12 @@ export function ChatPanel({ session: initialSession, agent, onSessionUpdate }: P
 
       case "tool.start": {
         const d = ev.data as ToolStartData
-        // 关闭未完成的 text bubble；按 toolId 创建/更新工具 bubble
         setBubbles(prev => {
           const next = prev.map(b =>
             b.kind === "text" && !b.done ? { ...b, done: true } : b
           )
           const existing = next.find(b => b.id === d.toolId)
           if (existing) {
-            // 同一 toolId 重复 start（input 在更新），刷新 input 即可
             return next.map(b => b.id === d.toolId
               ? { ...b, content: d.input ?? b.content }
               : b
@@ -298,64 +308,87 @@ export function ChatPanel({ session: initialSession, agent, onSessionUpdate }: P
   }
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="border-b px-4 py-2 flex items-center gap-3 shrink-0">
-        <span className="text-sm font-medium truncate">{agent.agent_name ?? "Untitled"}</span>
-        <span className="text-xs text-muted-foreground font-mono">{session.session_id.slice(0, 8)}…</span>
-        <Badge variant={statusVariant(session.status)} className="text-xs">
+    <div className="flex flex-col h-full bg-background">
+      <header className="border-b px-4 h-12 flex items-center gap-3 shrink-0">
+        <Bot className="size-4 text-muted-foreground shrink-0" />
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-sm font-medium truncate">{agent.agent_name ?? "Untitled"}</span>
+          <span className="text-xs text-muted-foreground font-mono shrink-0">
+            {session.session_id.slice(0, 8)}
+          </span>
+        </div>
+        <Badge variant={statusVariant(session.status)} className="text-[10px] h-5">
           {session.phase ?? session.status}
         </Badge>
-        {sending && <span className="text-xs text-muted-foreground animate-pulse ml-auto">thinking…</span>}
+        {sending && (
+          <div className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Loader2 className="size-3 animate-spin" />
+            <span>thinking…</span>
+          </div>
+        )}
+      </header>
+
+      <div className="flex-1 overflow-y-auto px-4 md:px-8 py-6">
+        <div className="max-w-3xl mx-auto space-y-4">
+          {session.status === "creating" && (
+            <div className="flex items-center gap-2 rounded-lg border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" />
+              <span>Starting sandbox… {session.phase ?? ""}</span>
+            </div>
+          )}
+          {session.status === "failed" && (
+            <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+              <AlertTriangle className="size-4 shrink-0 mt-0.5" />
+              <span>Failed at phase: {session.phase}</span>
+            </div>
+          )}
+          {session.status === "ready" && bubbles.length === 0 && (
+            <div className="flex flex-col items-center justify-center text-center py-16">
+              <div className="rounded-full bg-muted p-3 mb-3">
+                <Sparkles className="size-6 text-muted-foreground" />
+              </div>
+              <p className="text-sm font-medium">Session ready</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Send a message to start working with {agent.agent_name ?? "the agent"}.
+              </p>
+            </div>
+          )}
+          {bubbles.map((b) => <BubbleRow key={b.id} bubble={b} />)}
+          <div ref={bottomRef} />
+        </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
-        {session.status === "creating" && (
-          <p className="text-sm text-muted-foreground animate-pulse">
-            Starting sandbox… {session.phase ?? ""}
-          </p>
-        )}
-        {session.status === "failed" && (
-          <p className="text-sm text-red-500">Failed at phase: {session.phase}</p>
-        )}
-        {session.status === "ready" && bubbles.length === 0 && (
-          <p className="text-sm text-muted-foreground">Session ready. Send a message to start.</p>
-        )}
-        {bubbles.map((b) => <BubbleRow key={b.id} bubble={b} />)}
-        <div ref={bottomRef} />
-      </div>
-
-      <div className="border-t px-4 py-3 flex gap-2 shrink-0">
-        <Textarea
-          className="flex-1 resize-none"
-          rows={2}
-          placeholder="Send a message… (Enter to send, Shift+Enter for newline)"
-          value={input}
-          disabled={session.status !== "ready" || sending}
-          onChange={e => setInput(e.target.value)}
-          onKeyDown={e => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault()
-              handleSend()
-            }
-          }}
-        />
-        {sending ? (
-          <Button
-            className="self-end"
-            variant="destructive"
-            onClick={handleStop}
-          >
-            Stop
-          </Button>
-        ) : (
-          <Button
-            className="self-end"
-            disabled={session.status !== "ready" || !input.trim()}
-            onClick={handleSend}
-          >
-            Send
-          </Button>
-        )}
+      <div className="border-t bg-background px-4 md:px-8 py-3 shrink-0">
+        <div className="max-w-3xl mx-auto flex gap-2 items-end">
+          <Textarea
+            className="flex-1 resize-none min-h-[44px] max-h-48"
+            rows={2}
+            placeholder="Send a message…  (Enter to send · Shift+Enter for newline)"
+            value={input}
+            disabled={session.status !== "ready" || sending}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault()
+                handleSend()
+              }
+            }}
+          />
+          {sending ? (
+            <Button variant="destructive" size="icon-lg" onClick={handleStop} title="Stop">
+              <Square />
+            </Button>
+          ) : (
+            <Button
+              size="icon-lg"
+              disabled={session.status !== "ready" || !input.trim()}
+              onClick={handleSend}
+              title="Send"
+            >
+              <Send />
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   )
@@ -364,30 +397,31 @@ export function ChatPanel({ session: initialSession, agent, onSessionUpdate }: P
 function BubbleRow({ bubble }: { bubble: Bubble }) {
   if (bubble.kind === "error") {
     return (
-      <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-600 whitespace-pre-wrap">
-        {bubble.content}
+      <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-xs text-destructive">
+        <CircleAlert className="size-4 shrink-0 mt-0.5" />
+        <pre className="whitespace-pre-wrap font-mono leading-relaxed flex-1 min-w-0">
+          {bubble.content}
+        </pre>
       </div>
     )
   }
 
   if (bubble.kind === "tool") {
-    const statusColor =
-      bubble.toolStatus === "completed" ? "text-green-600" :
-      bubble.toolStatus === "running" ? "text-yellow-600 animate-pulse" :
-      "text-muted-foreground"
-    const statusIcon =
-      bubble.toolStatus === "completed" ? "✓" :
-      bubble.toolStatus === "running" ? "▶" : "○"
     return (
       <div className="flex justify-start">
-        <div className="max-w-[85%] rounded-xl border bg-card px-3 py-2 text-xs font-mono">
-          <div className="flex items-center gap-1.5">
-            <span className={statusColor}>{statusIcon}</span>
-            <span className="font-semibold text-muted-foreground">{bubble.toolName}</span>
-            {bubble.content && <span className="text-muted-foreground truncate">{bubble.content}</span>}
+        <div className="max-w-[90%] min-w-0 rounded-lg border bg-card overflow-hidden">
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-muted/40">
+            <ToolStatusIcon status={bubble.toolStatus} />
+            <Wrench className="size-3 text-muted-foreground shrink-0" />
+            <span className="font-mono text-xs font-semibold">{bubble.toolName}</span>
+            {bubble.content && (
+              <span className="font-mono text-xs text-muted-foreground truncate">
+                {bubble.content}
+              </span>
+            )}
           </div>
           {bubble.toolOutput && (
-            <pre className="mt-1 max-h-32 overflow-y-auto text-[11px] text-muted-foreground whitespace-pre-wrap border-t pt-1">
+            <pre className="max-h-40 overflow-y-auto px-3 py-2 text-[11px] font-mono text-muted-foreground whitespace-pre-wrap border-t">
               {bubble.toolOutput}
             </pre>
           )}
@@ -398,20 +432,38 @@ function BubbleRow({ bubble }: { bubble: Bubble }) {
 
   if (bubble.role === "user") {
     return (
-      <div className="flex justify-end">
-        <div className="max-w-[70%] rounded-2xl bg-primary text-primary-foreground px-4 py-2 text-sm whitespace-pre-wrap">
+      <div className="flex justify-end gap-2">
+        <div className="max-w-[75%] rounded-2xl bg-primary text-primary-foreground px-4 py-2.5 text-sm whitespace-pre-wrap break-words">
           {bubble.content}
+        </div>
+        <div className="size-7 rounded-full bg-muted flex items-center justify-center shrink-0 mt-0.5">
+          <UserIcon className="size-3.5 text-muted-foreground" />
         </div>
       </div>
     )
   }
 
   return (
-    <div className="flex justify-start">
-      <div className="max-w-[85%] rounded-2xl bg-muted px-4 py-3 text-sm whitespace-pre-wrap">
-        {bubble.content}
-        {!bubble.done && <span className="inline-block w-1.5 h-4 bg-current animate-pulse ml-0.5 align-text-bottom" />}
+    <div className="flex justify-start gap-2">
+      <div className="size-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
+        <Bot className="size-3.5 text-primary" />
+      </div>
+      <div className="max-w-[85%] min-w-0 rounded-2xl bg-muted px-4 py-2.5">
+        <Markdown>{bubble.content}</Markdown>
+        {!bubble.done && (
+          <span className="inline-block w-1.5 h-3.5 bg-current animate-pulse ml-0.5 align-text-bottom rounded-[1px]" />
+        )}
       </div>
     </div>
   )
+}
+
+function ToolStatusIcon({ status }: { status?: "pending" | "running" | "completed" }) {
+  if (status === "completed") {
+    return <CheckCircle2 className="size-3.5 text-emerald-500 shrink-0" />
+  }
+  if (status === "running") {
+    return <Loader2 className="size-3.5 text-amber-500 animate-spin shrink-0" />
+  }
+  return <Loader2 className="size-3.5 text-muted-foreground shrink-0" />
 }

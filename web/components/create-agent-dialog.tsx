@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { Loader2, Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -8,9 +9,12 @@ import { Textarea } from "@/components/ui/textarea"
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  DialogClose,
 } from "@/components/ui/dialog"
 import { createAgent, type Agent } from "@/lib/api"
 
@@ -18,29 +22,31 @@ interface Props {
   onCreated: (agent: Agent) => void
 }
 
+const defaultForm = {
+  agent_name: "",
+  model: "",
+  prompt: "",
+  harness_id: "opencode",
+  repo_url: "",
+  branch: "main",
+  container_port: 4096,
+  env_vars: "",
+}
+
 export function CreateAgentDialog({ onCreated }: Props) {
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [form, setForm] = useState({
-    agent_name: "",
-    model: "",
-    prompt: "",
-    harness_id: "opencode",
-    repo_url: "",
-    branch: "main",
-    container_port: 4096,
-    env_vars: "",
-  })
+  const [form, setForm] = useState(defaultForm)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setLoading(true)
     try {
-      let env_vars: Record<string, string> = {}
+      const env_vars: Record<string, string> = {}
       if (form.env_vars.trim()) {
         for (const line of form.env_vars.split("\n")) {
           const [k, ...v] = line.split("=")
-          if (k) env_vars[k.trim()] = v.join("=").trim()
+          if (k.trim()) env_vars[k.trim()] = v.join("=").trim()
         }
       }
       const agent = await createAgent({
@@ -54,6 +60,7 @@ export function CreateAgentDialog({ onCreated }: Props) {
         env_vars,
       })
       onCreated(agent)
+      setForm(defaultForm)
       setOpen(false)
     } finally {
       setLoading(false)
@@ -62,44 +69,115 @@ export function CreateAgentDialog({ onCreated }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button>New Agent</Button>} />
-      <DialogContent className="max-w-lg">
+      <DialogTrigger
+        render={
+          <Button variant="ghost" size="icon-sm" title="New agent">
+            <Plus />
+          </Button>
+        }
+      />
+      <DialogContent className="sm:max-w-[520px]">
         <DialogHeader>
           <DialogTitle>Create Agent</DialogTitle>
+          <DialogDescription>
+            Configure a new agent template. It will run in an isolated Kubernetes sandbox.
+          </DialogDescription>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-1">
-            <Label>Name</Label>
-            <Input placeholder="my-agent" value={form.agent_name} onChange={e => setForm(f => ({ ...f, agent_name: e.target.value }))} />
+
+        <form id="create-agent-form" onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="agent_name">Name</Label>
+              <Input
+                id="agent_name"
+                placeholder="my-agent"
+                value={form.agent_name}
+                onChange={e => setForm(f => ({ ...f, agent_name: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="harness_id">Harness</Label>
+              <Input
+                id="harness_id"
+                value={form.harness_id}
+                onChange={e => setForm(f => ({ ...f, harness_id: e.target.value }))}
+              />
+            </div>
           </div>
-          <div className="space-y-1">
-            <Label>Model <span className="text-red-500">*</span></Label>
-            <Input placeholder="claude-sonnet-4-6" value={form.model} onChange={e => setForm(f => ({ ...f, model: e.target.value }))} required />
+
+          <div className="space-y-1.5">
+            <Label htmlFor="model">
+              Model <span className="text-destructive">*</span>
+            </Label>
+            <Input
+              id="model"
+              placeholder="claude-sonnet-4-6"
+              value={form.model}
+              onChange={e => setForm(f => ({ ...f, model: e.target.value }))}
+              required
+            />
           </div>
-          <div className="space-y-1">
-            <Label>Harness</Label>
-            <Input value={form.harness_id} onChange={e => setForm(f => ({ ...f, harness_id: e.target.value }))} />
+
+          <div className="grid grid-cols-3 gap-3">
+            <div className="space-y-1.5 col-span-2">
+              <Label htmlFor="repo_url">Repo URL</Label>
+              <Input
+                id="repo_url"
+                placeholder="https://gitlab.example.com/org/repo.git"
+                value={form.repo_url}
+                onChange={e => setForm(f => ({ ...f, repo_url: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="branch">Branch</Label>
+              <Input
+                id="branch"
+                value={form.branch}
+                onChange={e => setForm(f => ({ ...f, branch: e.target.value }))}
+              />
+            </div>
           </div>
-          <div className="space-y-1">
-            <Label>Repo URL</Label>
-            <Input placeholder="https://gitlab.example.com/org/repo.git" value={form.repo_url} onChange={e => setForm(f => ({ ...f, repo_url: e.target.value }))} />
+
+          <div className="space-y-1.5">
+            <Label htmlFor="prompt">System Prompt</Label>
+            <Textarea
+              id="prompt"
+              rows={3}
+              placeholder="You are a helpful coding assistant…"
+              value={form.prompt}
+              onChange={e => setForm(f => ({ ...f, prompt: e.target.value }))}
+            />
           </div>
-          <div className="space-y-1">
-            <Label>Branch</Label>
-            <Input value={form.branch} onChange={e => setForm(f => ({ ...f, branch: e.target.value }))} />
+
+          <div className="space-y-1.5">
+            <Label htmlFor="env_vars">
+              Env Vars
+              <span className="text-muted-foreground font-normal ml-1">
+                (KEY=VALUE, one per line)
+              </span>
+            </Label>
+            <Textarea
+              id="env_vars"
+              rows={3}
+              className="font-mono text-xs"
+              placeholder={"API_KEY=xxx\nBASE_URL=https://..."}
+              value={form.env_vars}
+              onChange={e => setForm(f => ({ ...f, env_vars: e.target.value }))}
+            />
           </div>
-          <div className="space-y-1">
-            <Label>System Prompt</Label>
-            <Textarea rows={3} value={form.prompt} onChange={e => setForm(f => ({ ...f, prompt: e.target.value }))} />
-          </div>
-          <div className="space-y-1">
-            <Label>Env Vars (KEY=VALUE, one per line)</Label>
-            <Textarea rows={3} placeholder={"API_KEY=xxx\nBASE_URL=https://..."} value={form.env_vars} onChange={e => setForm(f => ({ ...f, env_vars: e.target.value }))} />
-          </div>
-          <Button type="submit" disabled={loading} className="w-full">
-            {loading ? "Creating..." : "Create"}
-          </Button>
         </form>
+
+        <DialogFooter>
+          <DialogClose render={<Button variant="outline" disabled={loading}>Cancel</Button>} />
+          <Button
+            type="submit"
+            form="create-agent-form"
+            disabled={loading || !form.model.trim()}
+          >
+            {loading && <Loader2 className="animate-spin" />}
+            {loading ? "Creating…" : "Create agent"}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )
