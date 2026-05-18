@@ -95,13 +95,16 @@ export function CreateAgentDialog({ onCreated }: Props) {
           </DialogDescription>
         </DialogHeader>
 
-        <form id="create-agent-form" onSubmit={handleSubmit} className="space-y-4">
+        <form id="create-agent-form" onSubmit={handleSubmit} className="space-y-4" autoComplete="off">
           {/* Name */}
           <div className="space-y-1.5">
             <Label htmlFor="agent_name">Name</Label>
             <Input
               id="agent_name"
+              name="agent_name"
               placeholder="my-agent"
+              autoComplete="off"
+              spellCheck={false}
               value={form.agent_name}
               onChange={e => setForm(f => ({ ...f, agent_name: e.target.value }))}
             />
@@ -163,8 +166,11 @@ export function CreateAgentDialog({ onCreated }: Props) {
             <Label htmlFor="prompt">System Prompt</Label>
             <Textarea
               id="prompt"
+              name="prompt"
               rows={3}
               placeholder="You are a helpful coding assistant…"
+              autoComplete="off"
+              spellCheck={false}
               value={form.prompt}
               onChange={e => setForm(f => ({ ...f, prompt: e.target.value }))}
             />
@@ -178,9 +184,14 @@ export function CreateAgentDialog({ onCreated }: Props) {
             </Label>
             <Textarea
               id="env_vars"
+              name="env_vars"
               rows={3}
               className="font-mono text-xs"
               placeholder={"API_KEY=xxx\nBASE_URL=https://..."}
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
               value={form.env_vars}
               onChange={e => setForm(f => ({ ...f, env_vars: e.target.value }))}
             />

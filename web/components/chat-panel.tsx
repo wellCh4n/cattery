@@ -13,6 +13,7 @@ import {
   AlertTriangle,
   CornerDownLeft,
   Brain,
+  ChevronDown,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
@@ -570,29 +571,41 @@ export function ChatPanel({ session, agent }: Props) {
   )
 }
 
-function BubbleRow({ bubble, sessionId }: { bubble: Bubble; sessionId: string }) {
-  if (bubble.kind === "question") {
-    return <QuestionBubble bubble={bubble} sessionId={sessionId} />
-  }
-
-  if (bubble.kind === "thinking") {
-    return (
-      <div className="flex justify-start">
-        <div className="max-w-[90%] min-w-[50%] rounded-lg border border-dashed bg-muted/20">
-          <div className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] uppercase tracking-wide text-muted-foreground">
-            <Brain className="size-3" />
-            <span className="font-mono">thinking</span>
-            {!bubble.done && <Loader2 className="size-3 animate-spin ml-1" />}
-          </div>
+function ThinkingBubble({ bubble }: { bubble: Bubble }) {
+  const [open, setOpen] = useState(true)
+  return (
+    <div className="flex justify-start">
+      <div className="max-w-[90%] min-w-[50%] rounded-lg border border-dashed bg-muted/20">
+        <button
+          type="button"
+          onClick={() => setOpen(o => !o)}
+          className="flex w-full items-center gap-1.5 px-3 py-1.5 text-[11px] uppercase tracking-wide text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+        >
+          <Brain className="size-3" />
+          <span className="font-mono">thinking</span>
+          {!bubble.done && <Loader2 className="size-3 animate-spin ml-1" />}
+          <ChevronDown className={cn("size-3 ml-auto transition-transform", !open && "-rotate-90")} />
+        </button>
+        {open && (
           <div className="px-3 pb-2.5 text-xs text-muted-foreground italic whitespace-pre-wrap break-words leading-relaxed">
             {bubble.content}
             {!bubble.done && (
               <span className="inline-block w-1.5 h-[1em] bg-current animate-pulse ml-0.5 align-[-0.15em] rounded-[1px]" />
             )}
           </div>
-        </div>
+        )}
       </div>
-    )
+    </div>
+  )
+}
+
+function BubbleRow({ bubble, sessionId }: { bubble: Bubble; sessionId: string }) {
+  if (bubble.kind === "question") {
+    return <QuestionBubble bubble={bubble} sessionId={sessionId} />
+  }
+
+  if (bubble.kind === "thinking") {
+    return <ThinkingBubble bubble={bubble} />
   }
 
   if (bubble.kind === "error") {
