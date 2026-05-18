@@ -3,6 +3,7 @@ module github.com/wellch4n/cattery
 go 1.26.3
 
 require (
+	github.com/coder/websocket v1.8.14
 	github.com/google/uuid v1.6.0
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/labstack/echo/v4 v4.15.1

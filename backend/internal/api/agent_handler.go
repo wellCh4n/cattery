@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/wellch4n/cattery/internal/db"
+	"github.com/wellch4n/cattery/internal/harness"
 	"github.com/wellch4n/cattery/internal/k8s"
 	"github.com/wellch4n/cattery/internal/model"
 )
@@ -20,6 +21,17 @@ type AgentHandler struct {
 
 func NewAgentHandler(store *db.AgentStore, k8sClient *k8s.Client) *AgentHandler {
 	return &AgentHandler{store, k8sClient}
+}
+
+// agentDTO 在 model.Agent 上叠加 harness_kind 派生字段，让前端能直接判断
+// 走聊天 UI 还是终端 UI，避免再单独请求一次 kind。
+type agentDTO struct {
+	*model.Agent
+	HarnessKind harness.Kind `json:"harness_kind"`
+}
+
+func toDTO(a *model.Agent) *agentDTO {
+	return &agentDTO{Agent: a, HarnessKind: harness.KindFor(a.HarnessID)}
 }
 
 // sandboxNameFor 生成 K8s Sandbox 资源名，形如 `cattery-<harness>-<agent_id>`。
@@ -70,7 +82,7 @@ func (h *AgentHandler) Create(c echo.Context) error {
 	if err := h.store.Create(c.Request().Context(), a); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
-	return c.JSON(http.StatusCreated, a)
+	return c.JSON(http.StatusCreated, toDTO(a))
 }
 
 func (h *AgentHandler) List(c echo.Context) error {
@@ -78,10 +90,11 @@ func (h *AgentHandler) List(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
-	if agents == nil {
-		agents = []*model.Agent{}
+	out := make([]*agentDTO, 0, len(agents))
+	for _, a := range agents {
+		out = append(out, toDTO(a))
 	}
-	return c.JSON(http.StatusOK, agents)
+	return c.JSON(http.StatusOK, out)
 }
 
 func (h *AgentHandler) Get(c echo.Context) error {
@@ -93,7 +106,7 @@ func (h *AgentHandler) Get(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusNotFound, "agent not found")
 	}
-	return c.JSON(http.StatusOK, a)
+	return c.JSON(http.StatusOK, toDTO(a))
 }
 
 func (h *AgentHandler) Delete(c echo.Context) error {

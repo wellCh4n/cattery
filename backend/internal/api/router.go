@@ -33,6 +33,7 @@ func NewRouter(agentH *AgentHandler, sessionH *SessionHandler) *echo.Echo {
 	sessions.POST("/:session_id/abort", sessionH.Abort)
 	sessions.POST("/:session_id/answer", sessionH.Answer)
 	sessions.GET("/:session_id/history", sessionH.History)
+	sessions.GET("/:session_id/term", sessionH.Term)
 	sessions.DELETE("/:session_id", sessionH.Delete)
 
 	return e
