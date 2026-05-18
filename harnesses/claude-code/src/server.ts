@@ -21,6 +21,7 @@ import express from 'express'
 import { randomUUID } from 'node:crypto'
 import {
   query,
+  getSessionInfo,
   type Options,
   type SDKMessage,
   type PermissionResult,
@@ -250,13 +251,13 @@ async function runPrompt(sess: HarnessSession, userText: string): Promise<void> 
 
     sess.history.push(assistantItem)
 
-    // Generate the title BEFORE emitting session.idle. The backend's
-    // StreamEventsUntilIdle closes the SSE the moment it sees session.idle,
-    // so a `void`-fired title would race the connection close and get
-    // dropped before it could be persisted to the DB.
-    if (isFirst) {
-      const assistantText = collectTextFromTurn(assistantItem)
-      if (assistantText) await generateTitle(sess, userText, assistantText)
+    // Read the SDK's auto-generated session title BEFORE emitting session.idle.
+    // The backend's StreamEventsUntilIdle closes the SSE the moment it sees
+    // session.idle, so a `void`-fired title would race the connection close
+    // and get dropped before it could be persisted to the DB.
+    if (isFirst && sess.claudeSessionId) {
+      const title = await readSessionTitle(sess.claudeSessionId, userText)
+      if (title) broadcast(sess.id, { type: 'session.title', data: { title } })
     }
 
     broadcast(sess.id, { type: 'session.idle', data: {} })
@@ -275,13 +276,6 @@ async function runPrompt(sess: HarnessSession, userText: string): Promise<void> 
     for (const q of sess.questions.values()) q.resolve({ questionId: '', answers: [] })
     sess.questions.clear()
   }
-}
-
-function collectTextFromTurn(item: HistoryItem): string {
-  return item.events
-    .filter(e => e.type === 'message.delta')
-    .map(e => (e.data as { text?: string }).text ?? '')
-    .join('')
 }
 
 // ── canUseTool: AskUserQuestion interception ────────────────────────────────
@@ -499,48 +493,30 @@ function emitAndAccumulate(
 
 // ── Auto title ──────────────────────────────────────────────────────────────
 
-async function generateTitle(sess: HarnessSession, userPrompt: string, assistantReply: string): Promise<void> {
-  try {
-    const ask = [
-      'Summarize the following exchange as a 4–6 word title.',
-      'Output ONLY the title, no quotes, no trailing punctuation.',
-      '',
-      `User: ${userPrompt.slice(0, 400)}`,
-      `Assistant: ${assistantReply.slice(0, 400)}`,
-    ].join('\n')
-
-    const options: Options = {
-      model: MODEL,
-      maxTurns: 1,
-      maxThinkingTokens: 0,
-      permissionMode: 'bypassPermissions',
-      cwd: WORKDIR,
-      env: {
-        ...process.env,
-        ANTHROPIC_API_KEY:    process.env.ANTHROPIC_API_KEY    ?? '',
-        ANTHROPIC_AUTH_TOKEN: process.env.ANTHROPIC_AUTH_TOKEN ?? process.env.ANTHROPIC_API_KEY ?? '',
-        ANTHROPIC_BASE_URL:   process.env.ANTHROPIC_BASE_URL   ?? '',
-      },
-      stderr: (data) => console.error('[title stderr]', data.trimEnd()),
-    }
-
-    let title = ''
-    for await (const msg of query({ prompt: ask, options })) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const m = msg as any
-      if (m.type === 'assistant' && m.message?.content) {
-        for (const block of m.message.content) {
-          if (block.type === 'text' && block.text) title += block.text
-        }
+/**
+ * Read the SDK's auto-generated `aiTitle` from the session's JSONL sidecar.
+ * The SDK's child process generates a title in the background after the first
+ * turn and persists it under `~/.claude/projects/<encoded-cwd>/<sessionId>.jsonl`.
+ * `getSessionInfo()` resolves `customTitle || aiTitle || lastPrompt || ... || firstPrompt`,
+ * so before the aiTitle lands, `summary` equals `firstPrompt` — we poll until
+ * the two diverge, with an overall budget of ~8s.
+ */
+async function readSessionTitle(claudeSessionId: string, firstPrompt: string): Promise<string | null> {
+  for (let i = 0; i < 10; i++) {
+    await new Promise(r => setTimeout(r, 800))
+    try {
+      const info = await getSessionInfo(claudeSessionId, { dir: WORKDIR })
+      if (!info?.summary) continue
+      if (info.customTitle) return info.customTitle
+      // aiTitle has landed iff resolved summary differs from the raw firstPrompt.
+      if (info.summary !== info.firstPrompt && info.summary !== firstPrompt) {
+        return info.summary
       }
+    } catch (err) {
+      console.error('[readSessionTitle] getSessionInfo failed:', err instanceof Error ? err.message : err)
     }
-    title = title.trim().replace(/^["'`]+|["'`.!?]+$/g, '').trim()
-    if (!title) return
-    if (title.length > 80) title = `${title.slice(0, 77).trimEnd()}…`
-    broadcast(sess.id, { type: 'session.title', data: { title } })
-  } catch (err) {
-    console.error('[generateTitle] failed:', err instanceof Error ? err.message : err)
   }
+  return null
 }
 
 // ── Start ────────────────────────────────────────────────────────────────────
