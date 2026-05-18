@@ -8,6 +8,8 @@ backend/bin/
 web/node_modules/
 web/.next/
 web/.env.local
+harnesses/*/node_modules/
+harnesses/*/bun.lock
 
 # Env
 .env
