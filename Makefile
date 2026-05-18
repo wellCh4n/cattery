@@ -1,4 +1,4 @@
-.PHONY: dev dev-front dev-back build stop
+.PHONY: dev dev-front dev-back build stop build-harness
 
 GO = $(shell which go)
 BUN = $(shell which bun)
@@ -36,10 +36,19 @@ migrate:
 	@/Applications/Postgres.app/Contents/Versions/latest/bin/psql -h localhost -p 5432 -U postgres -d cattery \
 		-f backend/internal/db/migrations/init.sql
 
+# make build-harness HARNESS=opencode   — build one harness
+# make build-harness HARNESS=claude-code — build one harness
+# make build-harness                     — build all harnesses
+HARNESS ?=
 build-harness:
+	$(if $(HARNESS), \
+		$(MAKE) _build-harness-$(HARNESS), \
+		$(MAKE) _build-harness-opencode _build-harness-claude-code)
+
+_build-harness-opencode:
 	@echo "→ building opencode-sandbox:dev"
 	@docker build -t opencode-sandbox:dev harnesses/opencode/
 
-build-harness-claude:
+_build-harness-claude-code:
 	@echo "→ building claude-code-sandbox:dev"
 	@docker build -t claude-code-sandbox:dev harnesses/claude-code/
