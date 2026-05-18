@@ -52,6 +52,7 @@ export function Sidebar() {
     : null
   const [agents, setAgents] = useState<AgentWithSessions[]>([])
   const [launching, setLaunching] = useState<string | null>(null)
+  const [busySessions, setBusySessions] = useState<Set<string>>(new Set())
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
   const [deleting, setDeleting] = useState(false)
 
@@ -71,6 +72,32 @@ export function Sidebar() {
   useEffect(() => {
     loadAgents()
   }, [loadAgents])
+
+  useEffect(() => {
+    function onTitle(e: Event) {
+      const { sessionId, title } = (e as CustomEvent<{ sessionId: string; title: string }>).detail
+      setAgents(prev => prev.map(a => ({
+        ...a,
+        sessions: a.sessions.map(s =>
+          s.session_id === sessionId ? { ...s, title } : s
+        ),
+      })))
+    }
+    function onBusy(e: Event) {
+      const { sessionId, busy } = (e as CustomEvent<{ sessionId: string; busy: boolean }>).detail
+      setBusySessions(prev => {
+        const next = new Set(prev)
+        if (busy) next.add(sessionId); else next.delete(sessionId)
+        return next
+      })
+    }
+    window.addEventListener("cattery:title", onTitle)
+    window.addEventListener("cattery:session-busy", onBusy)
+    return () => {
+      window.removeEventListener("cattery:title", onTitle)
+      window.removeEventListener("cattery:session-busy", onBusy)
+    }
+  }, [])
 
   async function toggleExpand(agentId: string) {
     setAgents(prev => prev.map(a => {
@@ -246,9 +273,13 @@ export function Sidebar() {
                         )}
                         onClick={() => router.push(`/sessions/${sess.session_id}`)}
                       >
-                        <span className={cn("size-1.5 rounded-full shrink-0", statusDot(sess.status))} />
-                        <span className="truncate font-mono flex-1">
-                          {sess.session_id.slice(0, 8)}
+                        {busySessions.has(sess.session_id) ? (
+                          <Loader2 className="size-3 text-amber-500 animate-spin shrink-0" />
+                        ) : (
+                          <span className={cn("size-1.5 rounded-full shrink-0", statusDot(sess.status))} />
+                        )}
+                        <span className="truncate flex-1">
+                          {sess.title ?? "New Session"}
                         </span>
                         <span className="text-[10px] text-muted-foreground/70 shrink-0 group-hover/sess:hidden">
                           {new Date(sess.created_at).toLocaleDateString(undefined, {

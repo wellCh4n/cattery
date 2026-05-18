@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -218,7 +219,25 @@ func (h *SessionHandler) SendMessage(c echo.Context) error {
 	c.Response().Header().Set("X-Accel-Buffering", "no")
 	c.Response().WriteHeader(http.StatusOK)
 
-	return h.harnessClient.StreamEventsUntilIdle(c.Request().Context(), *agent.SandboxURL, *sess.HarnessSessionID, c.Response())
+	// 流式事件中如果出现 session.title，把 title 落库（opencode 第一条消息后会发）
+	onEvent := func(ev *harness.PlatformEvent) {
+		if ev.Type != harness.EventSessionTitle {
+			return
+		}
+		var d harness.SessionTitleData
+		if err := json.Unmarshal(ev.Data, &d); err != nil || d.Title == "" {
+			return
+		}
+		go func(title string) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := h.sessionStore.UpdateTitle(ctx, id, title); err != nil {
+				log.Printf("warn: save title for %s: %v", id, err)
+			}
+		}(d.Title)
+	}
+
+	return h.harnessClient.StreamEventsUntilIdle(c.Request().Context(), *agent.SandboxURL, *sess.HarnessSessionID, c.Response(), onEvent)
 }
 
 func (h *SessionHandler) Delete(c echo.Context) error {

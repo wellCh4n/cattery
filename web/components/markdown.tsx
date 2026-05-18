@@ -1,9 +1,21 @@
 "use client"
 
-import { memo } from "react"
+import { memo, type ReactElement } from "react"
 import ReactMarkdown, { type Components } from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { cn } from "@/lib/utils"
+import { CodeBlock } from "@/components/code-block"
+
+function extractText(node: unknown): string {
+  if (node == null || typeof node === "boolean") return ""
+  if (typeof node === "string" || typeof node === "number") return String(node)
+  if (Array.isArray(node)) return node.map(extractText).join("")
+  if (typeof node === "object" && "props" in node) {
+    const n = node as { props?: { children?: unknown } }
+    return extractText(n.props?.children)
+  }
+  return ""
+}
 
 const components: Components = {
   p: ({ className, ...props }) => (
@@ -57,9 +69,11 @@ const components: Components = {
   ),
   code: ({ className, children, ...props }) => {
     // react-markdown gives className like `language-ts` only for fenced blocks.
-    // Inline code has no `language-*` class.
+    // Inline code has no `language-*` class. Block code is rendered by `pre`.
     const isBlock = /language-/.test(className ?? "")
     if (isBlock) {
+      // pre's renderer will pull out children; we still need to render valid HTML
+      // when used outside a pre (rare), so keep simple.
       return (
         <code className={cn("block font-mono text-[12px] leading-relaxed", className)} {...props}>
           {children}
@@ -78,16 +92,19 @@ const components: Components = {
       </code>
     )
   },
-  pre: ({ className, ...props }) => (
-    <pre
-      className={cn(
-        "my-3 max-h-96 overflow-auto rounded-md border bg-background/60 p-3 text-xs",
-        "[&_code]:bg-transparent [&_code]:p-0 [&_code]:text-foreground",
-        className,
-      )}
-      {...props}
-    />
-  ),
+  pre: ({ children }) => {
+    // Replace default <pre><code class="language-xxx">...</code></pre>
+    // with our CodeBlock that has syntax highlight + copy.
+    const child = (Array.isArray(children) ? children[0] : children) as ReactElement<{ className?: string; children?: unknown }> | undefined
+    if (child && child.props) {
+      const className = child.props.className ?? ""
+      const m = /language-([\w-]+)/.exec(className)
+      const lang = m?.[1]
+      const codeText = extractText(child.props.children)
+      return <CodeBlock code={codeText.replace(/\n$/, "")} lang={lang} />
+    }
+    return <pre className="my-3 max-h-96 overflow-auto rounded-md border bg-background/60 p-3 text-xs">{children}</pre>
+  },
   strong: ({ className, ...props }) => (
     <strong className={cn("font-semibold", className)} {...props} />
   ),

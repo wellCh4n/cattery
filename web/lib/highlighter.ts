@@ -3,12 +3,13 @@ import { createHighlighter, type Highlighter, type BundledLanguage } from "shiki
 let highlighterPromise: Promise<Highlighter> | null = null
 const loadingLangs = new Map<string, Promise<void>>()
 
-const THEME = "github-light"
+export const SHIKI_THEME_LIGHT = "github-light"
+export const SHIKI_THEME_DARK = "github-dark"
 
 export async function getHighlighter(): Promise<Highlighter> {
   if (!highlighterPromise) {
     highlighterPromise = createHighlighter({
-      themes: [THEME],
+      themes: [SHIKI_THEME_LIGHT, SHIKI_THEME_DARK],
       langs: [],
     })
   }
@@ -27,5 +28,3 @@ export async function ensureLanguage(lang: string): Promise<boolean> {
   await p
   return h.getLoadedLanguages().includes(lang)
 }
-
-export { THEME as SHIKI_THEME }

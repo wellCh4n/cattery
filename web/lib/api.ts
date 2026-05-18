@@ -18,6 +18,7 @@ export interface Session {
   agent_id: string
   status: string
   phase: string | null
+  title: string | null
   sandbox_url: string | null
   harness_session_id: string | null
   created_at: string

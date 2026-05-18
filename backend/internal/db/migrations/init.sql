@@ -21,6 +21,7 @@ CREATE TABLE sessions (
     agent_id            UUID        NOT NULL REFERENCES agents(agent_id) ON DELETE CASCADE,
     status              TEXT        NOT NULL DEFAULT 'creating',
     phase               TEXT,
+    title               TEXT,
     harness_session_id  TEXT,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_seen_at        TIMESTAMPTZ,

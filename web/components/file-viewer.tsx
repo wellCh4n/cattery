@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import type { BundledLanguage, ThemedToken } from "shiki"
-import { ensureLanguage, getHighlighter, SHIKI_THEME } from "@/lib/highlighter"
+import { ensureLanguage, getHighlighter, SHIKI_THEME_LIGHT, SHIKI_THEME_DARK } from "@/lib/highlighter"
 
 interface FileLine {
   n: number
@@ -54,27 +54,36 @@ function detectLanguage(path: string): string {
   return extLang[ext] ?? "text"
 }
 
+// Shiki dual-theme: token has htmlStyle CSS vars (--shiki-light / --shiki-dark)
+function tokenStyle(t: ThemedToken): React.CSSProperties {
+  if (t.htmlStyle) {
+    if (typeof t.htmlStyle === "string") {
+      return { cssText: t.htmlStyle } as React.CSSProperties
+    }
+    return t.htmlStyle as React.CSSProperties
+  }
+  return { color: t.color }
+}
+
 export function FileViewer({ path, lines }: Props) {
   const [tokens, setTokens] = useState<ThemedToken[][] | null>(null)
   const code = lines.map(l => l.text).join("\n")
   const lang = detectLanguage(path)
 
   useEffect(() => {
+    if (lang === "text") return
     let cancelled = false
-    if (lang === "text") {
-      setTokens(null)
-      return
-    }
     ;(async () => {
       const ok = await ensureLanguage(lang)
       if (cancelled || !ok) return
       const h = await getHighlighter()
       if (cancelled) return
-      const result = h.codeToTokens(code, { lang: lang as BundledLanguage, theme: SHIKI_THEME })
+      const result = h.codeToTokens(code, {
+        lang: lang as BundledLanguage,
+        themes: { light: SHIKI_THEME_LIGHT, dark: SHIKI_THEME_DARK },
+      })
       if (!cancelled) setTokens(result.tokens)
-    })().catch(() => {
-      if (!cancelled) setTokens(null)
-    })
+    })().catch(() => { /* ignore */ })
     return () => { cancelled = true }
   }, [code, lang])
 
@@ -91,7 +100,7 @@ export function FileViewer({ path, lines }: Props) {
               <td className="px-3 py-px whitespace-pre">
                 {lineTokens
                   ? lineTokens.map((t, j) => (
-                      <span key={j} style={{ color: t.color }}>{t.content}</span>
+                      <span key={j} style={tokenStyle(t)}>{t.content}</span>
                     ))
                   : line.text}
               </td>

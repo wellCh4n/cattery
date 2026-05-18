@@ -22,14 +22,15 @@ import { getHistory, abortSession, type Session, type Agent } from "@/lib/api"
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080"
 
 interface PlatformEvent {
-  type: "message.delta" | "tool.start" | "tool.done" | "session.idle" | "session.error"
-  data: MessageDeltaData | ToolStartData | ToolDoneData | SessionErrorData | Record<string, never>
+  type: "message.delta" | "tool.start" | "tool.done" | "session.idle" | "session.error" | "session.title"
+  data: MessageDeltaData | ToolStartData | ToolDoneData | SessionErrorData | SessionTitleData | Record<string, never>
 }
 
 interface MessageDeltaData  { partId: string; text: string }
 interface ToolStartData     { toolId: string; tool: string; input?: string }
 interface ToolDoneData      { toolId: string; tool: string; output?: string; parsed?: unknown }
 interface SessionErrorData  { message: string }
+interface SessionTitleData  { title: string }
 
 interface ParsedFileRead {
   path: string
@@ -66,6 +67,12 @@ export function ChatPanel({ session, agent }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const sessionIdRef = useRef(session.session_id)
   const abortRef = useRef<AbortController | null>(null)
+
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent("cattery:session-busy", {
+      detail: { sessionId: session.session_id, busy: sending },
+    }))
+  }, [session.session_id, sending])
 
   useEffect(() => {
     abortRef.current?.abort()
@@ -224,6 +231,16 @@ export function ChatPanel({ session, agent }: Props) {
         break
       }
 
+      case "session.title": {
+        const d = ev.data as SessionTitleData
+        if (d.title) {
+          window.dispatchEvent(new CustomEvent("cattery:title", {
+            detail: { sessionId: session.session_id, title: d.title },
+          }))
+        }
+        break
+      }
+
       case "session.error": {
         const d = ev.data as SessionErrorData
         setSending(false)
@@ -327,6 +344,15 @@ export function ChatPanel({ session, agent }: Props) {
     return "secondary"
   }
 
+  function phaseLabel(phase: string | null): string {
+    switch (phase) {
+      case "handshake":       return "Connecting to agent"
+      case "handshake_error": return "Failed to connect to agent"
+      case "sandbox_error":   return "Sandbox failed to start"
+      default:                return phase ?? ""
+    }
+  }
+
   return (
     <div className="flex flex-col h-full bg-background">
       <header className="border-b px-4 h-12 flex items-center gap-3 shrink-0">
@@ -338,7 +364,7 @@ export function ChatPanel({ session, agent }: Props) {
           </span>
         </div>
         <Badge variant={statusVariant(session.status)} className="text-[10px] h-5">
-          {session.phase ?? session.status}
+          {session.status}
         </Badge>
       </header>
 
@@ -347,13 +373,13 @@ export function ChatPanel({ session, agent }: Props) {
           {session.status === "creating" && (
             <div className="flex items-center gap-2 rounded-lg border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
               <Loader2 className="size-4 animate-spin" />
-              <span>Starting sandbox… {session.phase ?? ""}</span>
+              <span>Starting sandbox… {phaseLabel(session.phase)}</span>
             </div>
           )}
           {session.status === "failed" && (
             <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
               <AlertTriangle className="size-4 shrink-0 mt-0.5" />
-              <span>Failed at phase: {session.phase}</span>
+              <span>{phaseLabel(session.phase)}</span>
             </div>
           )}
           {session.status === "ready" && bubbles.length === 0 && (
@@ -435,7 +461,7 @@ function BubbleRow({ bubble }: { bubble: Bubble }) {
 
     return (
       <div className="flex justify-start">
-        <div className="max-w-[90%] min-w-0 rounded-lg border bg-card overflow-hidden">
+        <div className="max-w-[90%] min-w-[50%] rounded-lg border bg-card overflow-hidden">
           <div className="flex items-center gap-2 px-3 py-1.5 bg-muted/40">
             <ToolStatusIcon status={bubble.toolStatus} />
             <Wrench className="size-3 text-muted-foreground shrink-0" />
@@ -502,7 +528,7 @@ function BubbleRow({ bubble }: { bubble: Bubble }) {
   const isThinking = !bubble.done && bubble.content === ""
   return (
     <div className="flex justify-start">
-      <div className="max-w-[90%] min-w-0">
+      <div className="max-w-[90%] min-w-[50%]">
         {isThinking ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="size-3.5 animate-spin" />

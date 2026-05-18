@@ -128,3 +128,11 @@
     @apply font-sans;
   }
 }
+
+/* Shiki dual-theme: pick light or dark color based on root .dark class */
+[style*="--shiki-light"] {
+  color: var(--shiki-light);
+}
+.dark [style*="--shiki-light"] {
+  color: var(--shiki-dark);
+}

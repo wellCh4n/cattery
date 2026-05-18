@@ -27,6 +27,7 @@ type Session struct {
 	AgentID          uuid.UUID  `db:"agent_id"           json:"agent_id"`
 	Status           string     `db:"status"             json:"status"`
 	Phase            *string    `db:"phase"              json:"phase"`
+	Title            *string    `db:"title"              json:"title"`
 	HarnessSessionID *string    `db:"harness_session_id" json:"harness_session_id"`
 	CreatedAt        time.Time  `db:"created_at"         json:"created_at"`
 	LastSeenAt       *time.Time `db:"last_seen_at"       json:"last_seen_at"`

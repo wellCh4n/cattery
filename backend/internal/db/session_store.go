@@ -8,7 +8,7 @@ import (
 	"github.com/wellch4n/cattery/internal/model"
 )
 
-const sessionColumns = `session_id, agent_id, status, phase, harness_session_id, created_at, last_seen_at, stopped_at`
+const sessionColumns = `session_id, agent_id, status, phase, title, harness_session_id, created_at, last_seen_at, stopped_at`
 
 type SessionStore struct{ db *sqlx.DB }
 
@@ -60,6 +60,13 @@ func (s *SessionStore) UpdateStatus(ctx context.Context, id uuid.UUID, status, p
 
 func (s *SessionStore) MarkSeen(ctx context.Context, id uuid.UUID) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE sessions SET last_seen_at=NOW() WHERE session_id=$1`, id)
+	return err
+}
+
+func (s *SessionStore) UpdateTitle(ctx context.Context, id uuid.UUID, title string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE sessions SET title=$1 WHERE session_id=$2`, title, id,
+	)
 	return err
 }
 

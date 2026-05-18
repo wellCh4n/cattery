@@ -15,6 +15,7 @@ const (
 	EventToolDone     = "tool.done"      // 工具调用结束
 	EventSessionIdle  = "session.idle"   // session 结束/空闲
 	EventSessionError = "session.error"  // 出错
+	EventSessionTitle = "session.title"  // session title 已生成/更新
 )
 
 type MessageDeltaData struct {
@@ -55,6 +56,15 @@ type ParsedGlob struct {
 
 type SessionErrorData struct {
 	Message string `json:"message"`
+}
+
+type SessionTitleData struct {
+	Title string `json:"title"`
+}
+
+func NewSessionTitle(title string) PlatformEvent {
+	d, _ := json.Marshal(SessionTitleData{Title: title})
+	return PlatformEvent{Type: EventSessionTitle, Data: d}
 }
 
 func NewMessageDelta(partID, text string) PlatformEvent {

@@ -92,6 +92,11 @@ type opencodeEvent struct {
 	Type       string `json:"type"`
 	Properties struct {
 		SessionID string `json:"sessionID"`
+		// session.updated 字段
+		Info *struct {
+			ID    string `json:"id"`
+			Title string `json:"title"`
+		} `json:"info"`
 		// message.part.delta 字段
 		PartID string `json:"partID"`
 		Field  string `json:"field"`
@@ -131,6 +136,9 @@ func translateOpencode(raw string, primaryID string, childSessions map[string]bo
 	}
 
 	sessID := oc.Properties.SessionID
+	if sessID == "" && oc.Properties.Info != nil {
+		sessID = oc.Properties.Info.ID
+	}
 
 	// 收集 task 工具的子 session
 	if oc.Properties.Part != nil &&
@@ -177,6 +185,15 @@ func translateOpencode(raw string, primaryID string, childSessions map[string]bo
 		if sessID == primaryID {
 			ev := NewSessionIdle()
 			return &ev, true
+		}
+
+	case "session.updated":
+		if sessID == primaryID && oc.Properties.Info != nil {
+			t := oc.Properties.Info.Title
+			if t != "" && !strings.HasPrefix(t, "New session - ") && !strings.HasPrefix(t, "Child session - ") {
+				ev := NewSessionTitle(t)
+				return &ev, false
+			}
 		}
 
 	case "session.status":

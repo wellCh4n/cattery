@@ -112,6 +112,30 @@ func (c *Client) History(ctx context.Context, sandboxURL, harnessSessionID strin
 	return io.ReadAll(resp.Body)
 }
 
+// GetSession 拉取 harness 内 session 的元信息（用于读取 title 等字段）
+func (c *Client) GetSession(ctx context.Context, sandboxURL, harnessSessionID string) (map[string]any, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		fmt.Sprintf("%s/session/%s", sandboxURL, harnessSessionID), nil,
+	)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("harness get session: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		b, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("harness get session status %d: %s", resp.StatusCode, b)
+	}
+	var info map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
+		return nil, err
+	}
+	return info, nil
+}
+
 func (c *Client) WaitHTTPReady(ctx context.Context, sandboxURL string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
@@ -133,8 +157,9 @@ func (c *Client) WaitHTTPReady(ctx context.Context, sandboxURL string, timeout t
 }
 
 // StreamEventsUntilIdle 连接 sandbox /event SSE，将原始事件翻译为平台统一格式后写入 w，
-// 直到 primary session 进入 idle 状态。
-func (c *Client) StreamEventsUntilIdle(ctx context.Context, sandboxURL, harnessSessionID string, w io.Writer) error {
+// 直到 primary session 进入 idle 状态。onEvent（可选）在每个平台事件被转发前调用，
+// 调用方可借此把感兴趣的事件落库。
+func (c *Client) StreamEventsUntilIdle(ctx context.Context, sandboxURL, harnessSessionID string, w io.Writer, onEvent func(*PlatformEvent)) error {
 	streamClient := &http.Client{}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, sandboxURL+"/event", nil)
 	if err != nil {
@@ -168,6 +193,9 @@ func (c *Client) StreamEventsUntilIdle(ctx context.Context, sandboxURL, harnessS
 		dataLine = ""
 
 		if platEv != nil {
+			if onEvent != nil {
+				onEvent(platEv)
+			}
 			b, _ := json.Marshal(platEv)
 			fmt.Fprintf(w, "event: message\ndata: %s\n\n", b)
 			if f, ok := w.(http.Flusher); ok {
