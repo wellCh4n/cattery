@@ -184,6 +184,17 @@ export function Sidebar() {
     return "bg-amber-400 animate-pulse"
   }
 
+  // 最近沟通的 session：按 last_seen_at（fallback created_at）倒序，取前 3
+  const recentSessions: Array<Session & { agent_name: string | null }> = agents
+    .flatMap(a => a.sessions.map(s => ({ ...s, agent_name: a.agent_name })))
+    .filter(s => s.status !== "dead")
+    .sort((a, b) => {
+      const ta = new Date(a.last_seen_at ?? a.created_at).getTime()
+      const tb = new Date(b.last_seen_at ?? b.created_at).getTime()
+      return tb - ta
+    })
+    .slice(0, 3)
+
   return (
     <>
       <aside className="flex flex-col h-full border-r bg-sidebar w-64 shrink-0">
@@ -203,6 +214,40 @@ export function Sidebar() {
         </header>
 
         <div className="flex-1 overflow-y-auto py-1.5">
+          {recentSessions.length > 0 && (
+            <div className="px-1.5 mb-2">
+              <div className="px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                Recent Sessions
+              </div>
+              <div className="space-y-0.5">
+                {recentSessions.map(sess => (
+                  <button
+                    key={sess.session_id}
+                    onClick={() => router.push(`/sessions/${sess.session_id}`)}
+                    className={cn(
+                      "group/recent w-full flex items-center gap-2 text-xs px-2 py-1.5 rounded-md transition-colors cursor-pointer outline-none",
+                      "hover:bg-muted text-muted-foreground hover:text-foreground",
+                      selectedSessionId === sess.session_id &&
+                        "bg-muted text-foreground font-medium"
+                    )}
+                  >
+                    {busySessions.has(sess.session_id) ? (
+                      <Loader2 className="size-3 text-amber-500 animate-spin shrink-0" />
+                    ) : (
+                      <span className={cn("size-1.5 rounded-full shrink-0", statusDot(sess.status))} />
+                    )}
+                    <span className="truncate flex-1 text-left">
+                      {sess.title ?? "New Session"}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground/60 shrink-0 truncate max-w-[60px]">
+                      {sess.agent_name ?? "—"}
+                    </span>
+                  </button>
+                ))}
+              </div>
+              <div className="mx-2 my-2 border-t border-border/60" />
+            </div>
+          )}
           {agents.length === 0 && (
             <div className="px-4 py-8 text-center">
               <Bot className="size-8 mx-auto text-muted-foreground/50" />

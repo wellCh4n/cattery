@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react"
 import {
   Bot,
-  Send,
+  ArrowUp,
   Square,
   Loader2,
   CheckCircle2,
@@ -11,12 +11,14 @@ import {
   Wrench,
   Sparkles,
   AlertTriangle,
+  CornerDownLeft,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Markdown } from "@/components/markdown"
 import { FileViewer } from "@/components/file-viewer"
+import { cn } from "@/lib/utils"
 import { getHistory, abortSession, type Session, type Agent } from "@/lib/api"
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080"
@@ -398,36 +400,61 @@ export function ChatPanel({ session, agent }: Props) {
         </div>
       </div>
 
-      <div className="border-t bg-background px-4 md:px-8 py-3 shrink-0">
-        <div className="max-w-3xl mx-auto flex gap-2 items-end">
-          <Textarea
-            className="flex-1 resize-none min-h-[44px] max-h-48"
-            rows={2}
-            placeholder="Send a message…  (Enter to send · Shift+Enter for newline)"
-            value={input}
-            disabled={session.status !== "ready" || sending}
-            onChange={e => setInput(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                e.preventDefault()
-                handleSend()
-              }
-            }}
-          />
-          {sending ? (
-            <Button variant="destructive" size="icon-lg" onClick={handleStop} title="Stop">
-              <Square />
-            </Button>
-          ) : (
-            <Button
-              size="icon-lg"
-              disabled={session.status !== "ready" || !input.trim()}
-              onClick={handleSend}
-              title="Send"
-            >
-              <Send />
-            </Button>
-          )}
+      <div className="bg-background px-4 md:px-8 pb-4 pt-2 shrink-0">
+        <div className="max-w-3xl mx-auto">
+          <div
+            className={cn(
+              "group/composer rounded-2xl border bg-card shadow-sm transition-colors",
+              "focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/20",
+              (session.status !== "ready" || sending) && "opacity-70"
+            )}
+          >
+            <Textarea
+              className="w-full resize-none border-0 bg-transparent min-h-[52px] max-h-48 px-4 pt-3 pb-1 text-sm shadow-none focus-visible:ring-0 focus-visible:border-0 outline-none [field-sizing:content]"
+              rows={1}
+              placeholder="Send a message…"
+              value={input}
+              disabled={session.status !== "ready" || sending}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault()
+                  handleSend()
+                }
+              }}
+            />
+            <div className="flex items-center justify-between px-2 pb-2">
+              <span className="pl-2 inline-flex items-center gap-1.5 text-[11px] text-muted-foreground/70 select-none">
+                <CornerDownLeft className="size-3" />
+                <span>Send</span>
+                <span className="text-muted-foreground/40">·</span>
+                <span className="font-mono">⇧</span>
+                <CornerDownLeft className="size-3" />
+                <span>Newline</span>
+              </span>
+              {sending ? (
+                <Button
+                  variant="destructive"
+                  size="icon-sm"
+                  onClick={handleStop}
+                  title="Stop"
+                  className="rounded-full"
+                >
+                  <Square />
+                </Button>
+              ) : (
+                <Button
+                  size="icon-sm"
+                  disabled={session.status !== "ready" || !input.trim()}
+                  onClick={handleSend}
+                  title="Send"
+                  className="rounded-full"
+                >
+                  <ArrowUp />
+                </Button>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </div>

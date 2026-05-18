@@ -37,7 +37,7 @@ func (s *SessionStore) GetByID(ctx context.Context, id uuid.UUID) (*model.Sessio
 func (s *SessionStore) ListByAgent(ctx context.Context, agentID uuid.UUID) ([]*model.Session, error) {
 	var sessions []*model.Session
 	err := s.db.SelectContext(ctx, &sessions,
-		`SELECT `+sessionColumns+` FROM sessions WHERE agent_id=$1 ORDER BY created_at DESC`, agentID,
+		`SELECT `+sessionColumns+` FROM sessions WHERE agent_id=$1 AND status != 'dead' ORDER BY created_at DESC`, agentID,
 	)
 	return sessions, err
 }
