@@ -14,6 +14,8 @@ import {
   CornerDownLeft,
   Brain,
   ChevronDown,
+  Copy,
+  Check,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
@@ -522,7 +524,6 @@ export function ChatPanel({ session, agent }: Props) {
             <Textarea
               className="w-full resize-none border-0 bg-transparent dark:bg-transparent disabled:bg-transparent dark:disabled:bg-transparent min-h-[52px] max-h-48 px-4 pt-3 pb-1 text-sm shadow-none focus-visible:ring-0 focus-visible:border-0 outline-none [field-sizing:content]"
               rows={1}
-              placeholder="Send a message…"
               value={input}
               disabled={session.status !== "ready" || sending}
               onChange={e => setInput(e.target.value)}
@@ -589,9 +590,6 @@ function ThinkingBubble({ bubble }: { bubble: Bubble }) {
         {open && (
           <div className="px-3 pb-2.5 text-xs text-muted-foreground italic whitespace-pre-wrap break-words leading-relaxed">
             {bubble.content}
-            {!bubble.done && (
-              <span className="inline-block w-1.5 h-[1em] bg-current animate-pulse ml-0.5 align-[-0.15em] rounded-[1px]" />
-            )}
           </div>
         )}
       </div>
@@ -691,7 +689,7 @@ function BubbleRow({ bubble, sessionId }: { bubble: Bubble; sessionId: string })
   if (bubble.role === "user") {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[75%] rounded-2xl bg-primary text-primary-foreground px-4 py-2.5 text-sm whitespace-pre-wrap break-words">
+        <div className="max-w-[75%] rounded-2xl bg-primary text-primary-foreground dark:bg-secondary dark:text-secondary-foreground px-4 py-2.5 text-sm whitespace-pre-wrap break-words">
           {bubble.content}
         </div>
       </div>
@@ -701,19 +699,49 @@ function BubbleRow({ bubble, sessionId }: { bubble: Bubble; sessionId: string })
   const isThinking = !bubble.done && bubble.content === ""
   return (
     <div className="flex justify-start">
-      <div className="max-w-[90%] min-w-[50%]">
+      <div className="group/msg max-w-[90%] min-w-[50%]">
         {isThinking ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="size-3.5 animate-spin" />
             <span>thinking…</span>
           </div>
         ) : (
-          <div className={!bubble.done ? "stream-caret" : undefined}>
-            <Markdown>{bubble.content}</Markdown>
-          </div>
+          <>
+            <div>
+              <Markdown>{bubble.content}</Markdown>
+            </div>
+            {bubble.done && bubble.content && (
+              <div className="mt-1 opacity-0 group-hover/msg:opacity-100 focus-within:opacity-100 transition-opacity">
+                <CopyButton text={bubble.content} />
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
+  )
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  const onClick = async () => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch {
+      // ignore — clipboard may be blocked (e.g. http on a non-localhost host)
+    }
+  }
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={copied ? "Copied" : "Copy message"}
+      className="inline-flex cursor-pointer items-center justify-center size-6 rounded text-muted-foreground hover:bg-foreground/10 hover:text-foreground transition-colors"
+    >
+      {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+    </button>
   )
 }
 
