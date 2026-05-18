@@ -9,7 +9,7 @@ import (
 	"github.com/wellch4n/cattery/internal/model"
 )
 
-const agentColumns = `agent_id, agent_name, model, prompt, harness_id, repo_url, branch, env_vars, container_port, sandbox_status, task_name, sandbox_url, created_at`
+const agentColumns = `agent_id, agent_name, model, prompt, harness_id, env_vars, container_port, sandbox_status, task_name, sandbox_url, created_at`
 
 type AgentStore struct{ db *sqlx.DB }
 
@@ -18,10 +18,10 @@ func NewAgentStore(db *sqlx.DB) *AgentStore { return &AgentStore{db} }
 func (s *AgentStore) Create(ctx context.Context, a *model.Agent) error {
 	env, _ := json.Marshal(a.EnvVars)
 	return s.db.QueryRowxContext(ctx, `
-		INSERT INTO agents (agent_id, agent_name, model, prompt, harness_id, repo_url, branch, env_vars, container_port)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+		INSERT INTO agents (agent_id, agent_name, model, prompt, harness_id, env_vars, container_port)
+		VALUES ($1,$2,$3,$4,$5,$6,$7)
 		RETURNING created_at`,
-		a.AgentID, a.AgentName, a.Model, a.Prompt, a.HarnessID, a.RepoURL, a.Branch, env, a.ContainerPort,
+		a.AgentID, a.AgentName, a.Model, a.Prompt, a.HarnessID, env, a.ContainerPort,
 	).Scan(&a.CreatedAt)
 }
 
@@ -85,7 +85,7 @@ func scanAgent(row scanner) (*model.Agent, error) {
 	var envRaw []byte
 	if err := row.Scan(
 		&a.AgentID, &a.AgentName, &a.Model, &a.Prompt, &a.HarnessID,
-		&a.RepoURL, &a.Branch, &envRaw, &a.ContainerPort,
+		&envRaw, &a.ContainerPort,
 		&a.SandboxStatus, &a.TaskName, &a.SandboxURL, &a.CreatedAt,
 	); err != nil {
 		return nil, err

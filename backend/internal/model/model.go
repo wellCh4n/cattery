@@ -12,8 +12,6 @@ type Agent struct {
 	Model          string            `db:"model"           json:"model"`
 	Prompt         *string           `db:"prompt"          json:"prompt"`
 	HarnessID      string            `db:"harness_id"      json:"harness_id"`
-	RepoURL        *string           `db:"repo_url"        json:"repo_url"`
-	Branch         string            `db:"branch"          json:"branch"`
 	EnvVars        map[string]string `db:"env_vars"        json:"env_vars"`
 	ContainerPort  int               `db:"container_port"  json:"container_port"`
 	SandboxStatus  string            `db:"sandbox_status"  json:"sandbox_status"`

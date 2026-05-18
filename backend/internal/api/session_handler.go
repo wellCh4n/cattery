@@ -108,10 +108,6 @@ func (h *SessionHandler) ensureSandbox(ctx context.Context, agent *model.Agent) 
 	for k, v := range agent.EnvVars {
 		env[k] = v
 	}
-	if agent.RepoURL != nil {
-		env["REPO_URL"] = *agent.RepoURL
-	}
-	env["BRANCH"] = agent.Branch
 	env["MODEL"] = agent.Model
 	if agent.Prompt != nil {
 		env["AGENT_PROMPT"] = *agent.Prompt

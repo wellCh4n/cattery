@@ -42,8 +42,6 @@ const defaultForm = {
   model: "claude-sonnet-4-6",
   prompt: "",
   harness_id: "opencode",
-  repo_url: "",
-  branch: "main",
   container_port: 4096,
   env_vars: "",
 }
@@ -69,8 +67,6 @@ export function CreateAgentDialog({ onCreated }: Props) {
         model: form.model,
         prompt: form.prompt || null,
         harness_id: form.harness_id,
-        repo_url: form.repo_url || null,
-        branch: form.branch,
         container_port: form.container_port,
         env_vars,
       })
@@ -159,27 +155,6 @@ export function CreateAgentDialog({ onCreated }: Props) {
                   {m.label}
                 </button>
               ))}
-            </div>
-          </div>
-
-          {/* Repo */}
-          <div className="grid grid-cols-3 gap-3">
-            <div className="space-y-1.5 col-span-2">
-              <Label htmlFor="repo_url">Repo URL</Label>
-              <Input
-                id="repo_url"
-                placeholder="https://gitlab.example.com/org/repo.git"
-                value={form.repo_url}
-                onChange={e => setForm(f => ({ ...f, repo_url: e.target.value }))}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="branch">Branch</Label>
-              <Input
-                id="branch"
-                value={form.branch}
-                onChange={e => setForm(f => ({ ...f, branch: e.target.value }))}
-              />
             </div>
           </div>
 

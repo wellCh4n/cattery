@@ -66,6 +66,7 @@ export function ChatPanel({ session, agent }: Props) {
   const [bubbles, setBubbles] = useState<Bubble[]>([])
   const [input, setInput] = useState("")
   const [sending, setSending] = useState(false)
+  const [title, setTitle] = useState<string | null>(session.title)
   const bottomRef = useRef<HTMLDivElement>(null)
   const sessionIdRef = useRef(session.session_id)
   const abortRef = useRef<AbortController | null>(null)
@@ -236,6 +237,7 @@ export function ChatPanel({ session, agent }: Props) {
       case "session.title": {
         const d = ev.data as SessionTitleData
         if (d.title) {
+          setTitle(d.title)
           window.dispatchEvent(new CustomEvent("cattery:title", {
             detail: { sessionId: session.session_id, title: d.title },
           }))
@@ -359,8 +361,8 @@ export function ChatPanel({ session, agent }: Props) {
     <div className="flex flex-col h-full bg-background">
       <header className="border-b px-4 h-12 flex items-center gap-3 shrink-0">
         <Bot className="size-4 text-muted-foreground shrink-0" />
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="text-sm font-medium truncate">{agent.agent_name ?? "Untitled"}</span>
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <span className="text-sm font-medium truncate">{title ?? "New Session"}</span>
           <span className="text-xs text-muted-foreground font-mono shrink-0">
             {session.session_id.slice(0, 8)}
           </span>

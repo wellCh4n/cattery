@@ -27,8 +27,6 @@ type createAgentRequest struct {
 	Model         string            `json:"model"          validate:"required"`
 	Prompt        *string           `json:"prompt"`
 	HarnessID     string            `json:"harness_id"`
-	RepoURL       *string           `json:"repo_url"`
-	Branch        string            `json:"branch"`
 	EnvVars       map[string]string `json:"env_vars"`
 	ContainerPort int               `json:"container_port"`
 }
@@ -44,9 +42,6 @@ func (h *AgentHandler) Create(c echo.Context) error {
 	if req.HarnessID == "" {
 		req.HarnessID = "opencode"
 	}
-	if req.Branch == "" {
-		req.Branch = "main"
-	}
 	if req.ContainerPort == 0 {
 		req.ContainerPort = 4096
 	}
@@ -60,8 +55,6 @@ func (h *AgentHandler) Create(c echo.Context) error {
 		Model:         req.Model,
 		Prompt:        req.Prompt,
 		HarnessID:     req.HarnessID,
-		RepoURL:       req.RepoURL,
-		Branch:        req.Branch,
 		EnvVars:       req.EnvVars,
 		ContainerPort: req.ContainerPort,
 	}

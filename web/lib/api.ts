@@ -6,8 +6,6 @@ export interface Agent {
   model: string
   prompt: string | null
   harness_id: string
-  repo_url: string | null
-  branch: string
   env_vars: Record<string, string>
   container_port: number
   created_at: string

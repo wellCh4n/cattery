@@ -6,8 +6,6 @@ CREATE TABLE agents (
     model           TEXT        NOT NULL,
     prompt          TEXT,
     harness_id      TEXT        NOT NULL DEFAULT 'opencode',
-    repo_url        TEXT,
-    branch          TEXT        NOT NULL DEFAULT 'main',
     env_vars        JSONB       NOT NULL DEFAULT '{}',
     container_port  INT         NOT NULL DEFAULT 4096,
     sandbox_status  TEXT        NOT NULL DEFAULT 'idle',
