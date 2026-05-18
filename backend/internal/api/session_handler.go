@@ -16,6 +16,8 @@ import (
 	"github.com/wellch4n/cattery/internal/db"
 	"github.com/wellch4n/cattery/internal/harness"
 	_ "github.com/wellch4n/cattery/internal/harness/claudecode" // register claude-code translators
+	_ "github.com/wellch4n/cattery/internal/harness/codex"      // register codex (terminal kind)
+	_ "github.com/wellch4n/cattery/internal/harness/hermes"     // register hermes (terminal kind)
 	_ "github.com/wellch4n/cattery/internal/harness/opencode"   // register opencode translators
 	"github.com/wellch4n/cattery/internal/k8s"
 	"github.com/wellch4n/cattery/internal/model"
@@ -24,6 +26,8 @@ import (
 var harnessImages = map[string]string{
 	"opencode":    "opencode-sandbox:dev",
 	"claude-code": "claude-code-sandbox:dev",
+	"codex":       "codex-sandbox:dev",
+	"hermes":      "hermes-sandbox:dev",
 }
 
 type SessionHandler struct {
