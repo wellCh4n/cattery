@@ -15,12 +15,12 @@ type SessionStore struct{ db *sqlx.DB }
 func NewSessionStore(db *sqlx.DB) *SessionStore { return &SessionStore{db} }
 
 func (s *SessionStore) Create(ctx context.Context, sess *model.Session) error {
-	_, err := s.db.ExecContext(ctx, `
+	return s.db.QueryRowxContext(ctx, `
 		INSERT INTO sessions (session_id, agent_id, status)
-		VALUES ($1,$2,$3)`,
+		VALUES ($1,$2,$3)
+		RETURNING created_at`,
 		sess.SessionID, sess.AgentID, sess.Status,
-	)
-	return err
+	).Scan(&sess.CreatedAt)
 }
 
 func (s *SessionStore) GetByID(ctx context.Context, id uuid.UUID) (*model.Session, error) {

@@ -57,12 +57,12 @@ func TranslateOpencodeHistory(raw []byte) ([]PlatformHistoryItem, error) {
 				case "completed", "success":
 					item.Events = append(item.Events,
 						NewToolStart(p.ID, p.Tool, string(p.State.Input)),
-						NewToolDone(p.ID, p.Tool, p.State.Output),
+						NewToolDone(p.ID, p.Tool, p.State.Output, parseToolOutput(p.Tool, p.State.Output)),
 					)
 				case "error":
 					item.Events = append(item.Events,
 						NewToolStart(p.ID, p.Tool, string(p.State.Input)),
-						NewToolDone(p.ID, p.Tool, "error"),
+						NewToolDone(p.ID, p.Tool, "error", nil),
 					)
 				}
 			}

@@ -67,6 +67,10 @@ export async function getSession(sessionId: string): Promise<Session> {
   return res.json()
 }
 
+export async function deleteSession(sessionId: string): Promise<void> {
+  await fetch(`${API_BASE}/api/v1/sessions/${sessionId}`, { method: "DELETE" })
+}
+
 export async function abortSession(sessionId: string): Promise<void> {
   await fetch(`${API_BASE}/api/v1/sessions/${sessionId}/abort`, { method: "POST" })
 }

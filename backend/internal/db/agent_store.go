@@ -17,12 +17,12 @@ func NewAgentStore(db *sqlx.DB) *AgentStore { return &AgentStore{db} }
 
 func (s *AgentStore) Create(ctx context.Context, a *model.Agent) error {
 	env, _ := json.Marshal(a.EnvVars)
-	_, err := s.db.ExecContext(ctx, `
+	return s.db.QueryRowxContext(ctx, `
 		INSERT INTO agents (agent_id, agent_name, model, prompt, harness_id, repo_url, branch, env_vars, container_port)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+		RETURNING created_at`,
 		a.AgentID, a.AgentName, a.Model, a.Prompt, a.HarnessID, a.RepoURL, a.Branch, env, a.ContainerPort,
-	)
-	return err
+	).Scan(&a.CreatedAt)
 }
 
 func (s *AgentStore) GetByID(ctx context.Context, id uuid.UUID) (*model.Agent, error) {

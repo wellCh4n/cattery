@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef } from "react"
 import {
   Bot,
-  User as UserIcon,
   Send,
   Square,
   Loader2,
@@ -17,7 +16,8 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Markdown } from "@/components/markdown"
-import { getSession, getHistory, abortSession, type Session, type Agent } from "@/lib/api"
+import { FileViewer } from "@/components/file-viewer"
+import { getHistory, abortSession, type Session, type Agent } from "@/lib/api"
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080"
 
@@ -28,8 +28,19 @@ interface PlatformEvent {
 
 interface MessageDeltaData  { partId: string; text: string }
 interface ToolStartData     { toolId: string; tool: string; input?: string }
-interface ToolDoneData      { toolId: string; tool: string; output?: string }
+interface ToolDoneData      { toolId: string; tool: string; output?: string; parsed?: unknown }
 interface SessionErrorData  { message: string }
+
+interface ParsedFileRead {
+  path: string
+  fileType: "file" | "directory"
+  lines: { n: number; text: string }[]
+  totalLines: number
+}
+
+interface ParsedGlob {
+  paths: string[]
+}
 
 interface Bubble {
   id: string
@@ -39,32 +50,30 @@ interface Bubble {
   toolName?: string
   toolStatus?: "pending" | "running" | "completed"
   toolOutput?: string
+  toolParsed?: unknown
   done: boolean
 }
 
 interface Props {
   session: Session
   agent: Agent
-  onSessionUpdate: (s: Session) => void
 }
 
-export function ChatPanel({ session: initialSession, agent, onSessionUpdate }: Props) {
-  const [session, setSession] = useState(initialSession)
+export function ChatPanel({ session, agent }: Props) {
   const [bubbles, setBubbles] = useState<Bubble[]>([])
   const [input, setInput] = useState("")
   const [sending, setSending] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
-  const sessionIdRef = useRef(initialSession.session_id)
+  const sessionIdRef = useRef(session.session_id)
   const abortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
     abortRef.current?.abort()
-    setSession(initialSession)
     setBubbles([])
     setInput("")
     setSending(false)
-    sessionIdRef.current = initialSession.session_id
-  }, [initialSession.session_id, initialSession])
+    sessionIdRef.current = session.session_id
+  }, [session.session_id])
 
   useEffect(() => {
     if (session.status !== "ready") return
@@ -120,12 +129,13 @@ export function ChatPanel({ session: initialSession, agent, onSessionUpdate }: P
               })
             }
           } else if (ev.type === "tool.done") {
-            const d = ev.data as { toolId?: string; output?: string }
+            const d = ev.data as { toolId?: string; output?: string; parsed?: ParsedFileRead }
             if (!d.toolId) continue
             const existing = restored.find(b => b.id === d.toolId)
             if (existing) {
               existing.toolStatus = "completed"
               existing.toolOutput = d.output ?? ""
+              existing.toolParsed = d.parsed
               existing.done = true
             }
           }
@@ -139,20 +149,6 @@ export function ChatPanel({ session: initialSession, agent, onSessionUpdate }: P
     return () => { cancelled = true }
   }, [session.session_id, session.status])
 
-  useEffect(() => {
-    if (session.status !== "creating") return
-    let timer: ReturnType<typeof setTimeout>
-    async function poll() {
-      if (sessionIdRef.current !== session.session_id) return
-      const s = await getSession(session.session_id)
-      setSession(s)
-      onSessionUpdate(s)
-      if (s.status === "creating") timer = setTimeout(poll, 1500)
-    }
-    poll()
-    return () => clearTimeout(timer)
-  }, [session.session_id, session.status, onSessionUpdate])
-
   function handleEvent(ev: PlatformEvent) {
     switch (ev.type) {
       case "message.delta": {
@@ -164,6 +160,12 @@ export function ChatPanel({ session: initialSession, agent, onSessionUpdate }: P
           const existing = prev.find(b => b.id === partID)
           if (existing) {
             return prev.map(b => b.id === partID ? { ...b, content: b.content + delta } : b)
+          }
+          const pendingIdx = prev.findIndex(b =>
+            b.role === "assistant" && b.kind === "text" && !b.done && b.id.startsWith("pending-")
+          )
+          if (pendingIdx >= 0) {
+            return prev.map((b, i) => i === pendingIdx ? { ...b, id: partID, content: delta } : b)
           }
           return [...prev, {
             id: partID,
@@ -180,9 +182,9 @@ export function ChatPanel({ session: initialSession, agent, onSessionUpdate }: P
       case "tool.start": {
         const d = ev.data as ToolStartData
         setBubbles(prev => {
-          const next = prev.map(b =>
-            b.kind === "text" && !b.done ? { ...b, done: true } : b
-          )
+          const next = prev
+            .filter(b => !(b.kind === "text" && !b.done && b.content === ""))
+            .map(b => b.kind === "text" && !b.done ? { ...b, done: true } : b)
           const existing = next.find(b => b.id === d.toolId)
           if (existing) {
             return next.map(b => b.id === d.toolId
@@ -207,7 +209,7 @@ export function ChatPanel({ session: initialSession, agent, onSessionUpdate }: P
         const d = ev.data as ToolDoneData
         setBubbles(prev => prev.map(b =>
           b.id === d.toolId
-            ? { ...b, toolStatus: "completed", toolOutput: d.output ?? "", done: true }
+            ? { ...b, toolStatus: "completed", toolOutput: d.output ?? "", toolParsed: d.parsed, done: true }
             : b
         ))
         break
@@ -215,22 +217,26 @@ export function ChatPanel({ session: initialSession, agent, onSessionUpdate }: P
 
       case "session.idle": {
         setSending(false)
-        setBubbles(prev => prev.map((b, i) =>
-          i === prev.length - 1 && !b.done ? { ...b, done: true } : b
-        ))
+        setBubbles(prev => prev
+          .filter(b => !(b.kind === "text" && !b.done && b.content === ""))
+          .map((b, i, arr) => i === arr.length - 1 && !b.done ? { ...b, done: true } : b)
+        )
         break
       }
 
       case "session.error": {
         const d = ev.data as SessionErrorData
         setSending(false)
-        setBubbles(prev => [...prev, {
-          id: `err-${Date.now()}`,
-          role: "assistant",
-          kind: "error",
-          content: d.message,
-          done: true,
-        }])
+        setBubbles(prev => [
+          ...prev.filter(b => !(b.kind === "text" && !b.done && b.content === "")),
+          {
+            id: `err-${Date.now()}`,
+            role: "assistant",
+            kind: "error",
+            content: d.message,
+            done: true,
+          },
+        ])
         break
       }
     }
@@ -242,7 +248,10 @@ export function ChatPanel({ session: initialSession, agent, onSessionUpdate }: P
       await abortSession(session.session_id)
     } catch { /* ignore */ }
     setSending(false)
-    setBubbles(prev => prev.map(b => b.done ? b : { ...b, done: true }))
+    setBubbles(prev => prev
+      .filter(b => !(b.kind === "text" && !b.done && b.content === ""))
+      .map(b => b.done ? b : { ...b, done: true })
+    )
   }
 
   async function handleSend() {
@@ -251,13 +260,24 @@ export function ChatPanel({ session: initialSession, agent, onSessionUpdate }: P
     const text = input.trim()
     setInput("")
 
-    setBubbles(prev => [...prev, {
-      id: `user-${Date.now()}`,
-      role: "user",
-      kind: "text",
-      content: text,
-      done: true,
-    }])
+    const ts = Date.now()
+    setBubbles(prev => [
+      ...prev,
+      {
+        id: `user-${ts}`,
+        role: "user",
+        kind: "text",
+        content: text,
+        done: true,
+      },
+      {
+        id: `pending-${ts}`,
+        role: "assistant",
+        kind: "text",
+        content: "",
+        done: false,
+      },
+    ])
 
     const ctrl = new AbortController()
     abortRef.current = ctrl
@@ -320,12 +340,6 @@ export function ChatPanel({ session: initialSession, agent, onSessionUpdate }: P
         <Badge variant={statusVariant(session.status)} className="text-[10px] h-5">
           {session.phase ?? session.status}
         </Badge>
-        {sending && (
-          <div className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
-            <Loader2 className="size-3 animate-spin" />
-            <span>thinking…</span>
-          </div>
-        )}
       </header>
 
       <div className="flex-1 overflow-y-auto px-4 md:px-8 py-6">
@@ -368,7 +382,7 @@ export function ChatPanel({ session: initialSession, agent, onSessionUpdate }: P
             disabled={session.status !== "ready" || sending}
             onChange={e => setInput(e.target.value)}
             onKeyDown={e => {
-              if (e.key === "Enter" && !e.shiftKey) {
+              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault()
                 handleSend()
               }
@@ -407,24 +421,69 @@ function BubbleRow({ bubble }: { bubble: Bubble }) {
   }
 
   if (bubble.kind === "tool") {
+    const read = bubble.toolName === "read" ? (bubble.toolParsed as ParsedFileRead | undefined) : undefined
+    const glob = bubble.toolName === "glob" ? (bubble.toolParsed as ParsedGlob | undefined) : undefined
+    const header = formatToolInput(bubble.toolName, bubble.content)
+    const primary = read?.path ?? header.primary
+    const secondaryPath = header.path
+    const primaryIsPath = !!read || bubble.toolName === "read" || bubble.toolName === "write" ||
+                          bubble.toolName === "edit" || bubble.toolName === "list"
+    const headerMeta =
+      read ? `${read.totalLines} lines` :
+      glob ? `${glob.paths.length} matches` :
+      null
+
     return (
       <div className="flex justify-start">
         <div className="max-w-[90%] min-w-0 rounded-lg border bg-card overflow-hidden">
           <div className="flex items-center gap-2 px-3 py-1.5 bg-muted/40">
             <ToolStatusIcon status={bubble.toolStatus} />
             <Wrench className="size-3 text-muted-foreground shrink-0" />
-            <span className="font-mono text-xs font-semibold">{bubble.toolName}</span>
-            {bubble.content && (
-              <span className="font-mono text-xs text-muted-foreground truncate">
-                {bubble.content}
+            <span className="font-mono text-xs font-semibold shrink-0">{bubble.toolName}</span>
+            {primaryIsPath ? (
+              <span
+                dir="rtl"
+                className="font-mono text-xs text-muted-foreground truncate min-w-0"
+                title={primary}
+              >
+                <bdi>{primary}</bdi>
+              </span>
+            ) : (
+              <span
+                className="font-mono text-xs text-muted-foreground shrink-0"
+                title={primary}
+              >
+                {primary}
+              </span>
+            )}
+            {secondaryPath && (
+              <span
+                dir="rtl"
+                className="font-mono text-xs text-muted-foreground/60 truncate min-w-0"
+                title={secondaryPath}
+              >
+                <bdi>{secondaryPath}</bdi>
+              </span>
+            )}
+            {headerMeta && (
+              <span className="ml-auto font-mono text-[10px] text-muted-foreground/60 shrink-0">
+                {headerMeta}
               </span>
             )}
           </div>
-          {bubble.toolOutput && (
+          {read ? (
+            <div className="max-h-64 overflow-y-auto border-t">
+              <FileViewer path={read.path} lines={read.lines} />
+            </div>
+          ) : glob ? (
+            <div className="max-h-64 overflow-y-auto border-t">
+              <GlobMatches paths={glob.paths} />
+            </div>
+          ) : bubble.toolOutput ? (
             <pre className="max-h-40 overflow-y-auto px-3 py-2 text-[11px] font-mono text-muted-foreground whitespace-pre-wrap border-t">
               {bubble.toolOutput}
             </pre>
-          )}
+          ) : null}
         </div>
       </div>
     )
@@ -432,29 +491,114 @@ function BubbleRow({ bubble }: { bubble: Bubble }) {
 
   if (bubble.role === "user") {
     return (
-      <div className="flex justify-end gap-2">
+      <div className="flex justify-end">
         <div className="max-w-[75%] rounded-2xl bg-primary text-primary-foreground px-4 py-2.5 text-sm whitespace-pre-wrap break-words">
           {bubble.content}
-        </div>
-        <div className="size-7 rounded-full bg-muted flex items-center justify-center shrink-0 mt-0.5">
-          <UserIcon className="size-3.5 text-muted-foreground" />
         </div>
       </div>
     )
   }
 
+  const isThinking = !bubble.done && bubble.content === ""
   return (
-    <div className="flex justify-start gap-2">
-      <div className="size-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
-        <Bot className="size-3.5 text-primary" />
-      </div>
-      <div className="max-w-[85%] min-w-0 rounded-2xl bg-muted px-4 py-2.5">
-        <Markdown>{bubble.content}</Markdown>
-        {!bubble.done && (
-          <span className="inline-block w-1.5 h-3.5 bg-current animate-pulse ml-0.5 align-text-bottom rounded-[1px]" />
+    <div className="flex justify-start">
+      <div className="max-w-[90%] min-w-0">
+        {isThinking ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="size-3.5 animate-spin" />
+            <span>thinking…</span>
+          </div>
+        ) : (
+          <>
+            <Markdown>{bubble.content}</Markdown>
+            {!bubble.done && (
+              <span className="inline-block w-1.5 h-3.5 bg-current animate-pulse ml-0.5 align-text-bottom rounded-[1px]" />
+            )}
+          </>
         )}
       </div>
     </div>
+  )
+}
+
+interface ToolHeader {
+  primary: string  // 主参数，显示在 tool 名之后
+  path?: string    // 路径类参数，第二行显示
+}
+
+function formatToolInput(tool: string | undefined, raw: string): ToolHeader {
+  if (!raw) return { primary: "" }
+  try {
+    const obj = JSON.parse(raw) as Record<string, unknown>
+    const str = (k: string) => typeof obj[k] === "string" ? (obj[k] as string) : undefined
+    switch (tool) {
+      case "glob":
+      case "grep": {
+        const pattern = str("pattern")
+        if (pattern) return { primary: pattern, path: str("path") }
+        break
+      }
+      case "read":
+      case "write":
+      case "edit": {
+        const fp = str("filePath") ?? str("path")
+        if (fp) return { primary: fp }
+        break
+      }
+      case "list": {
+        const p = str("path")
+        if (p) return { primary: p }
+        break
+      }
+      case "bash": {
+        const cmd = str("command")
+        if (cmd) return { primary: cmd }
+        break
+      }
+      case "task": {
+        const d = str("description") ?? str("prompt")
+        if (d) return { primary: d }
+        break
+      }
+    }
+  } catch { /* fall through */ }
+  return { primary: raw }
+}
+
+function commonDirPrefix(paths: string[]): string {
+  if (paths.length === 0) return ""
+  if (paths.length === 1) {
+    const i = paths[0].lastIndexOf("/")
+    return i >= 0 ? paths[0].slice(0, i + 1) : ""
+  }
+  let prefix = paths[0]
+  for (let i = 1; i < paths.length; i++) {
+    while (prefix && !paths[i].startsWith(prefix)) {
+      prefix = prefix.slice(0, -1)
+    }
+    if (!prefix) return ""
+  }
+  const i = prefix.lastIndexOf("/")
+  return i >= 0 ? prefix.slice(0, i + 1) : ""
+}
+
+function GlobMatches({ paths }: { paths: string[] }) {
+  const prefix = commonDirPrefix(paths)
+  return (
+    <ul className="font-mono text-xs divide-y divide-border/40">
+      {paths.map(p => {
+        const rel = prefix && p.startsWith(prefix) ? p.slice(prefix.length) : p
+        const idx = rel.lastIndexOf("/")
+        const dir = idx >= 0 ? rel.slice(0, idx + 1) : ""
+        const name = idx >= 0 ? rel.slice(idx + 1) : rel
+        return (
+          <li key={p} className="flex px-3 py-1 hover:bg-muted/30" title={p}>
+            {dir && <span className="text-muted-foreground truncate min-w-0">{dir}</span>}
+            <span className="text-foreground shrink-0 font-medium">{name}</span>
+          </li>
+        )
+      })}
+    </ul>
   )
 }
 

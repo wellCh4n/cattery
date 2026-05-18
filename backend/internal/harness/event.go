@@ -32,6 +32,25 @@ type ToolDoneData struct {
 	ToolID string `json:"toolId"`
 	Tool   string `json:"tool"`
 	Output string `json:"output,omitempty"`
+	Parsed any    `json:"parsed,omitempty"` // shape depends on Tool
+}
+
+// read tool
+type ParsedFileRead struct {
+	Path       string     `json:"path"`
+	FileType   string     `json:"fileType"` // "file" | "directory"
+	Lines      []FileLine `json:"lines"`
+	TotalLines int        `json:"totalLines"`
+}
+
+type FileLine struct {
+	N    int    `json:"n"`
+	Text string `json:"text"`
+}
+
+// glob tool
+type ParsedGlob struct {
+	Paths []string `json:"paths"`
 }
 
 type SessionErrorData struct {
@@ -48,8 +67,8 @@ func NewToolStart(toolID, tool, input string) PlatformEvent {
 	return PlatformEvent{Type: EventToolStart, Data: d}
 }
 
-func NewToolDone(toolID, tool, output string) PlatformEvent {
-	d, _ := json.Marshal(ToolDoneData{ToolID: toolID, Tool: tool, Output: output})
+func NewToolDone(toolID, tool, output string, parsed any) PlatformEvent {
+	d, _ := json.Marshal(ToolDoneData{ToolID: toolID, Tool: tool, Output: output, Parsed: parsed})
 	return PlatformEvent{Type: EventToolDone, Data: d}
 }
 

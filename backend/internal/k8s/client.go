@@ -140,8 +140,7 @@ func containerPort(obj map[string]interface{}) int64 {
 }
 
 func (c *Client) StopTask(ctx context.Context, name string) error {
-	_ = c.dynamic.Resource(sandboxGVR).Namespace(c.namespace).Delete(ctx, name, metav1.DeleteOptions{})
-	return nil
+	return c.dynamic.Resource(sandboxGVR).Namespace(c.namespace).Delete(ctx, name, metav1.DeleteOptions{})
 }
 
 func (c *Client) ListSandboxes(ctx context.Context) ([]unstructured.Unstructured, error) {

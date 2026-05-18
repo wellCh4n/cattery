@@ -1,20 +1,25 @@
 package api
 
 import (
+	"context"
+	"fmt"
+	"log"
 	"net/http"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/wellch4n/cattery/internal/db"
+	"github.com/wellch4n/cattery/internal/k8s"
 	"github.com/wellch4n/cattery/internal/model"
 )
 
 type AgentHandler struct {
-	store *db.AgentStore
+	store     *db.AgentStore
+	k8sClient *k8s.Client
 }
 
-func NewAgentHandler(store *db.AgentStore) *AgentHandler {
-	return &AgentHandler{store}
+func NewAgentHandler(store *db.AgentStore, k8sClient *k8s.Client) *AgentHandler {
+	return &AgentHandler{store, k8sClient}
 }
 
 type createAgentRequest struct {
@@ -94,6 +99,16 @@ func (h *AgentHandler) Delete(c echo.Context) error {
 	if err != nil {
 		return echo.ErrBadRequest
 	}
+	a, err := h.store.GetByID(c.Request().Context(), id)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusNotFound, "agent not found")
+	}
+	sandboxName := fmt.Sprintf("cattery-%s", a.AgentID.String())
+	go func() {
+		if err := h.k8sClient.StopTask(context.Background(), sandboxName); err != nil {
+			log.Printf("warn: stop sandbox %s: %v", sandboxName, err)
+		}
+	}()
 	if err := h.store.Delete(c.Request().Context(), id); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}

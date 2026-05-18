@@ -28,7 +28,7 @@ func main() {
 	sessionStore := db.NewSessionStore(database)
 	harnessClient := harness.NewClient()
 
-	agentH := api.NewAgentHandler(agentStore)
+	agentH := api.NewAgentHandler(agentStore, k8s)
 	sessionH := api.NewSessionHandler(sessionStore, agentStore, k8s, harnessClient, cfg)
 
 	router := api.NewRouter(agentH, sessionH)

@@ -2,7 +2,90 @@ package harness
 
 import (
 	"encoding/json"
+	"regexp"
+	"strconv"
+	"strings"
 )
+
+var (
+	reTagPath    = regexp.MustCompile(`(?s)<path>(.*?)</path>`)
+	reTagType    = regexp.MustCompile(`(?s)<type>(.*?)</type>`)
+	reTagContent = regexp.MustCompile(`(?s)<content>(.*?)</content>`)
+	reFileLine   = regexp.MustCompile(`^(\d+): (.*)`)
+	reEndOfFile  = regexp.MustCompile(`\(End of file - total (\d+) lines\)`)
+)
+
+// parseToolOutput 按 tool 名解析 output，返回结构化数据；不认识的 tool 返回 nil。
+func parseToolOutput(tool, output string) any {
+	switch tool {
+	case "read":
+		if v := parseReadOutput(output); v != nil {
+			return v
+		}
+	case "glob":
+		if v := parseGlobOutput(output); v != nil {
+			return v
+		}
+	}
+	return nil
+}
+
+func parseGlobOutput(output string) *ParsedGlob {
+	var paths []string
+	for _, line := range strings.Split(output, "\n") {
+		s := strings.TrimSpace(line)
+		if s == "" {
+			continue
+		}
+		// 只收看起来像绝对路径的行；其它（如 "Found N files"）忽略
+		if !strings.HasPrefix(s, "/") {
+			continue
+		}
+		paths = append(paths, s)
+	}
+	if len(paths) == 0 {
+		return nil
+	}
+	return &ParsedGlob{Paths: paths}
+}
+
+func parseReadOutput(output string) *ParsedFileRead {
+	pathM := reTagPath.FindStringSubmatch(output)
+	if pathM == nil {
+		return nil
+	}
+	path := strings.TrimSpace(pathM[1])
+
+	fileType := ""
+	if typeM := reTagType.FindStringSubmatch(output); typeM != nil {
+		fileType = strings.TrimSpace(typeM[1])
+	}
+
+	rawContent := ""
+	if contentM := reTagContent.FindStringSubmatch(output); contentM != nil {
+		rawContent = contentM[1]
+	}
+
+	var lines []FileLine
+	totalLines := 0
+	for _, line := range strings.Split(rawContent, "\n") {
+		if m := reFileLine.FindStringSubmatch(line); m != nil {
+			n, _ := strconv.Atoi(m[1])
+			lines = append(lines, FileLine{N: n, Text: m[2]})
+			continue
+		}
+		if m := reEndOfFile.FindStringSubmatch(line); m != nil {
+			totalLines, _ = strconv.Atoi(m[1])
+		}
+	}
+
+	return &ParsedFileRead{
+		Path:       path,
+		FileType:   fileType,
+		Lines:      lines,
+		TotalLines: totalLines,
+	}
+}
 
 // opencode 原始事件结构（只取用到的字段）
 type opencodeEvent struct {
@@ -30,6 +113,11 @@ type opencodeEvent struct {
 		Status *struct {
 			Type string `json:"type"`
 		} `json:"status"`
+		Error *struct {
+			Data *struct {
+				Message string `json:"message"`
+			} `json:"data"`
+		} `json:"error"`
 	} `json:"properties"`
 }
 
@@ -78,10 +166,10 @@ func translateOpencode(raw string, primaryID string, childSessions map[string]bo
 			ev := NewToolStart(part.ID, part.Tool, string(part.State.Input))
 			return &ev, false
 		case "completed", "success":
-			ev := NewToolDone(part.ID, part.Tool, part.State.Output)
+			ev := NewToolDone(part.ID, part.Tool, part.State.Output, parseToolOutput(part.Tool, part.State.Output))
 			return &ev, false
 		case "error":
-			ev := NewToolDone(part.ID, part.Tool, "error")
+			ev := NewToolDone(part.ID, part.Tool, "error", nil)
 			return &ev, false
 		}
 
@@ -92,11 +180,25 @@ func translateOpencode(raw string, primaryID string, childSessions map[string]bo
 		}
 
 	case "session.status":
-		if sessID == primaryID &&
-			oc.Properties.Status != nil &&
-			oc.Properties.Status.Type == "idle" {
-			ev := NewSessionIdle()
-			return &ev, true
+		if sessID == primaryID && oc.Properties.Status != nil {
+			switch oc.Properties.Status.Type {
+			case "idle":
+				ev := NewSessionIdle()
+				return &ev, true
+			case "error":
+				ev := NewSessionError("session error")
+				return &ev, false
+			}
+		}
+
+	case "session.error":
+		if sessID == primaryID || sessID == "" {
+			msg := "unknown error"
+			if oc.Properties.Error != nil && oc.Properties.Error.Data != nil && oc.Properties.Error.Data.Message != "" {
+				msg = oc.Properties.Error.Data.Message
+			}
+			ev := NewSessionError(msg)
+			return &ev, false
 		}
 	}
 

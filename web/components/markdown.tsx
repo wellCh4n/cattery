@@ -50,10 +50,10 @@ const components: Components = {
     </div>
   ),
   th: ({ className, ...props }) => (
-    <th className={cn("border-b px-2 py-1.5 text-left font-medium bg-muted/40", className)} {...props} />
+    <th className={cn("border-b border-r last:border-r-0 px-2 py-1.5 text-left font-medium bg-muted/40", className)} {...props} />
   ),
   td: ({ className, ...props }) => (
-    <td className={cn("border-b last:border-0 px-2 py-1.5", className)} {...props} />
+    <td className={cn("border-b border-r last:border-r-0 px-2 py-1.5 [tr:last-child_&]:border-b-0", className)} {...props} />
   ),
   code: ({ className, children, ...props }) => {
     // react-markdown gives className like `language-ts` only for fenced blocks.

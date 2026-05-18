@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -118,8 +119,7 @@ func (h *SessionHandler) ensureSandbox(ctx context.Context, agent *model.Agent) 
 	env["AGENT_ID"] = agent.AgentID.String()
 
 	if h.cfg.ModelAPIStyle == "anthropic" {
-		base := strings.TrimRight(h.cfg.ModelAPIBase, "/")
-		env["ANTHROPIC_BASE_URL"] = base + "/v1"
+		env["ANTHROPIC_BASE_URL"] = strings.TrimRight(h.cfg.ModelAPIBase, "/") + "/v1"
 		env["ANTHROPIC_API_KEY"] = h.cfg.ModelAPIKey
 	} else {
 		env["OPENAI_BASE_URL"] = strings.TrimRight(h.cfg.ModelAPIBase, "/") + "/v1"
@@ -226,6 +226,12 @@ func (h *SessionHandler) Delete(c echo.Context) error {
 	if err != nil {
 		return echo.ErrBadRequest
 	}
+	if sess, err := h.sessionStore.GetByID(c.Request().Context(), id); err == nil {
+		if agent, err := h.agentStore.GetByID(c.Request().Context(), sess.AgentID); err == nil &&
+			agent.SandboxURL != nil && sess.HarnessSessionID != nil {
+			_ = h.harnessClient.Abort(c.Request().Context(), *agent.SandboxURL, *sess.HarnessSessionID)
+		}
+	}
 	_ = h.sessionStore.MarkStopped(c.Request().Context(), id)
 	return c.NoContent(http.StatusNoContent)
 }
@@ -289,7 +295,11 @@ func (h *SessionHandler) StopSandbox(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusNotFound, "agent not found")
 	}
 	sandboxName := fmt.Sprintf("cattery-%s", agent.AgentID.String())
-	_ = h.k8sClient.StopTask(c.Request().Context(), sandboxName)
+	go func() {
+		if err := h.k8sClient.StopTask(context.Background(), sandboxName); err != nil {
+			log.Printf("warn: stop sandbox %s: %v", sandboxName, err)
+		}
+	}()
 	_ = h.agentStore.UpdateSandboxStatus(c.Request().Context(), agentID, "idle")
 	return c.NoContent(http.StatusNoContent)
 }

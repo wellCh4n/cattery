@@ -16,9 +16,11 @@ export default function SessionPage({ params }: { params: Promise<PageParams> })
 
   useEffect(() => {
     let cancelled = false
+    let timer: ReturnType<typeof setTimeout>
     setData(null)
     setError(null)
-    ;(async () => {
+
+    async function load() {
       try {
         const session = await getSession(session_id)
         const agents = await listAgents()
@@ -29,11 +31,24 @@ export default function SessionPage({ params }: { params: Promise<PageParams> })
           return
         }
         setData({ session, agent })
+        if (session.status === "creating") timer = setTimeout(poll, 1500)
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load session")
       }
-    })()
-    return () => { cancelled = true }
+    }
+
+    async function poll() {
+      if (cancelled) return
+      try {
+        const session = await getSession(session_id)
+        if (cancelled) return
+        setData(prev => (prev ? { ...prev, session } : prev))
+        if (session.status === "creating") timer = setTimeout(poll, 1500)
+      } catch { /* ignore transient errors */ }
+    }
+
+    load()
+    return () => { cancelled = true; clearTimeout(timer) }
   }, [session_id])
 
   if (error) {
@@ -61,7 +76,6 @@ export default function SessionPage({ params }: { params: Promise<PageParams> })
       key={data.session.session_id}
       session={data.session}
       agent={data.agent}
-      onSessionUpdate={s => setData(prev => (prev ? { ...prev, session: s } : null))}
     />
   )
 }

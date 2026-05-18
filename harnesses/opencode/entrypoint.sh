@@ -54,4 +54,4 @@ if [ -n "${AGENT_PROMPT:-}" ]; then
 fi
 
 echo "[entrypoint] starting opencode serve on port ${PORT}"
-exec opencode serve --port "${PORT}" --hostname 0.0.0.0
+exec opencode serve --port "${PORT}" --hostname 0.0.0.0 --log-level DEBUG --print-logs

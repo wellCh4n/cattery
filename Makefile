@@ -1,19 +1,24 @@
 .PHONY: dev dev-front dev-back build stop
 
-GO = /usr/local/go/bin/go
-BUN = $(HOME)/.bun/bin/bun
+GO = $(shell which go)
+BUN = $(shell which bun)
 
-DB_URL = postgres://postgres@localhost:5432/cattery?sslmode=disable
+DB_URL = postgres://postgres:postgres@localhost:5432/cattery?sslmode=disable
 PORT = 8080
 K8S_NS = default
 
 # 同时启动前后端
-dev: dev-back dev-front
+dev:
+	@echo "→ starting backend on :$(PORT)"
+	@cd backend && set -a && [ -f .env ] && . ./.env; set +a && \
+		$(GO) run ./cmd/server/ &
+	@echo "→ starting frontend on :3000"
+	@cd web && $(BUN) dev
 
 dev-back:
 	@echo "→ starting backend on :$(PORT)"
 	@cd backend && set -a && [ -f .env ] && . ./.env; set +a && \
-		/usr/local/go/bin/go run ./cmd/server/
+		$(GO) run ./cmd/server/
 
 dev-front:
 	@echo "→ starting frontend on :3000"

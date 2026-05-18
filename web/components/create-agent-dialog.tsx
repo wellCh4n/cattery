@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import { Badge } from "@/components/ui/badge"
 import {
   Dialog,
   DialogContent,
@@ -16,15 +17,29 @@ import {
   DialogTrigger,
   DialogClose,
 } from "@/components/ui/dialog"
+import { cn } from "@/lib/utils"
 import { createAgent, type Agent } from "@/lib/api"
 
 interface Props {
   onCreated: (agent: Agent) => void
 }
 
+const HARNESSES = [
+  { id: "opencode",    label: "OpenCode",    available: true  },
+  { id: "claude-code", label: "Claude Code", available: false },
+  { id: "codex",       label: "Codex",       available: false },
+  { id: "hermes",      label: "Hermes",      available: false },
+] as const
+
+const MODELS = [
+  { id: "claude-sonnet-4-6", label: "Sonnet 4.6" },
+  { id: "claude-opus-4-6",   label: "Opus 4.6"   },
+  { id: "claude-opus-4-7",   label: "Opus 4.7"   },
+] as const
+
 const defaultForm = {
   agent_name: "",
-  model: "",
+  model: "claude-sonnet-4-6",
   prompt: "",
   harness_id: "opencode",
   repo_url: "",
@@ -38,7 +53,7 @@ export function CreateAgentDialog({ onCreated }: Props) {
   const [loading, setLoading] = useState(false)
   const [form, setForm] = useState(defaultForm)
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setLoading(true)
     try {
@@ -85,39 +100,69 @@ export function CreateAgentDialog({ onCreated }: Props) {
         </DialogHeader>
 
         <form id="create-agent-form" onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="agent_name">Name</Label>
-              <Input
-                id="agent_name"
-                placeholder="my-agent"
-                value={form.agent_name}
-                onChange={e => setForm(f => ({ ...f, agent_name: e.target.value }))}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="harness_id">Harness</Label>
-              <Input
-                id="harness_id"
-                value={form.harness_id}
-                onChange={e => setForm(f => ({ ...f, harness_id: e.target.value }))}
-              />
-            </div>
-          </div>
-
+          {/* Name */}
           <div className="space-y-1.5">
-            <Label htmlFor="model">
-              Model <span className="text-destructive">*</span>
-            </Label>
+            <Label htmlFor="agent_name">Name</Label>
             <Input
-              id="model"
-              placeholder="claude-sonnet-4-6"
-              value={form.model}
-              onChange={e => setForm(f => ({ ...f, model: e.target.value }))}
-              required
+              id="agent_name"
+              placeholder="my-agent"
+              value={form.agent_name}
+              onChange={e => setForm(f => ({ ...f, agent_name: e.target.value }))}
             />
           </div>
 
+          {/* Harness */}
+          <div className="space-y-1.5">
+            <Label>Harness</Label>
+            <div className="grid grid-cols-4 gap-2">
+              {HARNESSES.map(h => (
+                <button
+                  key={h.id}
+                  type="button"
+                  disabled={!h.available}
+                  onClick={() => setForm(f => ({ ...f, harness_id: h.id }))}
+                  className={cn(
+                    "relative flex cursor-pointer items-center justify-center rounded-lg border px-2 py-3 text-xs font-medium transition-colors outline-none",
+                    "disabled:opacity-40 disabled:cursor-not-allowed",
+                    form.harness_id === h.id && h.available
+                      ? "border-primary bg-primary/5 text-primary"
+                      : "border-border bg-muted/30 text-muted-foreground hover:bg-muted/60"
+                  )}
+                >
+                  {h.label}
+                  {!h.available && (
+                    <Badge variant="outline" className="absolute top-1 right-1 text-[9px] px-1 py-0 h-3.5 font-normal pointer-events-none">
+                      soon
+                    </Badge>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Model */}
+          <div className="space-y-1.5">
+            <Label>Model</Label>
+            <div className="flex gap-2">
+              {MODELS.map(m => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => setForm(f => ({ ...f, model: m.id }))}
+                  className={cn(
+                    "flex-1 cursor-pointer rounded-lg border px-3 py-2 text-xs font-medium transition-colors outline-none",
+                    form.model === m.id
+                      ? "border-primary bg-primary/5 text-primary"
+                      : "border-border bg-muted/30 text-muted-foreground hover:bg-muted/60"
+                  )}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Repo */}
           <div className="grid grid-cols-3 gap-3">
             <div className="space-y-1.5 col-span-2">
               <Label htmlFor="repo_url">Repo URL</Label>
@@ -138,6 +183,7 @@ export function CreateAgentDialog({ onCreated }: Props) {
             </div>
           </div>
 
+          {/* System Prompt */}
           <div className="space-y-1.5">
             <Label htmlFor="prompt">System Prompt</Label>
             <Textarea
@@ -149,12 +195,11 @@ export function CreateAgentDialog({ onCreated }: Props) {
             />
           </div>
 
+          {/* Env Vars */}
           <div className="space-y-1.5">
             <Label htmlFor="env_vars">
               Env Vars
-              <span className="text-muted-foreground font-normal ml-1">
-                (KEY=VALUE, one per line)
-              </span>
+              <span className="text-muted-foreground font-normal ml-1">(KEY=VALUE, one per line)</span>
             </Label>
             <Textarea
               id="env_vars"
@@ -172,7 +217,7 @@ export function CreateAgentDialog({ onCreated }: Props) {
           <Button
             type="submit"
             form="create-agent-form"
-            disabled={loading || !form.model.trim()}
+            disabled={loading}
           >
             {loading && <Loader2 className="animate-spin" />}
             {loading ? "Creating…" : "Create agent"}
