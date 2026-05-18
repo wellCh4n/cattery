@@ -11,10 +11,10 @@ import {
   Cat,
   MessagesSquare,
 } from "lucide-react"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { CreateAgentDialog } from "@/components/create-agent-dialog"
+import { HarnessIcon } from "@/components/harness-icon"
 import { ThemeToggle } from "@/components/theme-toggle"
 import {
   Dialog,
@@ -270,14 +270,9 @@ export function Sidebar() {
                       agent.expanded && "rotate-90"
                     )}
                   />
-                  <Bot className="size-3.5 text-muted-foreground shrink-0" />
-                  <span className="flex items-center gap-1.5 min-w-0 flex-1">
-                    <span className="truncate">
-                      {agent.agent_name ?? "Untitled"}
-                    </span>
-                    <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 font-normal shrink-0">
-                      {agent.harness_id}
-                    </Badge>
+                  <HarnessIcon id={agent.harness_id} className="size-3.5 text-muted-foreground shrink-0" />
+                  <span className="truncate min-w-0 flex-1">
+                    {agent.agent_name ?? "Untitled"}
                   </span>
                 </button>
                 <button

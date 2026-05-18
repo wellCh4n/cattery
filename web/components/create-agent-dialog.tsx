@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
 import { createAgent, type Agent } from "@/lib/api"
+import { HarnessIcon } from "@/components/harness-icon"
 
 interface Props {
   onCreated: (agent: Agent) => void
@@ -102,7 +103,6 @@ export function CreateAgentDialog({ onCreated }: Props) {
             <Input
               id="agent_name"
               name="agent_name"
-              placeholder="my-agent"
               autoComplete="off"
               spellCheck={false}
               value={form.agent_name}
@@ -121,13 +121,14 @@ export function CreateAgentDialog({ onCreated }: Props) {
                   disabled={!h.available}
                   onClick={() => setForm(f => ({ ...f, harness_id: h.id }))}
                   className={cn(
-                    "relative flex cursor-pointer items-center justify-center rounded-lg border px-2 py-3 text-xs font-medium transition-colors outline-none",
+                    "relative flex cursor-pointer flex-col items-center justify-center gap-1.5 rounded-lg border px-2 py-3 text-xs font-medium transition-colors outline-none",
                     "disabled:opacity-40 disabled:cursor-not-allowed",
                     form.harness_id === h.id && h.available
                       ? "border-primary bg-primary/5 text-primary"
                       : "border-border bg-muted/30 text-muted-foreground hover:bg-muted/60"
                   )}
                 >
+                  <HarnessIcon id={h.id} className="size-5" />
                   {h.label}
                   {!h.available && (
                     <Badge variant="outline" className="absolute top-1 right-1 text-[9px] px-1 py-0 h-3.5 font-normal pointer-events-none">
@@ -168,7 +169,6 @@ export function CreateAgentDialog({ onCreated }: Props) {
               id="prompt"
               name="prompt"
               rows={3}
-              placeholder="You are a helpful coding assistant…"
               autoComplete="off"
               spellCheck={false}
               value={form.prompt}
@@ -187,7 +187,6 @@ export function CreateAgentDialog({ onCreated }: Props) {
               name="env_vars"
               rows={3}
               className="font-mono text-xs"
-              placeholder={"API_KEY=xxx\nBASE_URL=https://..."}
               autoComplete="off"
               autoCorrect="off"
               autoCapitalize="off"
