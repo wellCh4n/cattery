@@ -157,9 +157,9 @@ func (c *Client) WaitHTTPReady(ctx context.Context, sandboxURL string, timeout t
 }
 
 // StreamEventsUntilIdle 连接 sandbox /event SSE，将原始事件翻译为平台统一格式后写入 w，
-// 直到 primary session 进入 idle 状态。onEvent（可选）在每个平台事件被转发前调用，
-// 调用方可借此把感兴趣的事件落库。
-func (c *Client) StreamEventsUntilIdle(ctx context.Context, sandboxURL, harnessSessionID string, w io.Writer, onEvent func(*PlatformEvent)) error {
+// 直到 primary session 进入 idle 状态。translate 由调用方按 harness 类型传入。
+// onEvent（可选）在每个平台事件被转发前调用，调用方可借此把感兴趣的事件落库。
+func (c *Client) StreamEventsUntilIdle(ctx context.Context, sandboxURL, harnessSessionID string, w io.Writer, translate TranslateFunc, onEvent func(*PlatformEvent)) error {
 	streamClient := &http.Client{}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, sandboxURL+"/event", nil)
 	if err != nil {
@@ -188,7 +188,7 @@ func (c *Client) StreamEventsUntilIdle(ctx context.Context, sandboxURL, harnessS
 		}
 		// 空行 = 事件结束，处理 dataLine
 		log.Printf("[harness] raw event: %s", dataLine)
-		platEv, isIdle := translateOpencode(dataLine, harnessSessionID, childSessions)
+		platEv, isIdle := translate(dataLine, harnessSessionID, childSessions)
 		log.Printf("[harness] translated: platEv=%v isIdle=%v", platEv, isIdle)
 		dataLine = ""
 

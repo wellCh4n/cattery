@@ -2,6 +2,12 @@ package harness
 
 import "encoding/json"
 
+// TranslateFunc 把原始 SSE data 行翻译成平台事件。返回 nil 表示不转发；isIdle=true 表示流结束。
+type TranslateFunc func(raw string, primaryID string, childSessions map[string]bool) (*PlatformEvent, bool)
+
+// HistoryTranslateFunc 把 harness 历史 JSON 翻译成平台格式。
+type HistoryTranslateFunc func(raw []byte) ([]PlatformHistoryItem, error)
+
 // PlatformEvent 是平台统一的 SSE 事件格式，前端只处理这个。
 type PlatformEvent struct {
 	Type string          `json:"type"`

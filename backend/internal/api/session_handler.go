@@ -19,7 +19,8 @@ import (
 )
 
 var harnessImages = map[string]string{
-	"opencode": "opencode-sandbox:dev",
+	"opencode":    "opencode-sandbox:dev",
+	"claude-code": "claude-code-sandbox:dev",
 }
 
 type SessionHandler struct {
@@ -233,7 +234,8 @@ func (h *SessionHandler) SendMessage(c echo.Context) error {
 		}(d.Title)
 	}
 
-	return h.harnessClient.StreamEventsUntilIdle(c.Request().Context(), *agent.SandboxURL, *sess.HarnessSessionID, c.Response(), onEvent)
+	translate := harness.TranslatorFor(agent.HarnessID)
+	return h.harnessClient.StreamEventsUntilIdle(c.Request().Context(), *agent.SandboxURL, *sess.HarnessSessionID, c.Response(), translate, onEvent)
 }
 
 func (h *SessionHandler) Delete(c echo.Context) error {
@@ -289,7 +291,7 @@ func (h *SessionHandler) History(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadGateway, err.Error())
 	}
-	items, err := harness.TranslateOpencodeHistory(raw)
+	items, err := harness.HistoryTranslatorFor(agent.HarnessID)(raw)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}

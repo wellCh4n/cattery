@@ -39,3 +39,7 @@ migrate:
 build-harness:
 	@echo "→ building opencode-sandbox:dev"
 	@docker build -t opencode-sandbox:dev harnesses/opencode/
+
+build-harness-claude:
+	@echo "→ building claude-code-sandbox:dev"
+	@docker build -t claude-code-sandbox:dev harnesses/claude-code/
