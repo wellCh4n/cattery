@@ -3,11 +3,32 @@ import { randomUUID } from 'node:crypto'
 import { query } from '@anthropic-ai/claude-code'
 import type { SDKMessage } from '@anthropic-ai/claude-code'
 
-// ── Startup diagnostics ──────────────────────────────────────────────────────
+// ── Startup: env normalization + diagnostics ─────────────────────────────────
+
+// claude-code SDK needs ANTHROPIC_* vars; map from OPENAI_* if present as fallback
+if (!process.env.ANTHROPIC_API_KEY && process.env.OPENAI_API_KEY) {
+  process.env.ANTHROPIC_API_KEY = process.env.OPENAI_API_KEY
+  console.log('[startup] ANTHROPIC_API_KEY: mapped from OPENAI_API_KEY')
+}
+if (!process.env.ANTHROPIC_BASE_URL && process.env.OPENAI_BASE_URL) {
+  process.env.ANTHROPIC_BASE_URL = process.env.OPENAI_BASE_URL
+  console.log('[startup] ANTHROPIC_BASE_URL: mapped from OPENAI_BASE_URL')
+}
 
 console.log('[startup] MODEL             :', process.env.MODEL ?? '(not set)')
-console.log('[startup] ANTHROPIC_BASE_URL:', process.env.ANTHROPIC_BASE_URL ?? '(not set)')
-console.log('[startup] ANTHROPIC_API_KEY :', process.env.ANTHROPIC_API_KEY ? '(set)' : '(NOT SET — auth will fail)')
+console.log('[startup] ANTHROPIC_BASE_URL:', process.env.ANTHROPIC_BASE_URL ?? '(not set — will use api.anthropic.com)')
+console.log('[startup] ANTHROPIC_API_KEY :', process.env.ANTHROPIC_API_KEY ? '(set)' : '*** NOT SET — will fail ***')
+
+// Quick connectivity check so problems show up in pod logs immediately
+{
+  const base = process.env.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com'
+  const key  = process.env.ANTHROPIC_API_KEY  ?? ''
+  fetch(`${base}/v1/models`, {
+    headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01' },
+  })
+    .then(r => console.log(`[startup] API probe → HTTP ${r.status}`))
+    .catch(e => console.error('[startup] API probe failed:', e.message))
+}
 
 const app = express()
 app.use(express.json())
@@ -162,9 +183,9 @@ async function runPrompt(sess: HarnessSession, prompt: string): Promise<void> {
     broadcast(sess.id, { type: 'session.idle', data: {} })
 
   } catch (err: unknown) {
+    console.error('[runPrompt] query() threw:', err)
     const message = err instanceof Error ? err.message : String(err)
     if (/abort/i.test(message)) {
-      // Treat user-triggered abort as a clean idle
       broadcast(sess.id, { type: 'session.idle', data: {} })
     } else {
       broadcast(sess.id, { type: 'session.error', data: { message } })

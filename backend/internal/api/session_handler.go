@@ -116,12 +116,18 @@ func (h *SessionHandler) ensureSandbox(ctx context.Context, agent *model.Agent) 
 	env["PORT"] = fmt.Sprintf("%d", agent.ContainerPort)
 	env["AGENT_ID"] = agent.AgentID.String()
 
+	base := strings.TrimRight(h.cfg.ModelAPIBase, "/")
 	if h.cfg.ModelAPIStyle == "anthropic" {
-		env["ANTHROPIC_BASE_URL"] = strings.TrimRight(h.cfg.ModelAPIBase, "/")
+		env["ANTHROPIC_BASE_URL"] = base
 		env["ANTHROPIC_API_KEY"] = h.cfg.ModelAPIKey
 	} else {
-		env["OPENAI_BASE_URL"] = strings.TrimRight(h.cfg.ModelAPIBase, "/")
+		env["OPENAI_BASE_URL"] = base
 		env["OPENAI_API_KEY"] = h.cfg.ModelAPIKey
+	}
+	// claude-code SDK always requires ANTHROPIC_* regardless of proxy style
+	if agent.HarnessID == "claude-code" {
+		env["ANTHROPIC_BASE_URL"] = base
+		env["ANTHROPIC_API_KEY"] = h.cfg.ModelAPIKey
 	}
 
 	spec := k8s.SandboxSpec{
