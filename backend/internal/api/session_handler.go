@@ -95,7 +95,7 @@ func (h *SessionHandler) ensureSandbox(ctx context.Context, agent *model.Agent) 
 		return *agent.SandboxURL, nil
 	}
 
-	sandboxName := fmt.Sprintf("cattery-%s", agent.AgentID.String())
+	sandboxName := sandboxNameFor(agent)
 
 	// 若已在 starting，等它就绪
 	if agent.SandboxStatus == "starting" {
@@ -345,7 +345,7 @@ func (h *SessionHandler) StopSandbox(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusNotFound, "agent not found")
 	}
-	sandboxName := fmt.Sprintf("cattery-%s", agent.AgentID.String())
+	sandboxName := sandboxNameFor(agent)
 	go func() {
 		if err := h.k8sClient.StopTask(context.Background(), sandboxName); err != nil {
 			log.Printf("warn: stop sandbox %s: %v", sandboxName, err)

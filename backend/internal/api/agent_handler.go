@@ -22,6 +22,15 @@ func NewAgentHandler(store *db.AgentStore, k8sClient *k8s.Client) *AgentHandler 
 	return &AgentHandler{store, k8sClient}
 }
 
+// sandboxNameFor 生成 K8s Sandbox 资源名，形如 `cattery-<harness>-<agent_id>`。
+// harness 为空时回落到旧格式 `cattery-<agent_id>`，避免删除老 sandbox 时漏掉资源。
+func sandboxNameFor(a *model.Agent) string {
+	if a.HarnessID == "" {
+		return fmt.Sprintf("cattery-%s", a.AgentID.String())
+	}
+	return fmt.Sprintf("cattery-%s-%s", a.HarnessID, a.AgentID.String())
+}
+
 type createAgentRequest struct {
 	AgentName     *string           `json:"agent_name"`
 	Model         string            `json:"model"          validate:"required"`
@@ -96,7 +105,7 @@ func (h *AgentHandler) Delete(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusNotFound, "agent not found")
 	}
-	sandboxName := fmt.Sprintf("cattery-%s", a.AgentID.String())
+	sandboxName := sandboxNameFor(a)
 	go func() {
 		if err := h.k8sClient.StopTask(context.Background(), sandboxName); err != nil {
 			log.Printf("warn: stop sandbox %s: %v", sandboxName, err)
