@@ -36,14 +36,16 @@ migrate:
 	@/Applications/Postgres.app/Contents/Versions/latest/bin/psql -h localhost -p 5432 -U postgres -d cattery \
 		-f backend/internal/db/migrations/init.sql
 
-# make build-harness HARNESS=opencode   — build one harness
-# make build-harness HARNESS=claude-code — build one harness
-# make build-harness                     — build all harnesses
+# make build-harness HARNESS=opencode      — build one harness
+# make build-harness HARNESS=claude-code    — build one harness
+# make build-harness HARNESS=codex          — build one harness
+# make build-harness HARNESS=hermes         — build one harness
+# make build-harness                        — build all harnesses
 HARNESS ?=
 build-harness:
 	$(if $(HARNESS), \
 		$(MAKE) _build-harness-$(HARNESS), \
-		$(MAKE) _build-harness-opencode _build-harness-claude-code)
+		$(MAKE) _build-harness-opencode _build-harness-claude-code _build-harness-codex _build-harness-hermes)
 
 _build-harness-opencode:
 	@echo "→ building opencode-sandbox:dev"
@@ -52,3 +54,11 @@ _build-harness-opencode:
 _build-harness-claude-code:
 	@echo "→ building claude-code-sandbox:dev"
 	@docker build -t claude-code-sandbox:dev harnesses/claude-code/
+
+_build-harness-codex:
+	@echo "→ building codex-sandbox:dev"
+	@docker build -t codex-sandbox:dev harnesses/codex/
+
+_build-harness-hermes:
+	@echo "→ building hermes-sandbox:dev"
+	@docker build -t hermes-sandbox:dev harnesses/hermes/
