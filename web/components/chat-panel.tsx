@@ -519,7 +519,7 @@ export function ChatPanel({ session, agent }: Props) {
             )}
           >
             <Textarea
-              className="w-full resize-none border-0 bg-transparent disabled:bg-transparent dark:disabled:bg-transparent min-h-[52px] max-h-48 px-4 pt-3 pb-1 text-sm shadow-none focus-visible:ring-0 focus-visible:border-0 outline-none [field-sizing:content]"
+              className="w-full resize-none border-0 bg-transparent dark:bg-transparent disabled:bg-transparent dark:disabled:bg-transparent min-h-[52px] max-h-48 px-4 pt-3 pb-1 text-sm shadow-none focus-visible:ring-0 focus-visible:border-0 outline-none [field-sizing:content]"
               rows={1}
               placeholder="Send a message…"
               value={input}
@@ -587,7 +587,7 @@ function BubbleRow({ bubble, sessionId }: { bubble: Bubble; sessionId: string })
           <div className="px-3 pb-2.5 text-xs text-muted-foreground italic whitespace-pre-wrap break-words leading-relaxed">
             {bubble.content}
             {!bubble.done && (
-              <span className="inline-block w-1.5 h-3 bg-current animate-pulse ml-0.5 align-text-bottom rounded-[1px]" />
+              <span className="inline-block w-1.5 h-[1em] bg-current animate-pulse ml-0.5 align-[-0.15em] rounded-[1px]" />
             )}
           </div>
         </div>

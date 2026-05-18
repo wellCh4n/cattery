@@ -149,10 +149,10 @@
   content: "";
   display: inline-block;
   width: 0.375rem;
-  height: 0.875rem;
+  height: 1em;
   background-color: currentColor;
   margin-left: 0.125rem;
-  vertical-align: text-bottom;
+  vertical-align: -0.15em;
   border-radius: 1px;
   animation: stream-caret-blink 1s ease-in-out infinite;
 }
