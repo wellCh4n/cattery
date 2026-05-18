@@ -3,14 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { query } from '@anthropic-ai/claude-code'
 import type { SDKMessage } from '@anthropic-ai/claude-code'
 
-// ── Startup: normalize env vars ──────────────────────────────────────────────
-
-// The backend appends /v1 to ANTHROPIC_BASE_URL for opencode compatibility,
-// but the Anthropic SDK appends /v1 itself when building request URLs.
-// Strip any trailing /v1 here so the SDK gets a clean base URL.
-if (process.env.ANTHROPIC_BASE_URL) {
-  process.env.ANTHROPIC_BASE_URL = process.env.ANTHROPIC_BASE_URL.replace(/\/v1\/?$/, '')
-}
+// ── Startup diagnostics ──────────────────────────────────────────────────────
 
 console.log('[startup] MODEL             :', process.env.MODEL ?? '(not set)')
 console.log('[startup] ANTHROPIC_BASE_URL:', process.env.ANTHROPIC_BASE_URL ?? '(not set)')

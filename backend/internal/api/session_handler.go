@@ -117,10 +117,10 @@ func (h *SessionHandler) ensureSandbox(ctx context.Context, agent *model.Agent) 
 	env["AGENT_ID"] = agent.AgentID.String()
 
 	if h.cfg.ModelAPIStyle == "anthropic" {
-		env["ANTHROPIC_BASE_URL"] = strings.TrimRight(h.cfg.ModelAPIBase, "/") + "/v1"
+		env["ANTHROPIC_BASE_URL"] = strings.TrimRight(h.cfg.ModelAPIBase, "/")
 		env["ANTHROPIC_API_KEY"] = h.cfg.ModelAPIKey
 	} else {
-		env["OPENAI_BASE_URL"] = strings.TrimRight(h.cfg.ModelAPIBase, "/") + "/v1"
+		env["OPENAI_BASE_URL"] = strings.TrimRight(h.cfg.ModelAPIBase, "/")
 		env["OPENAI_API_KEY"] = h.cfg.ModelAPIKey
 	}
 
