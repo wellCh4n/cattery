@@ -15,6 +15,8 @@ import (
 	"github.com/wellch4n/cattery/internal/config"
 	"github.com/wellch4n/cattery/internal/db"
 	"github.com/wellch4n/cattery/internal/harness"
+	_ "github.com/wellch4n/cattery/internal/harness/claudecode" // register claude-code translators
+	_ "github.com/wellch4n/cattery/internal/harness/opencode"   // register opencode translators
 	"github.com/wellch4n/cattery/internal/k8s"
 	"github.com/wellch4n/cattery/internal/model"
 )

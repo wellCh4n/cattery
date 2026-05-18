@@ -1,9 +1,13 @@
-package harness
+package opencode
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"github.com/wellch4n/cattery/internal/harness"
+)
 
 // opencode /session/:id/message 返回结构（只取用到的字段）
-type opencodeMessage struct {
+type rawMessage struct {
 	Info struct {
 		ID   string `json:"id"`
 		Role string `json:"role"` // "user" | "assistant"
@@ -21,23 +25,16 @@ type opencodeMessage struct {
 	} `json:"parts"`
 }
 
-// PlatformHistoryItem 是平台统一的历史消息条目，前端按它渲染。
-type PlatformHistoryItem struct {
-	MessageID string          `json:"messageId"`
-	Role      string          `json:"role"`   // "user" | "assistant"
-	Events    []PlatformEvent `json:"events"` // 这条消息包含的平台事件序列
-}
-
-// TranslateOpencodeHistory 把 opencode 的历史消息列表翻译成平台统一格式。
-func TranslateOpencodeHistory(raw []byte) ([]PlatformHistoryItem, error) {
-	var msgs []opencodeMessage
+// translateHistory 把 opencode 的历史消息列表翻译成平台统一格式。
+func translateHistory(raw []byte) ([]harness.PlatformHistoryItem, error) {
+	var msgs []rawMessage
 	if err := json.Unmarshal(raw, &msgs); err != nil {
 		return nil, err
 	}
 
-	items := make([]PlatformHistoryItem, 0, len(msgs))
+	items := make([]harness.PlatformHistoryItem, 0, len(msgs))
 	for _, m := range msgs {
-		item := PlatformHistoryItem{
+		item := harness.PlatformHistoryItem{
 			MessageID: m.Info.ID,
 			Role:      m.Info.Role,
 		}
@@ -48,7 +45,12 @@ func TranslateOpencodeHistory(raw []byte) ([]PlatformHistoryItem, error) {
 					continue
 				}
 				// 历史消息一次性给完整文本
-				item.Events = append(item.Events, NewMessageDelta(p.ID, p.Text))
+				item.Events = append(item.Events, harness.NewMessageDelta(p.ID, p.Text))
+			case "reasoning":
+				if p.Text == "" {
+					continue
+				}
+				item.Events = append(item.Events, harness.NewMessageThinking(p.ID, p.Text))
 			case "tool":
 				if p.State == nil {
 					continue
@@ -56,13 +58,13 @@ func TranslateOpencodeHistory(raw []byte) ([]PlatformHistoryItem, error) {
 				switch p.State.Status {
 				case "completed", "success":
 					item.Events = append(item.Events,
-						NewToolStart(p.ID, p.Tool, string(p.State.Input)),
-						NewToolDone(p.ID, p.Tool, p.State.Output, parseToolOutput(p.Tool, p.State.Output)),
+						harness.NewToolStart(p.ID, p.Tool, string(p.State.Input)),
+						harness.NewToolDone(p.ID, p.Tool, p.State.Output, parseToolOutput(p.Tool, p.State.Output)),
 					)
 				case "error":
 					item.Events = append(item.Events,
-						NewToolStart(p.ID, p.Tool, string(p.State.Input)),
-						NewToolDone(p.ID, p.Tool, "error", nil),
+						harness.NewToolStart(p.ID, p.Tool, string(p.State.Input)),
+						harness.NewToolDone(p.ID, p.Tool, "error", nil),
 					)
 				}
 			}

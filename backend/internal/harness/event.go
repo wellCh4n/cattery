@@ -3,7 +3,8 @@ package harness
 import "encoding/json"
 
 // TranslateFunc 把原始 SSE data 行翻译成平台事件。返回 nil 表示不转发；isIdle=true 表示流结束。
-type TranslateFunc func(raw string, primaryID string, childSessions map[string]bool) (*PlatformEvent, bool)
+// state 在同一个 SSE 连接生命周期内共享，translator 可用它跨事件保留状态（如 partID 类型表）。
+type TranslateFunc func(raw string, primaryID string, childSessions map[string]bool, state map[string]any) (*PlatformEvent, bool)
 
 // HistoryTranslateFunc 把 harness 历史 JSON 翻译成平台格式。
 type HistoryTranslateFunc func(raw []byte) ([]PlatformHistoryItem, error)
@@ -81,6 +82,11 @@ func NewMessageDelta(partID, text string) PlatformEvent {
 	return PlatformEvent{Type: EventMessageDelta, Data: d}
 }
 
+func NewMessageThinking(partID, text string) PlatformEvent {
+	d, _ := json.Marshal(MessageDeltaData{PartID: partID, Text: text})
+	return PlatformEvent{Type: EventMessageThinking, Data: d}
+}
+
 func NewToolStart(toolID, tool, input string) PlatformEvent {
 	d, _ := json.Marshal(ToolStartData{ToolID: toolID, Tool: tool, Input: input})
 	return PlatformEvent{Type: EventToolStart, Data: d}
@@ -98,4 +104,11 @@ func NewSessionIdle() PlatformEvent {
 func NewSessionError(msg string) PlatformEvent {
 	d, _ := json.Marshal(SessionErrorData{Message: msg})
 	return PlatformEvent{Type: EventSessionError, Data: d}
+}
+
+// PlatformHistoryItem 是平台统一的历史消息条目，前端按它渲染。
+type PlatformHistoryItem struct {
+	MessageID string          `json:"messageId"`
+	Role      string          `json:"role"`   // "user" | "assistant"
+	Events    []PlatformEvent `json:"events"` // 这条消息包含的平台事件序列
 }

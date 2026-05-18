@@ -195,6 +195,7 @@ func (c *Client) StreamEventsUntilIdle(ctx context.Context, sandboxURL, harnessS
 	defer resp.Body.Close()
 
 	childSessions := map[string]bool{}
+	state := map[string]any{}
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
 
@@ -210,7 +211,7 @@ func (c *Client) StreamEventsUntilIdle(ctx context.Context, sandboxURL, harnessS
 		}
 		// 空行 = 事件结束，处理 dataLine
 		log.Printf("[harness] raw event: %s", dataLine)
-		platEv, isIdle := translate(dataLine, harnessSessionID, childSessions)
+		platEv, isIdle := translate(dataLine, harnessSessionID, childSessions, state)
 		log.Printf("[harness] translated: platEv=%v isIdle=%v", platEv, isIdle)
 		dataLine = ""
 
