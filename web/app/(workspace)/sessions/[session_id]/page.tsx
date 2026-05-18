@@ -3,6 +3,7 @@
 import { use, useEffect, useState } from "react"
 import { AlertTriangle, Loader2 } from "lucide-react"
 import { ChatPanel } from "@/components/chat-panel"
+import { TerminalView } from "@/components/terminal-view"
 import { getSession, listAgents, type Agent, type Session } from "@/lib/api"
 
 interface PageParams {
@@ -71,7 +72,13 @@ export default function SessionPage({ params }: { params: Promise<PageParams> })
     )
   }
 
-  return (
+  return data.agent.harness_kind === "terminal" ? (
+    <TerminalView
+      key={data.session.session_id}
+      session={data.session}
+      agent={data.agent}
+    />
+  ) : (
     <ChatPanel
       key={data.session.session_id}
       session={data.session}

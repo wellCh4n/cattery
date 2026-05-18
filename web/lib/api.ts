@@ -1,11 +1,14 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080"
 
+export type HarnessKind = "http" | "terminal"
+
 export interface Agent {
   agent_id: string
   agent_name: string | null
   model: string
   prompt: string | null
   harness_id: string
+  harness_kind: HarnessKind
   env_vars: Record<string, string>
   container_port: number
   created_at: string
@@ -30,7 +33,7 @@ export async function listAgents(): Promise<Agent[]> {
   return res.json()
 }
 
-export async function createAgent(data: Omit<Agent, "agent_id" | "created_at">): Promise<Agent> {
+export async function createAgent(data: Omit<Agent, "agent_id" | "created_at" | "harness_kind">): Promise<Agent> {
   const res = await fetch(`${API_BASE}/api/v1/agents`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -103,4 +106,10 @@ export async function getHistory(sessionId: string): Promise<PlatformHistoryItem
   const res = await fetch(`${API_BASE}/api/v1/sessions/${sessionId}/history`, { cache: "no-store" })
   if (!res.ok) throw new Error("failed to get history")
   return res.json()
+}
+
+// termURL 生成终端 WS endpoint。把 API_BASE 的 http(s) 换成 ws(s)。
+export function termURL(sessionId: string): string {
+  const base = API_BASE.replace(/^http(s?):/, "ws$1:")
+  return `${base}/api/v1/sessions/${sessionId}/term`
 }

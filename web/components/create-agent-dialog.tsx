@@ -26,10 +26,10 @@ interface Props {
 }
 
 const HARNESSES = [
-  { id: "opencode",    label: "OpenCode",    available: true  },
-  { id: "claude-code", label: "Claude Code", available: true  },
-  { id: "codex",       label: "Codex",       available: false },
-  { id: "hermes",      label: "Hermes",      available: false },
+  { id: "opencode",    label: "OpenCode",    available: true },
+  { id: "claude-code", label: "Claude Code", available: true },
+  { id: "codex",       label: "Codex",       available: true },
+  { id: "hermes",      label: "Hermes",      available: true },
 ] as const
 
 const MODELS = [
