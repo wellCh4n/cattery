@@ -12,6 +12,7 @@ import {
   Sparkles,
   AlertTriangle,
   CornerDownLeft,
+  Brain,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
@@ -19,13 +20,30 @@ import { Badge } from "@/components/ui/badge"
 import { Markdown } from "@/components/markdown"
 import { FileViewer } from "@/components/file-viewer"
 import { cn } from "@/lib/utils"
-import { getHistory, abortSession, type Session, type Agent } from "@/lib/api"
+import { getHistory, abortSession, answerSession, type Session, type Agent, type QuestionAnswer } from "@/lib/api"
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080"
 
 interface PlatformEvent {
-  type: "message.delta" | "tool.start" | "tool.done" | "session.idle" | "session.error" | "session.title"
-  data: MessageDeltaData | ToolStartData | ToolDoneData | SessionErrorData | SessionTitleData | Record<string, never>
+  type:
+    | "message.delta"
+    | "message.thinking"
+    | "tool.start"
+    | "tool.done"
+    | "question.asked"
+    | "question.answered"
+    | "session.idle"
+    | "session.error"
+    | "session.title"
+  data:
+    | MessageDeltaData
+    | ToolStartData
+    | ToolDoneData
+    | SessionErrorData
+    | SessionTitleData
+    | QuestionAskedData
+    | QuestionAnsweredData
+    | Record<string, never>
 }
 
 interface MessageDeltaData  { partId: string; text: string }
@@ -33,6 +51,20 @@ interface ToolStartData     { toolId: string; tool: string; input?: string }
 interface ToolDoneData      { toolId: string; tool: string; output?: string; parsed?: unknown }
 interface SessionErrorData  { message: string }
 interface SessionTitleData  { title: string }
+
+interface QuestionOption {
+  label: string
+  description: string
+  preview?: string
+}
+interface QuestionItem {
+  question: string
+  header: string
+  options: QuestionOption[]
+  multiSelect?: boolean
+}
+interface QuestionAskedData     { partId: string; questions: QuestionItem[] }
+interface QuestionAnsweredData  { partId: string; answers: QuestionAnswer[] }
 
 interface ParsedFileRead {
   path: string
@@ -48,12 +80,14 @@ interface ParsedGlob {
 interface Bubble {
   id: string
   role: "user" | "assistant"
-  kind: "text" | "tool" | "error"
+  kind: "text" | "thinking" | "tool" | "error" | "question"
   content: string
   toolName?: string
   toolStatus?: "pending" | "running" | "completed"
   toolOutput?: string
   toolParsed?: unknown
+  questions?: QuestionItem[]
+  questionAnswers?: QuestionAnswer[]
   done: boolean
 }
 
@@ -109,9 +143,10 @@ export function ChatPanel({ session, agent }: Props) {
           continue
         }
         for (const ev of item.events) {
-          if (ev.type === "message.delta") {
+          if (ev.type === "message.delta" || ev.type === "message.thinking") {
             const d = ev.data as { partId?: string; text?: string }
             if (!d.partId || !d.text) continue
+            const kind = ev.type === "message.thinking" ? "thinking" : "text"
             const existing = restored.find(b => b.id === d.partId)
             if (existing) {
               existing.content = d.text
@@ -119,7 +154,7 @@ export function ChatPanel({ session, agent }: Props) {
               restored.push({
                 id: d.partId,
                 role: "assistant",
-                kind: "text",
+                kind,
                 content: d.text,
                 done: true,
               })
@@ -148,6 +183,27 @@ export function ChatPanel({ session, agent }: Props) {
               existing.toolParsed = d.parsed
               existing.done = true
             }
+          } else if (ev.type === "question.asked") {
+            const d = ev.data as Partial<QuestionAskedData>
+            if (!d.partId || !d.questions) continue
+            if (!restored.find(b => b.id === d.partId)) {
+              restored.push({
+                id: d.partId,
+                role: "assistant",
+                kind: "question",
+                content: "",
+                questions: d.questions,
+                done: false,
+              })
+            }
+          } else if (ev.type === "question.answered") {
+            const d = ev.data as Partial<QuestionAnsweredData>
+            if (!d.partId) continue
+            const existing = restored.find(b => b.id === d.partId)
+            if (existing) {
+              existing.questionAnswers = d.answers ?? []
+              existing.done = true
+            }
           }
         }
       }
@@ -167,9 +223,9 @@ export function ChatPanel({ session, agent }: Props) {
         const partID = d.partId
         const delta = d.text
         setBubbles(prev => {
-          const existing = prev.find(b => b.id === partID)
+          const existing = prev.find(b => b.id === partID && b.kind === "text")
           if (existing) {
-            return prev.map(b => b.id === partID ? { ...b, content: b.content + delta } : b)
+            return prev.map(b => b.id === partID && b.kind === "text" ? { ...b, content: b.content + delta } : b)
           }
           const pendingIdx = prev.findIndex(b =>
             b.role === "assistant" && b.kind === "text" && !b.done && b.id.startsWith("pending-")
@@ -189,12 +245,31 @@ export function ChatPanel({ session, agent }: Props) {
         break
       }
 
+      case "message.thinking": {
+        const d = ev.data as MessageDeltaData
+        if (!d.text || !d.partId) break
+        const partID = d.partId
+        const delta = d.text
+        setBubbles(prev => {
+          const existing = prev.find(b => b.id === partID && b.kind === "thinking")
+          if (existing) {
+            return prev.map(b => b.id === partID && b.kind === "thinking" ? { ...b, content: b.content + delta } : b)
+          }
+          return [
+            ...prev.filter(b => !(b.kind === "text" && !b.done && b.content === "")),
+            { id: partID, role: "assistant", kind: "thinking", content: delta, done: false },
+          ]
+        })
+        bottomRef.current?.scrollIntoView({ behavior: "smooth" })
+        break
+      }
+
       case "tool.start": {
         const d = ev.data as ToolStartData
         setBubbles(prev => {
           const next = prev
             .filter(b => !(b.kind === "text" && !b.done && b.content === ""))
-            .map(b => b.kind === "text" && !b.done ? { ...b, done: true } : b)
+            .map(b => (b.kind === "text" || b.kind === "thinking") && !b.done ? { ...b, done: true } : b)
           const existing = next.find(b => b.id === d.toolId)
           if (existing) {
             return next.map(b => b.id === d.toolId
@@ -225,11 +300,42 @@ export function ChatPanel({ session, agent }: Props) {
         break
       }
 
+      case "question.asked": {
+        const d = ev.data as QuestionAskedData
+        if (!d.partId || !d.questions) break
+        setBubbles(prev => {
+          // close any in-flight text/thinking bubble; render question card next
+          const next = prev
+            .filter(b => !(b.kind === "text" && !b.done && b.content === ""))
+            .map(b => (b.kind === "text" || b.kind === "thinking") && !b.done ? { ...b, done: true } : b)
+          if (next.find(b => b.id === d.partId)) return next
+          return [...next, {
+            id: d.partId,
+            role: "assistant",
+            kind: "question",
+            content: "",
+            questions: d.questions,
+            done: false,
+          }]
+        })
+        break
+      }
+
+      case "question.answered": {
+        const d = ev.data as QuestionAnsweredData
+        setBubbles(prev => prev.map(b =>
+          b.id === d.partId
+            ? { ...b, questionAnswers: d.answers, done: true }
+            : b
+        ))
+        break
+      }
+
       case "session.idle": {
         setSending(false)
         setBubbles(prev => prev
           .filter(b => !(b.kind === "text" && !b.done && b.content === ""))
-          .map((b, i, arr) => i === arr.length - 1 && !b.done ? { ...b, done: true } : b)
+          .map(b => b.done ? b : { ...b, done: true })
         )
         break
       }
@@ -397,7 +503,7 @@ export function ChatPanel({ session, agent }: Props) {
               </p>
             </div>
           )}
-          {bubbles.map((b) => <BubbleRow key={b.id} bubble={b} />)}
+          {bubbles.map((b) => <BubbleRow key={b.id} bubble={b} sessionId={session.session_id} />)}
           <div ref={bottomRef} />
         </div>
       </div>
@@ -406,13 +512,14 @@ export function ChatPanel({ session, agent }: Props) {
         <div className="max-w-3xl mx-auto">
           <div
             className={cn(
-              "group/composer rounded-2xl border bg-card shadow-sm transition-colors",
+              "group/composer rounded-2xl border bg-background shadow-sm transition-colors",
               "focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/20",
-              (session.status !== "ready" || sending) && "opacity-70"
+              session.status !== "ready" && "opacity-70",
+              sending && "bg-muted/60"
             )}
           >
             <Textarea
-              className="w-full resize-none border-0 bg-transparent min-h-[52px] max-h-48 px-4 pt-3 pb-1 text-sm shadow-none focus-visible:ring-0 focus-visible:border-0 outline-none [field-sizing:content]"
+              className="w-full resize-none border-0 bg-transparent disabled:bg-transparent dark:disabled:bg-transparent min-h-[52px] max-h-48 px-4 pt-3 pb-1 text-sm shadow-none focus-visible:ring-0 focus-visible:border-0 outline-none [field-sizing:content]"
               rows={1}
               placeholder="Send a message…"
               value={input}
@@ -463,7 +570,31 @@ export function ChatPanel({ session, agent }: Props) {
   )
 }
 
-function BubbleRow({ bubble }: { bubble: Bubble }) {
+function BubbleRow({ bubble, sessionId }: { bubble: Bubble; sessionId: string }) {
+  if (bubble.kind === "question") {
+    return <QuestionBubble bubble={bubble} sessionId={sessionId} />
+  }
+
+  if (bubble.kind === "thinking") {
+    return (
+      <div className="flex justify-start">
+        <div className="max-w-[90%] min-w-[50%] rounded-lg border border-dashed bg-muted/20">
+          <div className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] uppercase tracking-wide text-muted-foreground">
+            <Brain className="size-3" />
+            <span className="font-mono">thinking</span>
+            {!bubble.done && <Loader2 className="size-3 animate-spin ml-1" />}
+          </div>
+          <div className="px-3 pb-2.5 text-xs text-muted-foreground italic whitespace-pre-wrap break-words leading-relaxed">
+            {bubble.content}
+            {!bubble.done && (
+              <span className="inline-block w-1.5 h-3 bg-current animate-pulse ml-0.5 align-text-bottom rounded-[1px]" />
+            )}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   if (bubble.kind === "error") {
     return (
       <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-xs text-destructive">
@@ -564,12 +695,9 @@ function BubbleRow({ bubble }: { bubble: Bubble }) {
             <span>thinking…</span>
           </div>
         ) : (
-          <>
+          <div className={!bubble.done ? "stream-caret" : undefined}>
             <Markdown>{bubble.content}</Markdown>
-            {!bubble.done && (
-              <span className="inline-block w-1.5 h-3.5 bg-current animate-pulse ml-0.5 align-text-bottom rounded-[1px]" />
-            )}
-          </>
+          </div>
         )}
       </div>
     </div>
@@ -665,4 +793,114 @@ function ToolStatusIcon({ status }: { status?: "pending" | "running" | "complete
     return <Loader2 className="size-3.5 text-amber-500 animate-spin shrink-0" />
   }
   return <Loader2 className="size-3.5 text-muted-foreground shrink-0" />
+}
+
+function QuestionBubble({ bubble, sessionId }: { bubble: Bubble; sessionId: string }) {
+  const questions = bubble.questions ?? []
+  const answered = !!bubble.questionAnswers
+  const [selected, setSelected] = useState<string[][]>(() => questions.map(() => []))
+  const [submitting, setSubmitting] = useState(false)
+
+  function toggle(qIdx: number, label: string, multi: boolean): void {
+    setSelected(prev => {
+      const next = prev.map(row => [...row])
+      if (multi) {
+        const row = next[qIdx]
+        const at = row.indexOf(label)
+        if (at >= 0) row.splice(at, 1)
+        else row.push(label)
+      } else {
+        next[qIdx] = [label]
+      }
+      return next
+    })
+  }
+
+  async function submit(): Promise<void> {
+    if (submitting || answered) return
+    const ready = questions.every((q, i) => selected[i].length >= (q.multiSelect ? 1 : 1))
+    if (!ready) return
+    setSubmitting(true)
+    try {
+      const answers: QuestionAnswer[] = questions.map((q, i) => ({
+        question: q.question,
+        selectedLabels: selected[i],
+      }))
+      await answerSession(sessionId, bubble.id, answers)
+    } catch (err) {
+      console.error("answer submit failed:", err)
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="flex justify-start">
+      <div className="max-w-[90%] min-w-[50%] rounded-lg border border-primary/40 bg-primary/5 overflow-hidden">
+        <div className="flex items-center gap-1.5 px-3 py-1.5 border-b bg-primary/5 text-[11px] uppercase tracking-wide text-muted-foreground">
+          <CornerDownLeft className="size-3" />
+          <span className="font-mono">{answered ? "answered" : "question"}</span>
+        </div>
+        <div className="px-3 py-2.5 space-y-3">
+          {questions.map((q, qIdx) => {
+            const userAnswer = bubble.questionAnswers?.[qIdx]
+            return (
+              <div key={qIdx} className="space-y-1.5">
+                <div className="flex items-center gap-1.5">
+                  {q.header && (
+                    <Badge variant="secondary" className="text-[10px] uppercase">{q.header}</Badge>
+                  )}
+                  <div className="text-sm font-medium">{q.question}</div>
+                </div>
+                <div className="grid gap-1.5">
+                  {q.options.map((opt, oIdx) => {
+                    const isPicked = answered
+                      ? userAnswer?.selectedLabels.includes(opt.label) ?? false
+                      : selected[qIdx]?.includes(opt.label) ?? false
+                    return (
+                      <button
+                        key={oIdx}
+                        type="button"
+                        disabled={answered || submitting}
+                        onClick={() => toggle(qIdx, opt.label, !!q.multiSelect)}
+                        className={cn(
+                          "text-left rounded border px-2.5 py-1.5 text-xs transition-colors cursor-pointer",
+                          isPicked
+                            ? "border-primary bg-primary/10"
+                            : "border-border hover:bg-muted/40",
+                          (answered || submitting) && "cursor-not-allowed opacity-80",
+                        )}
+                      >
+                        <div className="flex items-center gap-1.5">
+                          {isPicked && <CheckCircle2 className="size-3 text-primary" />}
+                          <span className="font-medium">{opt.label}</span>
+                        </div>
+                        {opt.description && (
+                          <div className="mt-0.5 text-[11px] text-muted-foreground">{opt.description}</div>
+                        )}
+                        {opt.preview && (
+                          <pre className="mt-1 max-h-32 overflow-auto rounded bg-muted/50 p-1.5 font-mono text-[10px] whitespace-pre-wrap">
+                            {opt.preview}
+                          </pre>
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })}
+          {!answered && (
+            <Button
+              size="sm"
+              onClick={submit}
+              disabled={submitting || selected.some(row => row.length === 0)}
+              className="w-full"
+            >
+              {submitting ? <Loader2 className="size-3 animate-spin" /> : "Submit"}
+            </Button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
 }

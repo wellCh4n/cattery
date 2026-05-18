@@ -16,12 +16,15 @@ type PlatformEvent struct {
 
 // 事件类型常量
 const (
-	EventMessageDelta = "message.delta"  // AI 输出文本片段
-	EventToolStart    = "tool.start"     // 工具调用开始
-	EventToolDone     = "tool.done"      // 工具调用结束
-	EventSessionIdle  = "session.idle"   // session 结束/空闲
-	EventSessionError = "session.error"  // 出错
-	EventSessionTitle = "session.title"  // session title 已生成/更新
+	EventMessageDelta    = "message.delta"      // AI 输出文本片段
+	EventMessageThinking = "message.thinking"   // AI 思考过程片段（可选，不是所有 harness 都会发）
+	EventToolStart       = "tool.start"         // 工具调用开始
+	EventToolDone        = "tool.done"          // 工具调用结束
+	EventQuestionAsked   = "question.asked"     // AskUserQuestion：模型向用户提问
+	EventQuestionAnswered = "question.answered" // 用户回答完成（用于 UI 状态回填）
+	EventSessionIdle     = "session.idle"       // session 结束/空闲
+	EventSessionError    = "session.error"      // 出错
+	EventSessionTitle    = "session.title"      // session title 已生成/更新
 )
 
 type MessageDeltaData struct {

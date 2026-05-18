@@ -92,6 +92,28 @@ func (c *Client) Abort(ctx context.Context, sandboxURL, harnessSessionID string)
 	return nil
 }
 
+// Answer 把用户对 AskUserQuestion 的回答透传给 harness。body 由前端原样构造。
+func (c *Client) Answer(ctx context.Context, sandboxURL, harnessSessionID string, body []byte) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		fmt.Sprintf("%s/session/%s/answer", sandboxURL, harnessSessionID),
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("harness answer: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("harness answer status %d: %s", resp.StatusCode, b)
+	}
+	return nil
+}
+
 // History 拉取 harness 内的历史消息原文（数组），原样返回 JSON。
 func (c *Client) History(ctx context.Context, sandboxURL, harnessSessionID string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,

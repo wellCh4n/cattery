@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -274,6 +275,31 @@ func (h *SessionHandler) Abort(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "session not active")
 	}
 	if err := h.harnessClient.Abort(c.Request().Context(), *agent.SandboxURL, *sess.HarnessSessionID); err != nil {
+		return echo.NewHTTPError(http.StatusBadGateway, err.Error())
+	}
+	return c.NoContent(http.StatusNoContent)
+}
+
+// Answer 把用户对 AskUserQuestion 的回答透传到 harness。
+// 请求体由前端构造，后端不做 schema 检查 —— 不同 harness 的应答结构未必一致。
+func (h *SessionHandler) Answer(c echo.Context) error {
+	id, err := uuid.Parse(c.Param("session_id"))
+	if err != nil {
+		return echo.ErrBadRequest
+	}
+	sess, err := h.sessionStore.GetByID(c.Request().Context(), id)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusNotFound, "session not found")
+	}
+	agent, err := h.agentStore.GetByID(c.Request().Context(), sess.AgentID)
+	if err != nil || agent.SandboxURL == nil || sess.HarnessSessionID == nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "session not active")
+	}
+	body, err := io.ReadAll(c.Request().Body)
+	if err != nil {
+		return echo.ErrBadRequest
+	}
+	if err := h.harnessClient.Answer(c.Request().Context(), *agent.SandboxURL, *sess.HarnessSessionID, body); err != nil {
 		return echo.NewHTTPError(http.StatusBadGateway, err.Error())
 	}
 	return c.NoContent(http.StatusNoContent)

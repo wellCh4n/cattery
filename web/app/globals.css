@@ -136,3 +136,28 @@
 .dark [style*="--shiki-light"] {
   color: var(--shiki-dark);
 }
+
+/* Streaming caret: appended inline at the end of the last text block so it
+   sits next to the final character instead of dropping to a new line. */
+@keyframes stream-caret-blink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0; }
+}
+.stream-caret > div > :last-child::after,
+.stream-caret > div > ul:last-child > li:last-child::after,
+.stream-caret > div > ol:last-child > li:last-child::after {
+  content: "";
+  display: inline-block;
+  width: 0.375rem;
+  height: 0.875rem;
+  background-color: currentColor;
+  margin-left: 0.125rem;
+  vertical-align: text-bottom;
+  border-radius: 1px;
+  animation: stream-caret-blink 1s ease-in-out infinite;
+}
+/* Suppress the top-level caret when a list is the last block — list handler above adds it on the last <li>. */
+.stream-caret > div > ul:last-child::after,
+.stream-caret > div > ol:last-child::after {
+  content: none;
+}

@@ -11,11 +11,16 @@ RUN npm install
 
 COPY src/ ./src/
 
-RUN mkdir -p /work
+# claude CLI refuses to run --dangerously-skip-permissions as root; use the
+# node user that ships with the base image and own /app + /work.
+RUN mkdir -p /work && chown -R node:node /app /work
+
+USER node
 
 ENV PATH="/app/node_modules/.bin:${PATH}"
 ENV PORT=4096
 ENV WORK_DIR=/work
+ENV HOME=/home/node
 
 EXPOSE 4096
 

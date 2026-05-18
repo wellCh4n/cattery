@@ -74,6 +74,25 @@ export async function abortSession(sessionId: string): Promise<void> {
   await fetch(`${API_BASE}/api/v1/sessions/${sessionId}/abort`, { method: "POST" })
 }
 
+export interface QuestionAnswer {
+  question: string
+  selectedLabels: string[]
+  notes?: string
+}
+
+export async function answerSession(
+  sessionId: string,
+  questionId: string,
+  answers: QuestionAnswer[],
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/v1/sessions/${sessionId}/answer`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ questionId, answers }),
+  })
+  if (!res.ok) throw new Error("failed to submit answer")
+}
+
 export interface PlatformHistoryItem {
   messageId: string
   role: "user" | "assistant"

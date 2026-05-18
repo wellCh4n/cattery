@@ -26,6 +26,9 @@ export function CodeBlock({ code, lang, className }: Props) {
   const [tokens, setTokens] = useState<ThemedToken[][] | null>(null)
   const [copied, setCopied] = useState(false)
   const displayLang = lang && lang !== "text" && lang !== "plain" ? lang : ""
+  // Markdown fenced blocks always carry a trailing newline; without trimming
+  // it shiki/`split("\n")` emit an empty final line that looks like a stray cursor row.
+  const normalized = code.endsWith("\n") ? code.slice(0, -1) : code
 
   useEffect(() => {
     if (!displayLang) return
@@ -35,24 +38,24 @@ export function CodeBlock({ code, lang, className }: Props) {
       if (cancelled || !ok) return
       const h = await getHighlighter()
       if (cancelled) return
-      const result = h.codeToTokens(code, {
+      const result = h.codeToTokens(normalized, {
         lang: displayLang as BundledLanguage,
         themes: { light: SHIKI_THEME_LIGHT, dark: SHIKI_THEME_DARK },
       })
       if (!cancelled) setTokens(result.tokens)
     })().catch(() => { /* ignore */ })
     return () => { cancelled = true }
-  }, [code, displayLang])
+  }, [normalized, displayLang])
 
   async function handleCopy() {
     try {
-      await navigator.clipboard.writeText(code)
+      await navigator.clipboard.writeText(normalized)
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
     } catch { /* ignore */ }
   }
 
-  const lines = tokens ?? code.split("\n").map(text => [{ content: text, color: "" } as ThemedToken])
+  const lines = tokens ?? normalized.split("\n").map(text => [{ content: text, color: "" } as ThemedToken])
 
   return (
     <div className={cn("my-3 overflow-hidden rounded-md border bg-muted/30", className)}>
