@@ -14,6 +14,7 @@ COPY src/ ./src/
 
 RUN mkdir -p /work
 
+ENV PATH="/app/node_modules/.bin:${PATH}"
 ENV PORT=4096
 ENV WORK_DIR=/work
 
