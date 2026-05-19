@@ -32,15 +32,25 @@ const HARNESSES = [
   { id: "hermes",      label: "Hermes",      available: true },
 ] as const
 
-const MODELS = [
-  { id: "claude-sonnet-4-6", label: "Sonnet 4.6" },
-  { id: "claude-opus-4-6",   label: "Opus 4.6"   },
-  { id: "claude-opus-4-7",   label: "Opus 4.7"   },
-] as const
+interface ModelOption {
+  id: string
+  label: string
+  harnesses: string[]
+}
+
+const MODELS: ModelOption[] = [
+  { id: "claude-sonnet-4-6", label: "Sonnet 4.6", harnesses: ["opencode", "claude-code", "hermes"] },
+  { id: "claude-opus-4-6",   label: "Opus 4.6",   harnesses: ["opencode", "claude-code", "hermes"] },
+  { id: "claude-opus-4-7",   label: "Opus 4.7",   harnesses: ["opencode", "claude-code", "hermes"] },
+  { id: "gpt-5.4",           label: "GPT-5.4",    harnesses: ["opencode", "claude-code", "hermes", "codex"] },
+  { id: "gpt-5.5",           label: "GPT-5.5",    harnesses: ["opencode", "claude-code", "hermes", "codex"] },
+  { id: "__custom__",        label: "Custom",      harnesses: ["opencode", "claude-code", "hermes", "codex"] },
+]
 
 const defaultForm = {
   agent_name: "",
   model: "claude-sonnet-4-6",
+  custom_model: "",
   prompt: "",
   harness_id: "opencode",
   container_port: 4096,
@@ -63,9 +73,10 @@ export function CreateAgentDialog({ onCreated }: Props) {
           if (k.trim()) env_vars[k.trim()] = v.join("=").trim()
         }
       }
+      const model = form.model === "__custom__" ? form.custom_model : form.model
       const agent = await createAgent({
         agent_name: form.agent_name || null,
-        model: form.model,
+        model,
         prompt: form.prompt || null,
         harness_id: form.harness_id,
         container_port: form.container_port,
@@ -88,7 +99,7 @@ export function CreateAgentDialog({ onCreated }: Props) {
           </Button>
         }
       />
-      <DialogContent className="sm:max-w-[520px]">
+      <DialogContent className="sm:max-w-[620px]">
         <DialogHeader>
           <DialogTitle>Create Agent</DialogTitle>
           <DialogDescription>
@@ -119,7 +130,11 @@ export function CreateAgentDialog({ onCreated }: Props) {
                   key={h.id}
                   type="button"
                   disabled={!h.available}
-                  onClick={() => setForm(f => ({ ...f, harness_id: h.id }))}
+                  onClick={() => setForm(f => {
+                    const cur = MODELS.find(m => m.id === f.model)
+                    const needsReset = cur && !cur.harnesses.includes(h.id)
+                    return { ...f, harness_id: h.id, ...(needsReset ? { model: "gpt-5.5" } : {}) }
+                  })}
                   className={cn(
                     "relative flex cursor-pointer flex-col items-center justify-center gap-1.5 rounded-lg border px-2 py-3 text-xs font-medium transition-colors outline-none",
                     "disabled:opacity-40 disabled:cursor-not-allowed",
@@ -144,7 +159,7 @@ export function CreateAgentDialog({ onCreated }: Props) {
           <div className="space-y-1.5">
             <Label>Model</Label>
             <div className="flex gap-2">
-              {MODELS.map(m => (
+              {MODELS.filter(m => m.harnesses.includes(form.harness_id)).map(m => (
                 <button
                   key={m.id}
                   type="button"
@@ -160,6 +175,16 @@ export function CreateAgentDialog({ onCreated }: Props) {
                 </button>
               ))}
             </div>
+            {form.model === "__custom__" && (
+              <Input
+                className="mt-2 font-mono text-xs"
+                placeholder="e.g. gpt-5.5, claude-haiku-4-6"
+                autoComplete="off"
+                spellCheck={false}
+                value={form.custom_model}
+                onChange={e => setForm(f => ({ ...f, custom_model: e.target.value }))}
+              />
+            )}
           </div>
 
           {/* System Prompt */}
