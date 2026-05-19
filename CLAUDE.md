@@ -13,12 +13,14 @@ Target deployment: self-hosted Kubernetes, internal-only (no SSO/audit yet). Mod
 All run from the repo root.
 
 ```bash
-make dev-back       # backend on :8080, sources backend/.env
-make dev-front      # Next.js dev on :3000 (bun)
-make build          # compile Go server to backend/bin/server
-make stop           # kill :8080 and :3000
-make migrate        # apply backend/internal/db/migrations/init.sql
-make build-harness  # docker build -t opencode-sandbox:dev harnesses/opencode/
+make dev                          # backend (:8080) + frontend (:3000) together
+make dev-back                     # backend only, sources backend/.env
+make dev-front                    # Next.js dev on :3000 (bun)
+make build                        # compile Go server to backend/bin/server
+make stop                         # kill :8080 and :3000
+make migrate                      # apply backend/internal/db/migrations/init.sql
+make build-harness                # build all four harness images
+make build-harness HARNESS=codex  # build a single harness (opencode | claude-code | codex | hermes)
 ```
 
 Go binary lives at `/usr/local/go/bin/go`; PATH typically does not include it, so prefer `make` targets or call the absolute path directly. Same for bun at `~/.bun/bin/bun`.
@@ -43,9 +45,18 @@ web (Next.js + shadcn, bun)   →   backend (Go + Echo)   →   K8s Sandbox Pod
 
 Creating a Session triggers `ensureSandbox` (`backend/internal/api/session_handler.go`): if the Agent's sandbox is `ready`, reuse; otherwise start the Sandbox CR, wait for `status.conditions[Ready]=True`, pick first IPv4 from `status.podIPs`, then handshake `POST /session` on the harness.
 
-### Harness HTTP contract
+### Two harness kinds: HTTP vs Terminal
 
-Every harness container must implement the same endpoints, listening on `agent.container_port` (default 4096):
+Harnesses register themselves through `backend/internal/harness/registry.go` as one of two kinds. `KindFor(harness_id)` decides which transport the session uses end-to-end.
+
+- **`KindHTTP`** (e.g. `opencode`, `claude-code`) — harness exposes the HTTP contract below; events are translated to platform format and streamed as SSE.
+- **`KindTerminal`** (e.g. `codex`, `hermes`) — harness wraps a TUI; the backend opens a WebSocket against the sandbox and proxies raw PTY bytes both directions. **No translator is used** for these.
+
+The frontend picks `chat-panel.tsx` vs `terminal-view.tsx` based on the kind.
+
+### Harness HTTP contract (KindHTTP only)
+
+Every HTTP harness container must implement these endpoints on `agent.container_port` (default 4096):
 
 ```
 POST /session                          → { id }
@@ -55,31 +66,36 @@ POST /session/:id/abort
 GET  /event                            → SSE stream of all events
 ```
 
-The backend calls these from `backend/internal/harness/client.go`. Adding a new harness means adding a container that implements this contract — no platform code change is strictly required for the contract itself.
+The backend calls these from `backend/internal/harness/client.go`.
 
-### Platform event protocol (harness-agnostic)
+### Platform event protocol (KindHTTP only)
 
-**This is the core abstraction.** Harnesses emit their own event formats; the backend translates them to a uniform shape before sending to the frontend. Frontend only knows the platform shape.
+**This is the core abstraction for HTTP harnesses.** They emit their own event formats; per-harness translators normalize them to a uniform shape before sending to the frontend. Frontend only knows the platform shape.
 
 Defined in `backend/internal/harness/event.go`:
 
 ```
-{ type: "message.delta",  data: { partId, text } }     // streaming text chunk
-{ type: "tool.start",     data: { toolId, tool, input } }
-{ type: "tool.done",      data: { toolId, tool, output } }
-{ type: "session.idle",   data: {} }                    // closes the stream
-{ type: "session.error",  data: { message } }
+{ type: "message.delta",      data: { partId, text } }     // streaming text chunk
+{ type: "message.thinking",   data: { partId, text } }     // streaming thinking chunk (optional)
+{ type: "tool.start",         data: { toolId, tool, input } }
+{ type: "tool.done",          data: { toolId, tool, output, parsed? } }
+{ type: "question.asked",     data: { ... } }              // model asks the user a question
+{ type: "question.answered",  data: { ... } }              // user answered (UI state replay)
+{ type: "session.title",      data: { title } }            // session title generated/updated
+{ type: "session.idle",       data: {} }                   // closes the stream
+{ type: "session.error",      data: { message } }
 ```
 
 `partId` / `toolId` are stable IDs: the frontend appends `message.delta` text to the bubble keyed by `partId`, and updates the bubble keyed by `toolId` when `tool.done` arrives.
 
-Per-harness translators sit alongside the client:
-- `backend/internal/harness/opencode_translator.go` — streaming events from `GET /event`
-- `backend/internal/harness/opencode_history.go` — replay from `GET /session/:id/message`
+### Adding a harness
 
-When supporting a new harness, write `<harness>_translator.go` (and `<harness>_history.go` if history shape differs) that emit the same `PlatformEvent` values.
+Each harness lives in its own subpackage under `backend/internal/harness/<name>/` and self-registers via `init()`. The packages are pulled in by blank import from `session_handler.go`.
 
-### Request flow for sending a message
+- **HTTP harness**: write `<name>/translator.go` (stream events from `GET /event`) and `<name>/history.go` (replay from `GET /session/:id/message`), then call `harness.Register(id, stream, history)` in `init()`. See `harness/opencode/`.
+- **Terminal harness**: just call `harness.RegisterTerminal(id)` in `init()`. The session is served via WebSocket at `GET /api/v1/sessions/:id/term` (`session_handler.Term`, backed by `term_handler.go`); no translator code is needed. See `harness/codex/register.go` and `harness/hermes/register.go`.
+
+### Request flow for sending a message (KindHTTP)
 
 `POST /api/v1/sessions/:id/message`:
 

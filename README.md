@@ -2,7 +2,10 @@
 
 Self-hosted, team-oriented AI coding agent platform. Each Agent template runs inside an isolated Kubernetes Sandbox Pod; users interact with the running agent through Sessions.
 
-The platform is harness-agnostic — `opencode`, `claude-code`, `codex`, etc. all sit behind a common HTTP contract and a translation layer that normalizes their event streams into a uniform protocol the frontend can render.
+The platform is harness-agnostic. Two transports are supported:
+
+- **HTTP harnesses** (e.g. `opencode`, `claude-code`) — implement a common HTTP contract; the backend translates their event streams into a uniform protocol the frontend can render.
+- **Terminal harnesses** (e.g. `codex`, `hermes`) — wrap a TUI; the backend proxies raw PTY bytes over WebSocket to a terminal view.
 
 ```
 web (Next.js + shadcn)   →   backend (Go + Echo)   →   K8s Sandbox Pod
@@ -17,7 +20,7 @@ web (Next.js + shadcn)   →   backend (Go + Echo)   →   K8s Sandbox Pod
 - **PostgreSQL** (any 14+)
 - **Go** ≥ 1.22
 - **Bun** ≥ 1.0 (for the Next.js frontend)
-- **Docker** (only needed to build the harness image)
+- **Docker** (only needed to build harness images)
 - **An OpenAI- or Anthropic-compatible model gateway** (e.g. NewAPI, LiteLLM, the upstream provider directly)
 
 ### Install the Agent Sandbox controller
@@ -58,8 +61,10 @@ MODEL_API_KEY=sk-...
 MODEL_API_STYLE=anthropic    # or "openai"
 EOF
 
-# 4. build & push the opencode harness image so the cluster can pull it
-make build-harness
+# 4. build & push harness images so the cluster can pull them
+make build-harness                       # builds opencode, claude-code, codex, hermes
+# or build a single one:
+# make build-harness HARNESS=opencode
 # tag and push to your registry, e.g.:
 # docker tag opencode-sandbox:dev your-registry/opencode-sandbox:dev
 # docker push your-registry/opencode-sandbox:dev
@@ -80,7 +85,7 @@ Open <http://localhost:3000> and click `+` in the sidebar to create your first a
 | `make build`        | Compile the Go server to `backend/bin/server`                      |
 | `make stop`         | Kill processes on `:8080` and `:3000`                              |
 | `make migrate`      | Apply `backend/internal/db/migrations/init.sql`                    |
-| `make build-harness`| Build the opencode harness Docker image (`opencode-sandbox:dev`)   |
+| `make build-harness`| Build all harness Docker images; pass `HARNESS=<name>` to build one |
 
 ## Configuration
 
@@ -105,7 +110,11 @@ The backend uses `clientcmd.RecommendedHomeFile` (`~/.kube/config`) when not run
 
 ## Adding a new harness
 
-Every harness container must implement this HTTP contract on `agent.container_port` (default `4096`):
+Pick a transport kind in `backend/internal/harness/registry.go`:
+
+### HTTP harness (translated SSE)
+
+Implement this contract on `agent.container_port` (default `4096`):
 
 ```
 POST /session                       → { id }
@@ -115,7 +124,13 @@ POST /session/:id/abort
 GET  /event                         → SSE stream of harness-native events
 ```
 
-Then write `backend/internal/harness/<harness>_translator.go` (and `_history.go` if the history shape differs) that translates harness-native events to the platform event protocol. See [`CLAUDE.md`](./CLAUDE.md) for the full protocol spec.
+Add a subpackage at `backend/internal/harness/<name>/` with `translator.go` (stream) and `history.go` (replay) that emit `PlatformEvent`s, then call `harness.Register(id, stream, history)` from `init()`. See `harness/opencode/` for a reference.
+
+### Terminal harness (raw PTY over WebSocket)
+
+For TUI-style agents, just call `harness.RegisterTerminal(id)` from `init()` — the session is served at `GET /api/v1/sessions/:id/term` and bytes are proxied both directions. See `harness/codex/register.go` and `harness/hermes/register.go`.
+
+See [`CLAUDE.md`](./CLAUDE.md) for the full protocol spec.
 
 ## License
 
