@@ -31,10 +31,12 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as pty from 'node-pty'
 import { WebSocketServer, WebSocket } from 'ws'
+import { mountResponsesShim } from './responses-shim'
 
-const PORT     = Number(process.env.PORT ?? 4096)
-const TUI_CMD  = process.env.TUI_CMD ?? ''
-const WORK_DIR = process.env.WORK_DIR ?? '/work'
+const PORT      = Number(process.env.PORT ?? 4096)
+const SHIM_PORT = Number(process.env.CODEX_SHIM_PORT ?? 4097)
+const TUI_CMD   = process.env.TUI_CMD ?? ''
+const WORK_DIR  = process.env.WORK_DIR ?? '/work'
 
 if (!TUI_CMD) {
   console.error('[startup] TUI_CMD is required (e.g. "codex" or "hermes")')
@@ -65,7 +67,9 @@ function seedCodexConfig(): void {
   const dir  = path.join(home, '.codex')
   const file = path.join(dir, 'config.toml')
 
-  const baseURL = (process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1').replace(/\/+$/, '')
+  // Codex talks to the local Responses-API shim, which translates to the
+  // upstream gateway's Chat Completions. See responses-shim.ts for why.
+  const baseURL = `http://127.0.0.1:${SHIM_PORT}/v1`
   const model   = process.env.MODEL ?? 'gpt-4o'
 
   const toml = [
@@ -247,6 +251,27 @@ wss.on('connection', (ws: WebSocket, sessionId: string) => {
 const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`[tui-bridge] listening on :${PORT}`)
 })
+
+// ── Codex Responses-API shim (localhost only) ───────────────────────────────
+//
+// Codex requires `wire_api = "responses"` but most OpenAI-compatible gateways
+// only expose /v1/chat/completions. Run a tiny translator on 127.0.0.1 so
+// codex can talk Responses API while the upstream gateway sees regular Chat
+// Completions traffic.
+if (TUI_CMD === 'codex') {
+  const upstream = (process.env.OPENAI_BASE_URL ?? '').replace(/\/+$/, '')
+  const apiKey   = process.env.OPENAI_API_KEY ?? ''
+  if (!upstream) {
+    console.warn('[shim] OPENAI_BASE_URL unset — codex will fail to reach upstream')
+  } else {
+    const shimApp = express()
+    shimApp.use(express.json({ limit: '20mb' }))
+    mountResponsesShim(shimApp, upstream, apiKey)
+    shimApp.listen(SHIM_PORT, '127.0.0.1', () => {
+      console.log(`[shim] responses→chat translator listening on 127.0.0.1:${SHIM_PORT}, upstream=${upstream}`)
+    })
+  }
+}
 
 server.on('upgrade', (req, socket, head) => {
   const url = new URL(req.url ?? '', 'http://localhost')
