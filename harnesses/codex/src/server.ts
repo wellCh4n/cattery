@@ -31,12 +31,9 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as pty from 'node-pty'
 import { WebSocketServer, WebSocket } from 'ws'
-import { mountResponsesShim } from './responses-shim'
-
-const PORT      = Number(process.env.PORT ?? 4096)
-const SHIM_PORT = Number(process.env.CODEX_SHIM_PORT ?? 4097)
-const TUI_CMD   = process.env.TUI_CMD ?? ''
-const WORK_DIR  = process.env.WORK_DIR ?? '/work'
+const PORT     = Number(process.env.PORT ?? 4096)
+const TUI_CMD  = process.env.TUI_CMD ?? ''
+const WORK_DIR = process.env.WORK_DIR ?? '/work'
 
 if (!TUI_CMD) {
   console.error('[startup] TUI_CMD is required (e.g. "codex" or "hermes")')
@@ -67,9 +64,9 @@ function seedCodexConfig(): void {
   const dir  = path.join(home, '.codex')
   const file = path.join(dir, 'config.toml')
 
-  // Codex talks to the local Responses-API shim, which translates to the
-  // upstream gateway's Chat Completions. See responses-shim.ts for why.
-  const baseURL = `http://127.0.0.1:${SHIM_PORT}/v1`
+  // Point codex directly at the upstream gateway. Codex v0.131+ only
+  // speaks the Responses API (/v1/responses); the gateway must support it.
+  const baseURL = (process.env.OPENAI_BASE_URL ?? '').replace(/\/+$/, '') + '/v1'
   const model   = process.env.MODEL ?? 'gpt-4o'
 
   const toml = [
@@ -80,14 +77,6 @@ function seedCodexConfig(): void {
     `name = "Cattery gateway"`,
     `base_url = ${JSON.stringify(baseURL)}`,
     `env_key = "OPENAI_API_KEY"`,
-    // Codex removed Chat Completions support entirely
-    // (github.com/openai/codex/discussions/7782) — the WireApi enum only has
-    // a Responses variant now, and `wire_api = "chat"` hard-errors at boot.
-    // The gateway pointed at MODEL_API_BASE MUST implement OpenAI's
-    // Responses API (/v1/responses). NewAPI/OneAPI proxies that only expose
-    // /v1/chat/completions will not work with the codex harness; use
-    // LiteLLM, OpenRouter, or another Responses-capable gateway, or pick a
-    // different harness (claude-code, opencode) for those models.
     `wire_api = "responses"`,
     ``,
     // Pre-trust WORK_DIR so codex skips the "Do you trust the contents of
@@ -251,27 +240,6 @@ wss.on('connection', (ws: WebSocket, sessionId: string) => {
 const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`[tui-bridge] listening on :${PORT}`)
 })
-
-// ── Codex Responses-API shim (localhost only) ───────────────────────────────
-//
-// Codex requires `wire_api = "responses"` but most OpenAI-compatible gateways
-// only expose /v1/chat/completions. Run a tiny translator on 127.0.0.1 so
-// codex can talk Responses API while the upstream gateway sees regular Chat
-// Completions traffic.
-if (TUI_CMD === 'codex') {
-  const upstream = (process.env.OPENAI_BASE_URL ?? '').replace(/\/+$/, '')
-  const apiKey   = process.env.OPENAI_API_KEY ?? ''
-  if (!upstream) {
-    console.warn('[shim] OPENAI_BASE_URL unset — codex will fail to reach upstream')
-  } else {
-    const shimApp = express()
-    shimApp.use(express.json({ limit: '20mb' }))
-    mountResponsesShim(shimApp, upstream, apiKey)
-    shimApp.listen(SHIM_PORT, '127.0.0.1', () => {
-      console.log(`[shim] responses→chat translator listening on 127.0.0.1:${SHIM_PORT}, upstream=${upstream}`)
-    })
-  }
-}
 
 server.on('upgrade', (req, socket, head) => {
   const url = new URL(req.url ?? '', 'http://localhost')
