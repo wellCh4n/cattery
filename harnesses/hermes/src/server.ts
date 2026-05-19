@@ -204,27 +204,51 @@ function isResizeFrame(v: unknown): v is ResizeFrame {
 }
 
 wss.on('connection', (ws: WebSocket, sessionId: string) => {
-  // -d detaches any other clients first, so we don't have multiple writers
-  // fighting over the same PTY. Each browser connection becomes the sole
-  // attached client for the duration of the WS.
-  const term = pty.spawn('tmux', ['attach-session', '-d', '-t', sessionId], {
-    name: 'xterm-256color',
-    cols: 120,
-    rows: 32,
-    cwd: WORK_DIR,
-    env: process.env as Record<string, string>,
-  })
+  // Defer `tmux attach-session` until the browser sends its first resize.
+  //
+  // tmux resizes the session to match its newest attached client. If we
+  // attach immediately at a hardcoded size, tmux first resizes the session
+  // to that size, then resizes again when the browser's resize JSON arrives
+  // — two SIGWINCHes back-to-back. TUIs that redraw incrementally (e.g.
+  // hermes / prompt_toolkit) end up painting their prompt twice on top of
+  // tmux's screen replay, leaving ghost `❯` glyphs. Attaching at the right
+  // size from the first frame avoids the resize storm entirely.
+  let term: pty.IPty | null = null
+  // Buffer keystrokes that arrive before attach completes (the < ~100ms
+  // window between ws.open and the resize frame). Flushed in startAttach.
+  const pendingInput: string[] = []
 
-  console.log(`[ws] attached to ${sessionId} (pid=${term.pid})`)
+  const startAttach = (cols: number, rows: number): void => {
+    if (term) return
+    // -d detaches any other clients first, so we don't have multiple writers
+    // fighting over the same PTY. Each browser connection becomes the sole
+    // attached client for the duration of the WS.
+    term = pty.spawn('tmux', ['attach-session', '-d', '-t', sessionId], {
+      name: 'xterm-256color',
+      cols,
+      rows,
+      cwd: WORK_DIR,
+      env: process.env as Record<string, string>,
+    })
+    console.log(`[ws] attached to ${sessionId} (pid=${term.pid}, ${cols}x${rows})`)
 
-  term.onData((data) => {
-    if (ws.readyState === ws.OPEN) ws.send(data)
-  })
+    term.onData((data) => {
+      if (ws.readyState === ws.OPEN) ws.send(data)
+    })
 
-  term.onExit(({ exitCode }) => {
-    console.log(`[ws] term exited code=${exitCode} session=${sessionId}`)
-    if (ws.readyState === ws.OPEN) ws.close(1000, 'tmux client exited')
-  })
+    term.onExit(({ exitCode }) => {
+      console.log(`[ws] term exited code=${exitCode} session=${sessionId}`)
+      if (ws.readyState === ws.OPEN) ws.close(1000, 'tmux client exited')
+    })
+
+    for (const chunk of pendingInput) term.write(chunk)
+    pendingInput.length = 0
+  }
+
+  // Safety net: if no resize arrives, fall back to the old defaults so the
+  // session isn't stuck waiting. Browser sends resize on ws.open, so this
+  // should never fire in practice.
+  const fallbackTimer = setTimeout(() => startAttach(120, 32), 1000)
 
   ws.on('message', (raw, isBinary) => {
     // Text frames may be control JSON; binary frames are keystrokes.
@@ -233,21 +257,29 @@ wss.on('connection', (ws: WebSocket, sessionId: string) => {
       try {
         const parsed = JSON.parse(text) as unknown
         if (isResizeFrame(parsed)) {
-          term.resize(parsed.cols, parsed.rows)
+          clearTimeout(fallbackTimer)
+          if (!term) startAttach(parsed.cols, parsed.rows)
+          else term.resize(parsed.cols, parsed.rows)
           return
         }
       } catch {
         // not JSON — fall through and treat as input bytes
       }
-      term.write(text)
+      if (term) term.write(text)
+      else pendingInput.push(text)
       return
     }
-    term.write(raw.toString('binary'))
+    const bytes = raw.toString('binary')
+    if (term) term.write(bytes)
+    else pendingInput.push(bytes)
   })
 
   ws.on('close', () => {
-    console.log(`[ws] client closed, killing attach pid=${term.pid}`)
-    try { term.kill() } catch { /* already gone */ }
+    clearTimeout(fallbackTimer)
+    if (term) {
+      console.log(`[ws] client closed, killing attach pid=${term.pid}`)
+      try { term.kill() } catch { /* already gone */ }
+    }
   })
 
   ws.on('error', (err) => {
