@@ -300,7 +300,7 @@ export function Sidebar() {
                       {sess.title ?? "New Session"}
                     </span>
                     <span className="text-[10px] text-muted-foreground/60 shrink-0 truncate max-w-[60px]">
-                      {sess.agent_name ?? "—"}
+                      {sess.agent_name ?? "Untitled"}
                     </span>
                   </div>
                 ))}

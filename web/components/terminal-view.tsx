@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { Loader2, AlertTriangle } from "lucide-react"
+import { Loader2, AlertTriangle, Bot } from "lucide-react"
 import { Terminal } from "@xterm/xterm"
 import { FitAddon } from "@xterm/addon-fit"
 import "@xterm/xterm/css/xterm.css"
@@ -17,6 +17,7 @@ import "@xterm/xterm/css/xterm.css"
 // actually forces the browser to use our self-hosted woff2s for those blocks.
 import "@fontsource/noto-sans-symbols-2/symbols-400.css"
 import { termURL, type Session, type Agent } from "@/lib/api"
+import { Badge } from "@/components/ui/badge"
 
 interface Props {
   session: Session
@@ -136,8 +137,17 @@ export function TerminalView({ session }: Props) {
     }
   }, [session.session_id, session.status, session.harness_session_id])
 
+  const title = session.title ?? "New Session"
+
+  function statusVariant(s: string): "default" | "secondary" | "destructive" {
+    if (s === "ready") return "default"
+    if (s === "failed") return "destructive"
+    return "secondary"
+  }
+
+  let body: React.ReactNode
   if (session.status === "failed") {
-    return (
+    body = (
       <div className="flex h-full flex-col items-center justify-center text-center px-6">
         <div className="rounded-full bg-destructive/10 p-4 mb-4">
           <AlertTriangle className="size-7 text-destructive" />
@@ -146,20 +156,41 @@ export function TerminalView({ session }: Props) {
         <p className="text-xs text-muted-foreground mt-1">{session.phase ?? "unknown error"}</p>
       </div>
     )
-  }
-
-  if (session.status !== "ready") {
-    return (
+  } else if (session.status !== "ready") {
+    body = (
       <div className="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground">
         <Loader2 className="size-5 animate-spin" />
         <p className="text-xs">{session.phase ?? "starting sandbox…"}</p>
       </div>
     )
+  } else {
+    body = (
+      <div className="h-full w-full bg-background p-2">
+        <div ref={hostRef} className="h-full w-full" />
+      </div>
+    )
   }
 
   return (
-    <div className="h-full w-full bg-background p-2">
-      <div ref={hostRef} className="h-full w-full" />
+    <div className="flex flex-col h-full bg-background">
+      <header className="border-b px-4 h-12 flex items-center gap-3 shrink-0">
+        <Bot className="size-4 text-muted-foreground shrink-0" />
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <span className="text-sm font-medium truncate">{title}</span>
+          <span className="text-xs text-muted-foreground font-mono shrink-0">
+            {session.session_id.slice(0, 8)}
+          </span>
+        </div>
+        <span className="hidden sm:inline-flex items-center gap-1 text-[11px] text-muted-foreground/70 select-none shrink-0">
+          Hold
+          <kbd className="font-mono px-1 py-px rounded border border-border bg-muted/50 text-[10px] leading-none">⇧ Shift</kbd>
+          to select
+        </span>
+        <Badge variant={statusVariant(session.status)} className="text-[10px] h-5">
+          {session.status}
+        </Badge>
+      </header>
+      <div className="flex-1 min-h-0">{body}</div>
     </div>
   )
 }

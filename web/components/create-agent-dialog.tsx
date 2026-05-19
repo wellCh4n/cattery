@@ -20,16 +20,17 @@ import {
 import { cn } from "@/lib/utils"
 import { createAgent, type Agent } from "@/lib/api"
 import { HarnessIcon } from "@/components/harness-icon"
+import { ModelIcon } from "@/components/model-icon"
 
 interface Props {
   onCreated: (agent: Agent) => void
 }
 
 const HARNESSES = [
-  { id: "opencode",    label: "OpenCode",    available: true },
-  { id: "claude-code", label: "Claude Code", available: true },
-  { id: "codex",       label: "Codex",       available: true },
-  { id: "hermes",      label: "Hermes",      available: true },
+  { id: "opencode",    label: "OpenCode",    kind: "chat", available: true },
+  { id: "claude-code", label: "Claude Code", kind: "chat", available: true },
+  { id: "hermes",      label: "Hermes",      kind: "tui",  available: true },
+  { id: "codex",       label: "Codex",       kind: "tui",  available: true },
 ] as const
 
 interface ModelOption {
@@ -39,12 +40,12 @@ interface ModelOption {
 }
 
 const MODELS: ModelOption[] = [
-  { id: "claude-sonnet-4-6", label: "Sonnet 4.6", harnesses: ["opencode", "claude-code", "hermes"] },
-  { id: "claude-opus-4-6",   label: "Opus 4.6",   harnesses: ["opencode", "claude-code", "hermes"] },
-  { id: "claude-opus-4-7",   label: "Opus 4.7",   harnesses: ["opencode", "claude-code", "hermes"] },
-  { id: "gpt-5.4",           label: "GPT-5.4",    harnesses: ["opencode", "claude-code", "hermes", "codex"] },
-  { id: "gpt-5.5",           label: "GPT-5.5",    harnesses: ["opencode", "claude-code", "hermes", "codex"] },
-  { id: "__custom__",        label: "Custom",      harnesses: ["opencode", "claude-code", "hermes", "codex"] },
+  { id: "claude-sonnet-4-6", label: "claude-sonnet-4-6", harnesses: ["opencode", "claude-code", "hermes"] },
+  { id: "claude-opus-4-6",   label: "claude-opus-4-6",   harnesses: ["opencode", "claude-code", "hermes"] },
+  { id: "claude-opus-4-7",   label: "claude-opus-4-7",   harnesses: ["opencode", "claude-code", "hermes"] },
+  { id: "gpt-5.4",           label: "gpt-5.4",           harnesses: ["opencode", "claude-code", "hermes", "codex"] },
+  { id: "gpt-5.5",           label: "gpt-5.5",           harnesses: ["opencode", "claude-code", "hermes", "codex"] },
+  { id: "__custom__",        label: "Custom",            harnesses: ["opencode", "claude-code", "hermes", "codex"] },
 ]
 
 const defaultForm = {
@@ -145,8 +146,14 @@ export function CreateAgentDialog({ onCreated }: Props) {
                 >
                   <HarnessIcon id={h.id} className="size-5" />
                   {h.label}
+                  <Badge
+                    variant="outline"
+                    className="absolute top-1 right-1 text-[9px] px-1 py-0 h-3.5 font-normal pointer-events-none uppercase tracking-wide"
+                  >
+                    {h.kind}
+                  </Badge>
                   {!h.available && (
-                    <Badge variant="outline" className="absolute top-1 right-1 text-[9px] px-1 py-0 h-3.5 font-normal pointer-events-none">
+                    <Badge variant="outline" className="absolute top-1 left-1 text-[9px] px-1 py-0 h-3.5 font-normal pointer-events-none">
                       soon
                     </Badge>
                   )}
@@ -158,20 +165,23 @@ export function CreateAgentDialog({ onCreated }: Props) {
           {/* Model */}
           <div className="space-y-1.5">
             <Label>Model</Label>
-            <div className="flex gap-2">
+            <div className="grid grid-cols-3 gap-2">
               {MODELS.filter(m => m.harnesses.includes(form.harness_id)).map(m => (
                 <button
                   key={m.id}
                   type="button"
                   onClick={() => setForm(f => ({ ...f, model: m.id }))}
                   className={cn(
-                    "flex-1 cursor-pointer rounded-lg border px-3 py-2 text-xs font-medium transition-colors outline-none",
+                    "relative flex cursor-pointer items-center justify-center rounded-lg border px-3 py-2 font-mono text-xs font-medium transition-colors outline-none",
                     form.model === m.id
                       ? "border-primary bg-primary/5 text-primary"
                       : "border-border bg-muted/30 text-muted-foreground hover:bg-muted/60"
                   )}
                 >
-                  {m.label}
+                  {m.id !== "__custom__" && (
+                    <ModelIcon id={m.id} className="absolute left-3 size-3.5 shrink-0" />
+                  )}
+                  <span className="truncate">{m.label}</span>
                 </button>
               ))}
             </div>
