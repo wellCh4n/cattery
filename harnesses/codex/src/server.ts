@@ -76,6 +76,13 @@ function seedCodexConfig(): void {
     `name = "Cattery gateway"`,
     `base_url = ${JSON.stringify(baseURL)}`,
     `env_key = "OPENAI_API_KEY"`,
+    // Codex defaults to OpenAI's Responses API ("/v1/responses"). Cattery
+    // routes through generic OpenAI-compat proxies (NewAPI/OneAPI/etc.) and
+    // also through Anthropic-style gateways exposing only Chat Completions
+    // — neither typically implements the Responses streaming format, so
+    // codex hits "stream disconnected before completion" on the first turn.
+    // Pin Chat Completions so we talk the protocol every gateway supports.
+    `wire_api = "chat"`,
     ``,
     // Pre-trust WORK_DIR so codex skips the "Do you trust the contents of
     // this directory?" prompt on first launch. The table key MUST be the
