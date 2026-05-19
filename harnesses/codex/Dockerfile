@@ -26,6 +26,13 @@ COPY src/ ./src/
 # Codex refuses to run as root in some sandboxes; use the unprivileged
 # `node` user that ships with the base image.
 RUN mkdir -p /work /home/node/.codex && chown -R node:node /app /work /home/node/.codex
+
+# tmux config — mouse on routes xterm.js wheel events into tmux's copy-mode
+# so users can scroll TUI history (codex sits in alt-screen, so xterm's
+# own scrollback never fills). history-limit grows what's scrollable.
+RUN printf 'set -g mouse on\nset -g history-limit 50000\nset -g default-terminal "xterm-256color"\n' > /home/node/.tmux.conf \
+    && chown node:node /home/node/.tmux.conf
+
 USER node
 
 ENV PATH="/app/node_modules/.bin:${PATH}"

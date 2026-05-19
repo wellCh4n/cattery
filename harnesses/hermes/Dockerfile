@@ -53,6 +53,14 @@ RUN npm install
 COPY src/ ./src/
 
 RUN mkdir -p /work && chown -R node:node /app /work
+
+# tmux config — mouse on lets xterm.js wheel events route into tmux's
+# copy-mode so users can scroll TUI history (hermes/codex sit in
+# alt-screen, so xterm's own scrollback never fills). A generous
+# history-limit gives them something to scroll through.
+RUN printf 'set -g mouse on\nset -g history-limit 50000\nset -g default-terminal "xterm-256color"\n' > /home/node/.tmux.conf \
+    && chown node:node /home/node/.tmux.conf
+
 USER node
 
 ENV PATH="/app/node_modules/.bin:${PATH}"
