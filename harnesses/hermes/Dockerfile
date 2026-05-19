@@ -42,7 +42,7 @@ RUN git clone --depth 1 --branch ${HERMES_VERSION} \
     && cd /opt/hermes \
     && uv venv /opt/hermes/.venv --python 3.11 \
     && . /opt/hermes/.venv/bin/activate \
-    && uv pip install -e . \
+    && uv pip install -e . anthropic openai \
     && ln -sf /opt/hermes/.venv/bin/hermes /usr/local/bin/hermes
 
 WORKDIR /app
