@@ -109,6 +109,29 @@ func (h *AgentHandler) Get(c echo.Context) error {
 	return c.JSON(http.StatusOK, toDTO(a))
 }
 
+type updateAgentRequest struct {
+	AgentName *string `json:"agent_name"`
+}
+
+func (h *AgentHandler) Update(c echo.Context) error {
+	id, err := uuid.Parse(c.Param("agent_id"))
+	if err != nil {
+		return echo.ErrBadRequest
+	}
+	var req updateAgentRequest
+	if err := c.Bind(&req); err != nil {
+		return echo.ErrBadRequest
+	}
+	if err := h.store.UpdateName(c.Request().Context(), id, *req.AgentName); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	a, err := h.store.GetByID(c.Request().Context(), id)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusNotFound, "agent not found")
+	}
+	return c.JSON(http.StatusOK, toDTO(a))
+}
+
 func (h *AgentHandler) Delete(c echo.Context) error {
 	id, err := uuid.Parse(c.Param("agent_id"))
 	if err != nil {

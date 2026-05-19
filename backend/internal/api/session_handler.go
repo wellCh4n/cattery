@@ -257,6 +257,29 @@ func (h *SessionHandler) SendMessage(c echo.Context) error {
 	return h.harnessClient.StreamEventsUntilIdle(c.Request().Context(), *agent.SandboxURL, *sess.HarnessSessionID, c.Response(), translate, onEvent)
 }
 
+type updateSessionRequest struct {
+	Title *string `json:"title"`
+}
+
+func (h *SessionHandler) UpdateTitle(c echo.Context) error {
+	id, err := uuid.Parse(c.Param("session_id"))
+	if err != nil {
+		return echo.ErrBadRequest
+	}
+	var req updateSessionRequest
+	if err := c.Bind(&req); err != nil {
+		return echo.ErrBadRequest
+	}
+	if err := h.sessionStore.UpdateTitle(c.Request().Context(), id, *req.Title); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	sess, err := h.sessionStore.GetByID(c.Request().Context(), id)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusNotFound, "session not found")
+	}
+	return c.JSON(http.StatusOK, sess)
+}
+
 func (h *SessionHandler) Delete(c echo.Context) error {
 	id, err := uuid.Parse(c.Param("session_id"))
 	if err != nil {

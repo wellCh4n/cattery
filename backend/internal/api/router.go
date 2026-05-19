@@ -12,7 +12,7 @@ func NewRouter(agentH *AgentHandler, sessionH *SessionHandler) *echo.Echo {
 	e.Use(middleware.Recover())
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
 		AllowOrigins: []string{"*"},
-		AllowMethods: []string{"GET", "POST", "DELETE", "OPTIONS"},
+		AllowMethods: []string{"GET", "POST", "PATCH", "DELETE", "OPTIONS"},
 		AllowHeaders: []string{"Content-Type", "Authorization"},
 	}))
 
@@ -22,6 +22,7 @@ func NewRouter(agentH *AgentHandler, sessionH *SessionHandler) *echo.Echo {
 	agents.POST("", agentH.Create)
 	agents.GET("", agentH.List)
 	agents.GET("/:agent_id", agentH.Get)
+	agents.PATCH("/:agent_id", agentH.Update)
 	agents.DELETE("/:agent_id", agentH.Delete)
 	agents.POST("/:agent_id/sessions", sessionH.Create)
 	agents.GET("/:agent_id/sessions", sessionH.ListByAgent)
@@ -34,6 +35,7 @@ func NewRouter(agentH *AgentHandler, sessionH *SessionHandler) *echo.Echo {
 	sessions.POST("/:session_id/answer", sessionH.Answer)
 	sessions.GET("/:session_id/history", sessionH.History)
 	sessions.GET("/:session_id/term", sessionH.Term)
+	sessions.PATCH("/:session_id", sessionH.UpdateTitle)
 	sessions.DELETE("/:session_id", sessionH.Delete)
 
 	return e

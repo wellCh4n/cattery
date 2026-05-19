@@ -47,6 +47,13 @@ func (s *AgentStore) List(ctx context.Context) ([]*model.Agent, error) {
 	return agents, nil
 }
 
+func (s *AgentStore) UpdateName(ctx context.Context, id uuid.UUID, name string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE agents SET agent_name=$1 WHERE agent_id=$2`, name, id,
+	)
+	return err
+}
+
 func (s *AgentStore) Delete(ctx context.Context, id uuid.UUID) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM agents WHERE agent_id=$1`, id)
 	return err

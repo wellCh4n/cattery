@@ -43,6 +43,16 @@ export async function createAgent(data: Omit<Agent, "agent_id" | "created_at" | 
   return res.json()
 }
 
+export async function updateAgent(agentId: string, data: { agent_name: string }): Promise<Agent> {
+  const res = await fetch(`${API_BASE}/api/v1/agents/${agentId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) throw new Error("failed to update agent")
+  return res.json()
+}
+
 export async function deleteAgent(agentId: string): Promise<void> {
   await fetch(`${API_BASE}/api/v1/agents/${agentId}`, { method: "DELETE" })
 }
@@ -66,6 +76,16 @@ export async function createSession(agentId: string): Promise<Session> {
 export async function getSession(sessionId: string): Promise<Session> {
   const res = await fetch(`${API_BASE}/api/v1/sessions/${sessionId}`, { cache: "no-store" })
   if (!res.ok) throw new Error("failed to get session")
+  return res.json()
+}
+
+export async function updateSessionTitle(sessionId: string, data: { title: string }): Promise<Session> {
+  const res = await fetch(`${API_BASE}/api/v1/sessions/${sessionId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) throw new Error("failed to update session")
   return res.json()
 }
 
