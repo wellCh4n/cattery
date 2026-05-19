@@ -137,3 +137,37 @@
   color: var(--shiki-dark);
 }
 
+/*
+ * Symbols Nerd Font Mono (PUA U+E000–U+F8FF only). Source: ryanoasis/nerd-fonts
+ * v3.4.0 SymbolsNerdFontMono-Regular.ttf, subsetted via fontTools so only icon
+ * codepoints ship to the browser (~600 KB woff2). Loaded as a fallback in the
+ * xterm font stack so hermes' prompt/status-line glyphs render.
+ */
+@font-face {
+  font-family: "Symbols Nerd Font Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/symbols-nerd-font-mono-pua.woff2") format("woff2");
+  unicode-range: U+E000-F8FF;
+}
+
+/*
+ * Monospace braille (U+2800–U+28FF). Source: @fontsource/cascadia-code's
+ * braille subset woff2 (6 KB, 256/256 glyphs at 1200/2048 = 0.586 em — the
+ * matching monospace cell width). We define the face here with our own
+ * font-family name + explicit unicode-range because macOS resolves
+ * `ui-monospace` through the OS-level font fallback for unknown glyphs and
+ * bypasses any CSS-side @font-face chain that doesn't pin its range. With
+ * `unicode-range` set, the browser is required to load and use this file for
+ * U+2800–U+28FF specifically (used by hermes' caduceus art).
+ */
+@font-face {
+  font-family: "Cattery Braille Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/braille-mono.woff2") format("woff2");
+  unicode-range: U+2800-28FF;
+}
+

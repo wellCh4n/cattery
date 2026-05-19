@@ -5,6 +5,17 @@ import { Loader2, AlertTriangle } from "lucide-react"
 import { Terminal } from "@xterm/xterm"
 import { FitAddon } from "@xterm/addon-fit"
 import "@xterm/xterm/css/xterm.css"
+// Hermes (and other TUIs) draw their banner with "Symbols for Legacy Computing"
+// (U+1FB00–U+1FBFF) — Noto Sans Symbols 2's `symbols` subset has 212/256 of
+// these glyphs and is loaded here as a CSS-level fallback.
+//
+// Braille (U+2800–U+28FF, hermes' caduceus) and Nerd Font icons (U+E000–U+F8FF,
+// prompt/status line) are NOT loaded via @fontsource — they're declared as
+// @font-face in app/globals.css with explicit `unicode-range`. macOS's
+// `ui-monospace` does OS-level font fallback for unknown glyphs and bypasses
+// CSS @font-faces that don't pin a range; explicit `unicode-range` is what
+// actually forces the browser to use our self-hosted woff2s for those blocks.
+import "@fontsource/noto-sans-symbols-2/symbols-400.css"
 import { termURL, type Session, type Agent } from "@/lib/api"
 
 interface Props {
@@ -27,7 +38,14 @@ export function TerminalView({ session }: Props) {
     if (session.status !== "ready" || !session.harness_session_id) return
 
     const term = new Terminal({
-      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, "Cascadia Mono", "Roboto Mono", monospace',
+      // The unicode-range-pinned families ("Cattery Braille Mono",
+      // "Symbols Nerd Font Mono") come first so the browser can't dodge them
+      // via OS-level fallback for their target ranges. Normal text still uses
+      // the OS monospace because those families have nothing in the latin
+      // range. Noto Sans Symbols 2 sits at the end as a general fallback for
+      // legacy-computing (U+1FB00–U+1FBFF) since no monospace npm font ships
+      // that block.
+      fontFamily: '"Cattery Braille Mono", "Symbols Nerd Font Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, "Cascadia Mono", "Roboto Mono", "Noto Sans Symbols 2", monospace',
       fontSize: 13,
       lineHeight: 1.2,
       cursorBlink: true,
