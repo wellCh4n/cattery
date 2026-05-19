@@ -10,7 +10,7 @@
 FROM node:22-bookworm-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      git ca-certificates curl tmux python3 make g++ \
+      git ca-certificates curl tmux python3 make g++ bubblewrap \
     && rm -rf /var/lib/apt/lists/*
 
 # Codex CLI (OpenAI) — official npm package.

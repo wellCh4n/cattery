@@ -77,6 +77,12 @@ function seedCodexConfig(): void {
     `base_url = ${JSON.stringify(baseURL)}`,
     `env_key = "OPENAI_API_KEY"`,
     ``,
+    // Pre-trust WORK_DIR so codex skips the "Do you trust the contents of
+    // this directory?" prompt on first launch. The table key MUST be the
+    // absolute path; the wildcard form ["projects.*"] is not honored.
+    `[projects.${JSON.stringify(WORK_DIR)}]`,
+    `trust_level = "trusted"`,
+    ``,
   ].join('\n')
 
   try {
