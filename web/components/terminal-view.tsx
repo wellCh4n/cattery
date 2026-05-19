@@ -4,15 +4,7 @@ import { useEffect, useRef } from "react"
 import { Loader2, AlertTriangle } from "lucide-react"
 import { Terminal } from "@xterm/xterm"
 import { FitAddon } from "@xterm/addon-fit"
-import { WebglAddon } from "@xterm/addon-webgl"
 import "@xterm/xterm/css/xterm.css"
-// Cascadia Code covers the Unicode "Symbols for Legacy Computing" block
-// (U+1FB00–U+1FBFF) that Hermes and other TUIs use for ASCII-art logos;
-// system monospace fonts on macOS/Linux don't, so without these the
-// banner renders as tofu blocks. Loading both subsets lets the symbols
-// font kick in only for the legacy-computing glyphs.
-import "@fontsource/cascadia-code/400.css"
-import "@fontsource/cascadia-code/symbols2-400.css"
 import { termURL, type Session, type Agent } from "@/lib/api"
 
 interface Props {
@@ -35,7 +27,7 @@ export function TerminalView({ session }: Props) {
     if (session.status !== "ready" || !session.harness_session_id) return
 
     const term = new Terminal({
-      fontFamily: '"Cascadia Code", ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", monospace',
+      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, "Cascadia Mono", "Roboto Mono", monospace',
       fontSize: 13,
       lineHeight: 1.2,
       cursorBlink: true,
@@ -48,17 +40,6 @@ export function TerminalView({ session }: Props) {
     const fit = new FitAddon()
     term.loadAddon(fit)
     term.open(host)
-    // The default DOM renderer positions each glyph in a fixed cell and
-    // breaks half-block / sextant characters (U+1FB00–U+1FBFF) into stray
-    // dashes. WebGL renders glyphs by their real advance and assembles
-    // the legacy-computing block back into the intended ASCII-art shape.
-    try {
-      const webgl = new WebglAddon()
-      webgl.onContextLoss(() => webgl.dispose())
-      term.loadAddon(webgl)
-    } catch (err) {
-      console.warn("[term] WebGL renderer unavailable, falling back to DOM:", err)
-    }
     fit.fit()
 
     const ws = new WebSocket(termURL(session.session_id))
