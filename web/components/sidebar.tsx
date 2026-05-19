@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { usePathname, useRouter } from "next/navigation"
 import {
   Bot,
@@ -10,8 +10,12 @@ import {
   Loader2,
   Cat,
   MessagesSquare,
+  Pencil,
+  Check,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { CreateAgentDialog } from "@/components/create-agent-dialog"
 import { HarnessIcon } from "@/components/harness-icon"
@@ -31,6 +35,8 @@ import {
   deleteAgent,
   deleteSession,
   getSession,
+  updateAgent,
+  updateSessionTitle,
   type Agent,
   type Session,
 } from "@/lib/api"
@@ -55,6 +61,50 @@ export function Sidebar() {
   const [busySessions, setBusySessions] = useState<Set<string>>(new Set())
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [editing, setEditing] = useState<{ kind: "agent"; id: string; original: string } | { kind: "session"; id: string; original: string } | null>(null)
+  const [editValue, setEditValue] = useState("")
+  const editInputRef = useRef<HTMLInputElement>(null)
+
+  function startEdit(kind: "agent" | "session", id: string, current: string) {
+    setEditing({ kind, id, original: current } as { kind: "agent"; id: string; original: string } | { kind: "session"; id: string; original: string })
+    setEditValue(current)
+    setTimeout(() => editInputRef.current?.focus(), 0)
+  }
+
+  async function commitEdit() {
+    if (!editing) return
+    const val = editValue.trim()
+    if (val === editing.original.trim()) {
+      setEditing(null)
+      return
+    }
+    try {
+      if (editing.kind === "agent") {
+        const updated = await updateAgent(editing.id, { agent_name: val })
+        setAgents(prev => prev.map(a => a.agent_id === editing.id ? { ...a, agent_name: updated.agent_name } : a))
+      } else {
+        const updated = await updateSessionTitle(editing.id, { title: val })
+        setAgents(prev => prev.map(a => ({
+          ...a,
+          sessions: a.sessions.map(s => s.session_id === editing.id ? { ...s, title: updated.title } : s),
+        })))
+      }
+    } catch { /* ignore */ }
+    setEditing(null)
+  }
+
+  function cancelEdit() {
+    setEditing(null)
+  }
+
+  function handleEditBlur(related: EventTarget | null) {
+    // blur 触发时点击保存按钮的话，让按钮的 onClick 走 commitEdit；
+    // 其他点击（含点到 sidebar 外、列表其它项）一律取消编辑。
+    if (related instanceof HTMLElement && related.closest("[data-edit-save]")) {
+      return
+    }
+    cancelEdit()
+  }
 
   const loadAgents = useCallback(async () => {
     const list = await listAgents()
@@ -184,6 +234,15 @@ export function Sidebar() {
     return "bg-amber-400 animate-pulse"
   }
 
+  // harness id 在创建对话框里有大小写规范的 label（OpenCode / Claude Code / Codex / Hermes），
+  // 这里复用同一份映射，避免侧栏显示成全小写的 `opencode` / `claude-code`。
+  const HARNESS_LABELS: Record<string, string> = {
+    "opencode":    "OpenCode",
+    "claude-code": "Claude Code",
+    "codex":       "Codex",
+    "hermes":      "Hermes",
+  }
+
   // 最近沟通的 session：按 last_seen_at（fallback created_at）倒序，取前 3
   const recentSessions: Array<Session & { agent_name: string | null }> = agents
     .flatMap(a => a.sessions.map(s => ({ ...s, agent_name: a.agent_name })))
@@ -221,11 +280,12 @@ export function Sidebar() {
               </div>
               <div className="space-y-0.5">
                 {recentSessions.map(sess => (
-                  <button
+                  <div
                     key={sess.session_id}
+                    role="button"
                     onClick={() => router.push(`/sessions/${sess.session_id}`)}
                     className={cn(
-                      "group/recent w-full flex items-center gap-2 text-xs px-2 py-1.5 rounded-md transition-colors cursor-pointer outline-none",
+                      "group/recent w-full flex items-center gap-2 text-xs px-2 h-7 rounded-md transition-colors cursor-pointer",
                       "hover:bg-muted text-muted-foreground hover:text-foreground",
                       selectedSessionId === sess.session_id &&
                         "bg-muted text-foreground font-medium"
@@ -242,7 +302,7 @@ export function Sidebar() {
                     <span className="text-[10px] text-muted-foreground/60 shrink-0 truncate max-w-[60px]">
                       {sess.agent_name ?? "—"}
                     </span>
-                  </button>
+                  </div>
                 ))}
               </div>
               <div className="mx-2 my-2 border-t border-border/60" />
@@ -271,12 +331,36 @@ export function Sidebar() {
                     )}
                   />
                   <HarnessIcon id={agent.harness_id} className="size-3.5 text-muted-foreground shrink-0" />
-                  <span className="truncate min-w-0 flex-1">
-                    {agent.agent_name ?? "Untitled"}
-                  </span>
+                  {editing?.kind === "agent" && editing.id === agent.agent_id ? (
+                    <Input
+                      ref={editInputRef}
+                      className="flex-1 h-6 pl-4 pr-2 py-0 text-sm font-medium min-w-0"
+                      value={editValue}
+                      onChange={e => setEditValue(e.target.value)}
+                      onKeyDown={e => { if (e.key === "Enter") commitEdit(); if (e.key === "Escape") cancelEdit() }}
+                      onBlur={e => handleEditBlur(e.relatedTarget)}
+                      onClick={e => e.stopPropagation()}
+                      autoComplete="off"
+                      autoCorrect="off"
+                      autoCapitalize="off"
+                      spellCheck={false}
+                    />
+                  ) : (
+                    <>
+                      <span className="truncate min-w-0 flex-1">
+                        {agent.agent_name ?? "Untitled"}
+                      </span>
+                      <Badge
+                        variant="secondary"
+                        className="text-[10px] h-4 px-1.5 font-normal shrink-0 group-hover:hidden"
+                      >
+                        {HARNESS_LABELS[agent.harness_id] ?? agent.harness_id}
+                      </Badge>
+                    </>
+                  )}
                 </button>
                 <button
-                  className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 inline-flex cursor-pointer items-center justify-center size-6 rounded text-muted-foreground hover:bg-foreground/10 hover:text-foreground disabled:opacity-50 transition-colors"
+                  className="hidden group-hover:inline-flex focus-visible:inline-flex cursor-pointer items-center justify-center size-6 rounded text-muted-foreground hover:bg-foreground/10 hover:text-foreground disabled:opacity-50 transition-colors"
                   title="New session"
                   disabled={launching === agent.agent_id}
                   onClick={() => handleNewSession(agent)}
@@ -285,8 +369,26 @@ export function Sidebar() {
                     ? <Loader2 className="size-3.5 animate-spin" />
                     : <Plus className="size-3.5" />}
                 </button>
+                {editing?.kind === "agent" && editing.id === agent.agent_id ? (
+                  <button
+                    data-edit-save
+                    className="inline-flex cursor-pointer items-center justify-center size-6 rounded text-primary hover:bg-primary/10 transition-colors"
+                    title="Save"
+                    onClick={commitEdit}
+                  >
+                    <Check className="size-3.5" />
+                  </button>
+                ) : (
+                  <button
+                    className="hidden group-hover:inline-flex focus-visible:inline-flex cursor-pointer items-center justify-center size-6 rounded text-muted-foreground hover:bg-foreground/10 hover:text-foreground transition-colors"
+                    title="Rename"
+                    onClick={() => startEdit("agent", agent.agent_id, agent.agent_name ?? "")}
+                  >
+                    <Pencil className="size-3.5" />
+                  </button>
+                )}
                 <button
-                  className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 inline-flex cursor-pointer items-center justify-center size-6 rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+                  className="hidden group-hover:inline-flex focus-visible:inline-flex cursor-pointer items-center justify-center size-6 rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
                   title="Delete agent"
                   onClick={() => setDeleteTarget({ kind: "agent", id: agent.agent_id, name: agent.agent_name ?? "Untitled" })}
                 >
@@ -306,7 +408,7 @@ export function Sidebar() {
                       <div
                         key={sess.session_id}
                         className={cn(
-                          "group/sess w-full flex items-center gap-2 text-xs px-2 py-1.5 rounded-md transition-colors cursor-pointer",
+                          "group/sess w-full flex items-center gap-2 text-xs px-2 h-7 rounded-md transition-colors cursor-pointer",
                           "hover:bg-muted text-muted-foreground hover:text-foreground",
                           selectedSessionId === sess.session_id &&
                             "bg-muted text-foreground font-medium"
@@ -318,15 +420,49 @@ export function Sidebar() {
                         ) : (
                           <span className={cn("size-1.5 rounded-full shrink-0", statusDot(sess.status))} />
                         )}
-                        <span className="truncate flex-1">
-                          {sess.title ?? "New Session"}
-                        </span>
+                        {editing?.kind === "session" && editing.id === sess.session_id ? (
+                          <Input
+                            ref={editInputRef}
+                            className="flex-1 h-5 pl-2 pr-2 py-0 text-xs min-w-0"
+                            value={editValue}
+                            onChange={e => setEditValue(e.target.value)}
+                            onKeyDown={e => { if (e.key === "Enter") commitEdit(); if (e.key === "Escape") cancelEdit() }}
+                            onBlur={e => handleEditBlur(e.relatedTarget)}
+                            onClick={e => e.stopPropagation()}
+                            autoComplete="off"
+                            autoCorrect="off"
+                            autoCapitalize="off"
+                            spellCheck={false}
+                          />
+                        ) : (
+                          <span className="truncate flex-1">
+                            {sess.title ?? "New Session"}
+                          </span>
+                        )}
                         <span className="text-[10px] text-muted-foreground/70 shrink-0 group-hover/sess:hidden">
                           {new Date(sess.created_at).toLocaleDateString(undefined, {
                             month: "short",
                             day: "numeric",
                           })}
                         </span>
+                        {editing?.kind === "session" && editing.id === sess.session_id ? (
+                          <button
+                            data-edit-save
+                            className="hidden group-hover/sess:inline-flex cursor-pointer items-center justify-center size-4 rounded text-primary hover:bg-primary/10 transition-colors shrink-0"
+                            title="Save"
+                            onClick={e => { e.stopPropagation(); commitEdit() }}
+                          >
+                            <Check className="size-3" />
+                          </button>
+                        ) : (
+                          <button
+                            className="hidden group-hover/sess:inline-flex cursor-pointer items-center justify-center size-4 rounded text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                            title="Rename"
+                            onClick={e => { e.stopPropagation(); startEdit("session", sess.session_id, sess.title ?? "") }}
+                          >
+                            <Pencil className="size-3" />
+                          </button>
+                        )}
                         <button
                           className="hidden group-hover/sess:inline-flex cursor-pointer items-center justify-center size-4 rounded text-muted-foreground hover:text-destructive transition-colors shrink-0"
                           title="Delete session"
