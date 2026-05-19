@@ -25,7 +25,7 @@ COPY src/ ./src/
 
 # Codex refuses to run as root in some sandboxes; use the unprivileged
 # `node` user that ships with the base image.
-RUN mkdir -p /work && chown -R node:node /app /work
+RUN mkdir -p /work /home/node/.codex && chown -R node:node /app /work /home/node/.codex
 USER node
 
 ENV PATH="/app/node_modules/.bin:${PATH}"

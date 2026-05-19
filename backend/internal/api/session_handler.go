@@ -136,6 +136,12 @@ func (h *SessionHandler) ensureSandbox(ctx context.Context, agent *model.Agent) 
 		env["ANTHROPIC_BASE_URL"] = base
 		env["ANTHROPIC_API_KEY"] = h.cfg.ModelAPIKey
 	}
+	// codex CLI always reads OPENAI_API_KEY (its config.toml env_key is fixed)
+	// — fill it in even when the gateway is anthropic-style.
+	if agent.HarnessID == "codex" {
+		env["OPENAI_BASE_URL"] = base
+		env["OPENAI_API_KEY"] = h.cfg.ModelAPIKey
+	}
 
 	spec := k8s.SandboxSpec{
 		Name:          sandboxName,

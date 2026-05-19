@@ -27,6 +27,8 @@
 import express from 'express'
 import { spawn, spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
 import * as pty from 'node-pty'
 import { WebSocketServer, WebSocket } from 'ws'
 
@@ -42,6 +44,49 @@ if (!TUI_CMD) {
 console.log(`[startup] TUI_CMD : ${TUI_CMD}`)
 console.log(`[startup] WORK_DIR: ${WORK_DIR}`)
 console.log(`[startup] PORT    : ${PORT}`)
+
+// ── Codex auth: pre-seed ~/.codex/config.toml ────────────────────────────────
+//
+// Codex CLI shows an interactive sign-in picker on first launch unless it
+// finds a custom provider with `env_key` set. We render config.toml from
+// MODEL + OPENAI_BASE_URL so the TUI starts in API-key mode and goes
+// straight to the prompt. Hermes doesn't need this — it's gated by its own
+// SPAWN_CMD logic upstream.
+if (TUI_CMD === 'codex') {
+  seedCodexConfig()
+}
+
+function seedCodexConfig(): void {
+  const home = process.env.HOME ?? ''
+  if (!home) {
+    console.warn('[startup] HOME unset, skipping codex config seed')
+    return
+  }
+  const dir  = path.join(home, '.codex')
+  const file = path.join(dir, 'config.toml')
+
+  const baseURL = (process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1').replace(/\/+$/, '')
+  const model   = process.env.MODEL ?? 'gpt-4o'
+
+  const toml = [
+    `model = ${JSON.stringify(model)}`,
+    `model_provider = "cattery"`,
+    ``,
+    `[model_providers.cattery]`,
+    `name = "Cattery gateway"`,
+    `base_url = ${JSON.stringify(baseURL)}`,
+    `env_key = "OPENAI_API_KEY"`,
+    ``,
+  ].join('\n')
+
+  try {
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(file, toml)
+    console.log(`[startup] wrote ${file} (model=${model}, base_url=${baseURL})`)
+  } catch (err) {
+    console.error('[startup] failed to seed codex config:', err instanceof Error ? err.message : err)
+  }
+}
 
 // ── tmux helpers ─────────────────────────────────────────────────────────────
 
