@@ -60,6 +60,12 @@ ENV PORT=4096
 ENV WORK_DIR=/work
 ENV HOME=/home/node
 ENV TUI_CMD=hermes
+# Without a UTF-8 locale the base image defaults to LC_*=POSIX, which makes
+# tmux operate in single-byte mode and shred every multibyte char from the
+# TUI (e.g. braille U+28xx → 3 garbage bytes per glyph). C.UTF-8 is built
+# into glibc on debian-bookworm so no locale-gen is needed.
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
 
 EXPOSE 4096
 

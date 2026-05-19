@@ -61,11 +61,18 @@ function listSessions(): string[] {
 }
 
 function createSession(id: string): void {
-  // -d  : start detached (no client attached yet)
-  // -s  : session name
-  // -c  : start directory
+  // -d     : start detached (no client attached yet)
+  // -s     : session name
+  // -c     : start directory
+  // -x/-y  : initial dimensions. Without these tmux uses 80x24 for detached
+  //          sessions; some TUIs (e.g. hermes) sample columns at startup and
+  //          fall back to a compact ASCII layout below 95 cols, so the fancy
+  //          banner never appears even though the browser attaches at 120+
+  //          cols a moment later. Pre-sizing here lets the TUI render its
+  //          full-size layout from the first frame; tmux rewraps when the
+  //          actual client attaches.
   // Final positional arg is the command tmux will run in the initial window.
-  const r = tmux(['new-session', '-d', '-s', id, '-c', WORK_DIR, TUI_CMD])
+  const r = tmux(['new-session', '-d', '-s', id, '-x', '120', '-y', '32', '-c', WORK_DIR, TUI_CMD])
   if (r.code !== 0) {
     throw new Error(`tmux new-session failed: ${r.stderr || r.stdout}`)
   }

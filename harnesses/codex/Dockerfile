@@ -33,6 +33,11 @@ ENV PORT=4096
 ENV WORK_DIR=/work
 ENV HOME=/home/node
 ENV TUI_CMD=codex
+# UTF-8 locale — without this tmux operates in single-byte mode and corrupts
+# every multibyte char from the TUI. C.UTF-8 is built into glibc on the
+# debian-bookworm base so no locale-gen step is needed.
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
 
 EXPOSE 4096
 

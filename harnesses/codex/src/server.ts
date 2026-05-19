@@ -112,11 +112,16 @@ function listSessions(): string[] {
 }
 
 function createSession(id: string): void {
-  // -d  : start detached (no client attached yet)
-  // -s  : session name
-  // -c  : start directory
+  // -d     : start detached (no client attached yet)
+  // -s     : session name
+  // -c     : start directory
+  // -x/-y  : initial dimensions. Detached tmux sessions default to 80x24,
+  //          and TUIs that sample terminal size at startup may pick a
+  //          compact layout that never recovers once the browser attaches
+  //          at a larger size. Pre-sizing gives the TUI room to render its
+  //          full layout from the first frame.
   // Final positional arg is the command tmux will run in the initial window.
-  const r = tmux(['new-session', '-d', '-s', id, '-c', WORK_DIR, TUI_CMD])
+  const r = tmux(['new-session', '-d', '-s', id, '-x', '120', '-y', '32', '-c', WORK_DIR, TUI_CMD])
   if (r.code !== 0) {
     throw new Error(`tmux new-session failed: ${r.stderr || r.stdout}`)
   }
