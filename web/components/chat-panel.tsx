@@ -542,6 +542,8 @@ export function ChatPanel({ session, agent }: Props) {
                 <span className="font-mono">⇧</span>
                 <CornerDownLeft className="size-3" />
                 <span>Newline</span>
+                <span className="text-muted-foreground/40">·</span>
+                <span className="font-mono text-[10px]">{agent.model}</span>
               </span>
               {sending ? (
                 <Button
@@ -711,7 +713,7 @@ function BubbleRow({ bubble, sessionId }: { bubble: Bubble; sessionId: string })
               <Markdown>{bubble.content}</Markdown>
             </div>
             {bubble.done && bubble.content && (
-              <div className="mt-1 opacity-0 group-hover/msg:opacity-100 focus-within:opacity-100 transition-opacity">
+              <div className="mt-1">
                 <CopyButton text={bubble.content} />
               </div>
             )}

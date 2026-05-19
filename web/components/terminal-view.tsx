@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Loader2, AlertTriangle } from "lucide-react"
 import { Terminal } from "@xterm/xterm"
 import { FitAddon } from "@xterm/addon-fit"
@@ -27,7 +27,23 @@ interface Props {
 // 不解析任何内容、不维护消息列表 —— 这是给 codex/hermes 这种 TUI harness 用的视图。
 export function TerminalView({ session }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null)
-  const stateRef = useRef<{ disposed: boolean }>({ disposed: false })
+  const stateRef = useRef<{ disposed: boolean; term: Terminal | null }>({ disposed: false, term: null })
+  const [isDark, setIsDark] = useState(false)
+
+  useEffect(() => {
+    const root = document.documentElement
+    const sync = () => setIsDark(root.classList.contains("dark"))
+    sync()
+    const mo = new MutationObserver(sync)
+    mo.observe(root, { attributes: true, attributeFilter: ["class"] })
+    return () => mo.disconnect()
+  }, [])
+
+  useEffect(() => {
+    if (stateRef.current.term) {
+      stateRef.current.term.options.theme = themeFor(isDark)
+    }
+  }, [isDark])
 
   useEffect(() => {
     const host = hostRef.current
@@ -53,8 +69,9 @@ export function TerminalView({ session }: Props) {
       convertEol: true,
       scrollback: 10000,
       allowProposedApi: true,
-      theme: themeFor(),
+      theme: themeFor(isDark),
     })
+    localState.term = term
     const fit = new FitAddon()
     term.loadAddon(fit)
     term.open(host)
@@ -112,6 +129,7 @@ export function TerminalView({ session }: Props) {
 
     return () => {
       localState.disposed = true
+      localState.term = null
       cleanupResize()
       try { ws.close() } catch { /* already closed */ }
       term.dispose()
@@ -140,28 +158,43 @@ export function TerminalView({ session }: Props) {
   }
 
   return (
-    <div className="h-full w-full bg-[#0b0d12] p-2">
+    <div className="h-full w-full bg-background p-2">
       <div ref={hostRef} className="h-full w-full" />
     </div>
   )
 }
 
-// xterm uses inline colors; we hand it a minimal palette that reads well on
-// both light and dark page chromes (the panel itself is always dark to make
-// ANSI colors look right).
-function themeFor() {
+// xterm 用内联颜色绘制，无法直接消费 CSS 变量；这里根据当前 .dark class 切换调色板，
+// background/foreground 与页面主题保持一致，ANSI 颜色仍选用在两种背景下都可读的中性色。
+function themeFor(isDark: boolean) {
+  if (isDark) {
+    return {
+      background: "#0b0d12",
+      foreground: "#e5e7eb",
+      cursor:     "#e5e7eb",
+      selectionBackground: "#3b82f680",
+      black:   "#1f2937",
+      red:     "#f87171",
+      green:   "#34d399",
+      yellow:  "#fbbf24",
+      blue:    "#60a5fa",
+      magenta: "#c084fc",
+      cyan:    "#22d3ee",
+      white:   "#e5e7eb",
+    }
+  }
   return {
-    background: "#0b0d12",
-    foreground: "#e5e7eb",
-    cursor:     "#e5e7eb",
-    selectionBackground: "#3b82f680",
+    background: "#ffffff",
+    foreground: "#1f2937",
+    cursor:     "#1f2937",
+    selectionBackground: "#3b82f640",
     black:   "#1f2937",
-    red:     "#f87171",
-    green:   "#34d399",
-    yellow:  "#fbbf24",
-    blue:    "#60a5fa",
-    magenta: "#c084fc",
-    cyan:    "#22d3ee",
-    white:   "#e5e7eb",
+    red:     "#dc2626",
+    green:   "#16a34a",
+    yellow:  "#ca8a04",
+    blue:    "#2563eb",
+    magenta: "#9333ea",
+    cyan:    "#0891b2",
+    white:   "#f3f4f6",
   }
 }
