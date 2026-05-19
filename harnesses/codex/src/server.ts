@@ -123,7 +123,19 @@ function createSession(id: string): void {
   //          at a larger size. Pre-sizing gives the TUI room to render its
   //          full layout from the first frame.
   // Final positional arg is the command tmux will run in the initial window.
-  const r = tmux(['new-session', '-d', '-s', id, '-x', '120', '-y', '32', '-c', WORK_DIR, TUI_CMD])
+  // Codex (Ratatui-based) sends OSC 10 + OSC 11 at startup to probe the outer
+  // terminal's fg/bg and only fills the chat-input block when both responses
+  // come back — see codex-rs/tui/src/style.rs::user_message_style. Inside a
+  // detached tmux there's no outer terminal to answer; codex flushes stdin
+  // post-raw-mode (tui.rs::flush_terminal_input_buffer), so pre-injected
+  // replies are discarded. Run codex under a small node-pty wrapper that
+  // watches its output for the OSC query and writes the reply straight back
+  // into codex's stdin — same effect a real terminal would have. hermes and
+  // other harnesses don't run this probe; let them spawn directly.
+  const cmd = TUI_CMD === 'codex'
+    ? ['tsx', path.join(__dirname, 'codex-wrapper.ts')]
+    : [TUI_CMD]
+  const r = tmux(['new-session', '-d', '-s', id, '-x', '120', '-y', '32', '-c', WORK_DIR, ...cmd])
   if (r.code !== 0) {
     throw new Error(`tmux new-session failed: ${r.stderr || r.stdout}`)
   }
