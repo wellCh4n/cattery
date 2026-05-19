@@ -76,13 +76,15 @@ function seedCodexConfig(): void {
     `name = "Cattery gateway"`,
     `base_url = ${JSON.stringify(baseURL)}`,
     `env_key = "OPENAI_API_KEY"`,
-    // Codex defaults to OpenAI's Responses API ("/v1/responses"). Cattery
-    // routes through generic OpenAI-compat proxies (NewAPI/OneAPI/etc.) and
-    // also through Anthropic-style gateways exposing only Chat Completions
-    // — neither typically implements the Responses streaming format, so
-    // codex hits "stream disconnected before completion" on the first turn.
-    // Pin Chat Completions so we talk the protocol every gateway supports.
-    `wire_api = "chat"`,
+    // Codex removed Chat Completions support entirely
+    // (github.com/openai/codex/discussions/7782) — the WireApi enum only has
+    // a Responses variant now, and `wire_api = "chat"` hard-errors at boot.
+    // The gateway pointed at MODEL_API_BASE MUST implement OpenAI's
+    // Responses API (/v1/responses). NewAPI/OneAPI proxies that only expose
+    // /v1/chat/completions will not work with the codex harness; use
+    // LiteLLM, OpenRouter, or another Responses-capable gateway, or pick a
+    // different harness (claude-code, opencode) for those models.
+    `wire_api = "responses"`,
     ``,
     // Pre-trust WORK_DIR so codex skips the "Do you trust the contents of
     // this directory?" prompt on first launch. The table key MUST be the
