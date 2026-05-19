@@ -78,6 +78,17 @@ export function TerminalView({ session }: Props) {
     term.open(host)
     fit.fit()
 
+    // Without this, right-clicking on a Shift-selected region clears the
+    // selection: xterm.js sees the button=2 mousedown and (because tmux mouse
+    // mode is on) starts a fresh forwarded mouse event, wiping the highlight
+    // before the native context menu's Copy item runs. Stop the mousedown in
+    // capture phase only when there's an active selection — left-click and
+    // no-selection right-click still pass through to tmux normally.
+    const interceptRightClick = (e: MouseEvent) => {
+      if (e.button === 2 && term.hasSelection()) e.stopPropagation()
+    }
+    host.addEventListener("mousedown", interceptRightClick, true)
+
     const ws = new WebSocket(termURL(session.session_id))
     ws.binaryType = "arraybuffer"
 
@@ -132,6 +143,7 @@ export function TerminalView({ session }: Props) {
       localState.disposed = true
       localState.term = null
       cleanupResize()
+      host.removeEventListener("mousedown", interceptRightClick, true)
       try { ws.close() } catch { /* already closed */ }
       term.dispose()
     }
