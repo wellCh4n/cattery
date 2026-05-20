@@ -44,15 +44,63 @@ console.log(`[startup] TUI_CMD : ${TUI_CMD}`)
 console.log(`[startup] WORK_DIR: ${WORK_DIR}`)
 console.log(`[startup] PORT    : ${PORT}`)
 
-// ── Codex auth: pre-seed ~/.codex/config.toml ────────────────────────────────
+// ── Codex bootstrap ──────────────────────────────────────────────────────────
 //
-// Codex CLI shows an interactive sign-in picker on first launch unless it
-// finds a custom provider with `env_key` set. We render config.toml from
-// MODEL + OPENAI_BASE_URL so the TUI starts in API-key mode and goes
-// straight to the prompt. Hermes doesn't need this — it's gated by its own
-// SPAWN_CMD logic upstream.
+// Two things to set up before tmux launches codex:
+//   1) codex-relay sidecar (translates Responses ↔ Chat Completions). Only
+//      needed for claude-* models — NewAPI natively supports /v1/responses
+//      for OpenAI models but not for Anthropic, so GPT sessions skip the
+//      relay and talk straight to the upstream gateway.
+//   2) ~/.codex/config.toml seeded with a custom provider, so codex skips
+//      its interactive sign-in picker on first launch. The provider's
+//      base_url points at the relay or the gateway depending on (1).
+// Hermes doesn't need either — it's gated by its own SPAWN_CMD logic upstream.
+const CODEX_RELAY_PORT = Number(process.env.CODEX_RELAY_PORT ?? 4444)
+const CODEX_MODEL      = process.env.MODEL ?? 'gpt-4o'
+const CODEX_NEEDS_RELAY = CODEX_MODEL.startsWith('claude')
+
 if (TUI_CMD === 'codex') {
+  if (CODEX_NEEDS_RELAY) startCodexRelay()
   seedCodexConfig()
+}
+
+// ── codex-relay sidecar ──────────────────────────────────────────────────────
+//
+// codex >=0.131 only speaks the OpenAI Responses API (POST /v1/responses).
+// Our upstream gateway (NewAPI) translates Chat Completions ↔ Anthropic
+// Messages, but Responses ↔ anything is still 🚧. codex-relay bridges the
+// gap in-container: codex → 127.0.0.1:4444 (Responses) → upstream (Chat
+// Completions) → NewAPI does its claude/openai routing per model.
+//
+// Stays alive for the container's lifetime; if it dies, codex requests fail
+// loudly with connection refused — we surface that via stderr passthrough.
+function startCodexRelay(): void {
+  const upstream = (process.env.OPENAI_BASE_URL ?? '').replace(/\/+$/, '') + '/v1'
+  const apiKey   = process.env.OPENAI_API_KEY ?? ''
+
+  const relay = spawn('codex-relay', [], {
+    env: {
+      ...process.env,
+      CODEX_RELAY_UPSTREAM: upstream,
+      CODEX_RELAY_API_KEY:  apiKey,
+      CODEX_RELAY_PORT:     String(CODEX_RELAY_PORT),
+      RUST_LOG:             process.env.RUST_LOG ?? 'codex_relay=info',
+    },
+    stdio: ['ignore', 'inherit', 'inherit'],
+  })
+
+  relay.on('exit', (code, signal) => {
+    console.error(`[codex-relay] exited code=${code} signal=${signal} — subsequent codex requests will fail`)
+  })
+
+  // Forward terminate signals so the relay doesn't outlive the bridge.
+  for (const sig of ['SIGTERM', 'SIGINT'] as const) {
+    process.on(sig, () => {
+      try { relay.kill(sig) } catch { /* already gone */ }
+    })
+  }
+
+  console.log(`[startup] codex-relay → ${upstream} (listen :${CODEX_RELAY_PORT})`)
 }
 
 function seedCodexConfig(): void {
@@ -64,10 +112,12 @@ function seedCodexConfig(): void {
   const dir  = path.join(home, '.codex')
   const file = path.join(dir, 'config.toml')
 
-  // Point codex directly at the upstream gateway. Codex v0.131+ only
-  // speaks the Responses API (/v1/responses); the gateway must support it.
-  const baseURL = (process.env.OPENAI_BASE_URL ?? '').replace(/\/+$/, '') + '/v1'
-  const model   = process.env.MODEL ?? 'gpt-4o'
+  // claude-* models route through the local relay; OpenAI models go straight
+  // to the upstream NewAPI gateway, which already speaks Responses natively.
+  const baseURL = CODEX_NEEDS_RELAY
+    ? `http://127.0.0.1:${CODEX_RELAY_PORT}/v1`
+    : (process.env.OPENAI_BASE_URL ?? '').replace(/\/+$/, '') + '/v1'
+  const model   = CODEX_MODEL
 
   const toml = [
     `model = ${JSON.stringify(model)}`,

@@ -40,9 +40,9 @@ interface ModelOption {
 }
 
 const MODELS: ModelOption[] = [
-  { id: "claude-sonnet-4-6", label: "claude-sonnet-4-6", types: ["opencode", "claude-code", "hermes"] },
-  { id: "claude-opus-4-6",   label: "claude-opus-4-6",   types: ["opencode", "claude-code", "hermes"] },
-  { id: "claude-opus-4-7",   label: "claude-opus-4-7",   types: ["opencode", "claude-code", "hermes"] },
+  { id: "claude-sonnet-4-6", label: "claude-sonnet-4-6", types: ["opencode", "claude-code", "hermes", "codex"] },
+  { id: "claude-opus-4-6",   label: "claude-opus-4-6",   types: ["opencode", "claude-code", "hermes", "codex"] },
+  { id: "claude-opus-4-7",   label: "claude-opus-4-7",   types: ["opencode", "claude-code", "hermes", "codex"] },
   { id: "gpt-5.4",           label: "gpt-5.4",           types: ["opencode", "claude-code", "hermes", "codex"] },
   { id: "gpt-5.5",           label: "gpt-5.5",           types: ["opencode", "claude-code", "hermes", "codex"] },
   { id: "__custom__",        label: "Custom",            types: ["opencode", "claude-code", "hermes", "codex"] },

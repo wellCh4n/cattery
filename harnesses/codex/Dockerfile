@@ -10,11 +10,21 @@
 FROM node:22-bookworm-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      git ca-certificates curl tmux python3 make g++ bubblewrap \
+      git ca-certificates curl tmux python3 python3-pip make g++ bubblewrap \
     && rm -rf /var/lib/apt/lists/*
 
 # Codex CLI (OpenAI) — official npm package.
 RUN npm install -g @openai/codex@latest
+
+# codex-relay: Responses ↔ Chat Completions translator (Rust binary shipped
+# via PyPI wheel for convenience). Codex >=0.131 hardcodes wire_api =
+# "responses", but our NewAPI gateway only translates Chat Completions →
+# Anthropic Messages for claude-* models (Responses → Anthropic is still
+# 🚧 upstream). codex-relay sits in this container as a sidecar: codex
+# talks Responses to 127.0.0.1, the relay emits Chat Completions to
+# OPENAI_BASE_URL, NewAPI fans out to Anthropic or OpenAI per model.
+# --break-system-packages: container is sealed, no system Python to protect.
+RUN pip install --break-system-packages --no-cache-dir codex-relay==0.2.0
 
 WORKDIR /app
 
