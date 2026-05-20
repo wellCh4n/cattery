@@ -3,7 +3,6 @@
 GO = $(shell which go)
 BUN = $(shell which bun)
 
-DB_URL = postgres://postgres:postgres@localhost:5432/cattery?sslmode=disable
 PORT = 8080
 K8S_NS = default
 
@@ -31,10 +30,6 @@ build:
 stop:
 	@lsof -ti :$(PORT) | xargs kill -9 2>/dev/null && echo "killed :$(PORT)" || echo "nothing on :$(PORT)"
 	@lsof -ti :3000  | xargs kill -9 2>/dev/null && echo "killed :3000"  || echo "nothing on :3000"
-
-migrate:
-	@/Applications/Postgres.app/Contents/Versions/latest/bin/psql -h localhost -p 5432 -U postgres -d cattery \
-		-f backend/internal/db/migrations/init.sql
 
 # make build-harness HARNESS=opencode      — build one harness
 # make build-harness HARNESS=claude-code    — build one harness

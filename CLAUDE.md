@@ -18,7 +18,6 @@ make dev-back                     # backend only, sources backend/.env
 make dev-front                    # Next.js dev on :3000 (bun)
 make build                        # compile Go server to backend/bin/server
 make stop                         # kill :8080 and :3000
-make migrate                      # apply backend/internal/db/migrations/init.sql
 make build-harness                # build all four harness images
 make build-harness HARNESS=codex  # build a single harness (opencode | claude-code | codex | hermes)
 ```
