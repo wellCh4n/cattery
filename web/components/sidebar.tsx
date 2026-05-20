@@ -170,7 +170,10 @@ export function Sidebar() {
   async function handleNewSession(harness: HarnessWithSessions) {
     setLaunching(harness.harness_id)
     try {
-      const session = await createSession(harness.harness_id)
+      // 把当前页面主题透给 codex —— 它只在启动时探一次 OSC 10/11，
+      // 之后用户在浏览器里切主题，codex 那边不会同步变。
+      const theme = document.documentElement.classList.contains("dark") ? "dark" : "light"
+      const session = await createSession(harness.harness_id, theme)
       setHarnesses(prev => prev.map(h =>
         h.harness_id === harness.harness_id
           ? { ...h, sessions: [session, ...h.sessions], expanded: true }

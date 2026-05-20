@@ -46,6 +46,17 @@ func (h *SessionHandler) Create(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusNotFound, "harness not found")
 	}
 
+	// theme 仅 terminal harness（codex）使用 —— 用来生成正确的 OSC 10/11 应答色，
+	// 让 codex 启动时按当前页面主题挑亮色/暗色调色板。前端如果未传则默认 dark。
+	var req struct {
+		Theme string `json:"theme"`
+	}
+	_ = c.Bind(&req)
+	theme := req.Theme
+	if theme != "light" {
+		theme = "dark"
+	}
+
 	sess := &model.Session{
 		SessionID: uuid.New(),
 		HarnessID: harnessID,
@@ -55,7 +66,7 @@ func (h *SessionHandler) Create(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
-	go h.bringUp(sess.SessionID, inst)
+	go h.bringUp(sess.SessionID, inst, theme)
 
 	return c.JSON(http.StatusCreated, sess)
 }
@@ -63,7 +74,7 @@ func (h *SessionHandler) Create(c echo.Context) error {
 // bringUp 确保 harness 的 sandbox 在线，然后在里面创建 harness session。
 // Harness 创建时已经异步起过 sandbox，这里通常只是等它 ready；万一是
 // idle / failed 状态（被 stop 或上次拉起失败），manager 会负责重新拉起。
-func (h *SessionHandler) bringUp(sessionID uuid.UUID, inst *model.Harness) {
+func (h *SessionHandler) bringUp(sessionID uuid.UUID, inst *model.Harness, theme string) {
 	ctx := context.Background()
 
 	sandboxURL, err := h.sandbox.EnsureReady(ctx, inst)
@@ -73,7 +84,7 @@ func (h *SessionHandler) bringUp(sessionID uuid.UUID, inst *model.Harness) {
 	}
 
 	_ = h.sessionStore.UpdateStatus(ctx, sessionID, "creating", "handshake")
-	harnessSessionID, err := h.harnessClient.CreateSession(ctx, sandboxURL)
+	harnessSessionID, err := h.harnessClient.CreateSession(ctx, sandboxURL, theme)
 	if err != nil {
 		_ = h.sessionStore.UpdateStatus(ctx, sessionID, "failed", "handshake_error")
 		return

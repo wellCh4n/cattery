@@ -27,8 +27,12 @@ type createSessionResponse struct {
 	ID string `json:"id"`
 }
 
-func (c *Client) CreateSession(ctx context.Context, sandboxURL string) (string, error) {
-	resp, err := c.httpClient.Post(sandboxURL+"/session", "application/json", bytes.NewBufferString("{}"))
+// CreateSession 在 sandbox 内创建一个 harness session。theme（"light" | "dark"）
+// 只有 terminal harness（codex）会读，用来决定 OSC 10/11 应答色。HTTP harness
+// 收到也无害，会被忽略。
+func (c *Client) CreateSession(ctx context.Context, sandboxURL, theme string) (string, error) {
+	body, _ := json.Marshal(map[string]string{"theme": theme})
+	resp, err := c.httpClient.Post(sandboxURL+"/session", "application/json", bytes.NewReader(body))
 	if err != nil {
 		return "", fmt.Errorf("harness create session: %w", err)
 	}

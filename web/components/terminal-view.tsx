@@ -70,6 +70,9 @@ export function TerminalView({ session }: Props) {
       convertEol: true,
       scrollback: 10000,
       allowProposedApi: true,
+      // codex 用 truecolor 画输入框背景，主题里改 ANSI black 管不到它；
+      // 这里让 xterm 在前景与背景对比度不足时自动调整前景，保证文字可读。
+      minimumContrastRatio: 7,
       theme: themeFor(isDark),
     })
     localState.term = term

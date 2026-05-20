@@ -32,15 +32,21 @@ const codex = pty.spawn('codex', [], {
   env: process.env as Record<string, string>,
 })
 
-// Colors track the cattery web dark-theme palette in
-// web/components/terminal-view.tsx::themeFor. Light-theme users still see the
-// input block (user_message_bg picks the contrasting overlay) but the shade
-// won't match; that's a known limitation until we plumb theme through to
-// session creation.
+// Colors track the cattery web theme palette in
+// web/components/terminal-view.tsx::themeFor. CATTERY_THEME ("light" | "dark")
+// is set by the backend at session-creation time via `tmux new-session -e`
+// (see harnesses/codex/src/server.ts), so codex picks the matching ratatui
+// palette on its first OSC 10/11 probe. The probe only fires once; switching
+// the browser theme after the session is created won't restyle codex.
 const OSC_10_QUERY = '\x1b]10;?'
 const OSC_11_QUERY = '\x1b]11;?'
-const OSC_10_REPLY = '\x1b]10;rgb:e5/e7/eb\x1b\\'
-const OSC_11_REPLY = '\x1b]11;rgb:0b/0d/12\x1b\\'
+const isLight = (process.env.CATTERY_THEME ?? 'dark') === 'light'
+const OSC_10_REPLY = isLight
+  ? '\x1b]10;rgb:1f/29/37\x1b\\' // light fg = slate-800
+  : '\x1b]10;rgb:e5/e7/eb\x1b\\' // dark  fg = gray-200
+const OSC_11_REPLY = isLight
+  ? '\x1b]11;rgb:ff/ff/ff\x1b\\' // light bg = white
+  : '\x1b]11;rgb:0b/0d/12\x1b\\' // dark  bg = near-black
 
 // Carry a tiny tail across chunks so a query split across two onData callbacks
 // still matches. The longest query is 6 bytes; 64 is comfortable headroom.

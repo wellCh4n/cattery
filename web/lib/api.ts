@@ -68,11 +68,11 @@ export async function listSessions(harnessId: string): Promise<Session[]> {
   return res.json()
 }
 
-export async function createSession(harnessId: string): Promise<Session> {
+export async function createSession(harnessId: string, theme: "light" | "dark"): Promise<Session> {
   const res = await fetch(`${API_BASE}/api/v1/harnesses/${harnessId}/sessions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({}),
+    body: JSON.stringify({ theme }),
   })
   if (!res.ok) throw new Error("failed to create session")
   return res.json()

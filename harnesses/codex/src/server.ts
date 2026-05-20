@@ -113,7 +113,7 @@ function listSessions(): string[] {
   return r.stdout.split('\n').map(s => s.trim()).filter(Boolean)
 }
 
-function createSession(id: string): void {
+function createSession(id: string, theme: 'light' | 'dark'): void {
   // -d     : start detached (no client attached yet)
   // -s     : session name
   // -c     : start directory
@@ -122,6 +122,9 @@ function createSession(id: string): void {
   //          compact layout that never recovers once the browser attaches
   //          at a larger size. Pre-sizing gives the TUI room to render its
   //          full layout from the first frame.
+  // -e     : env vars for the session. CATTERY_THEME is read by codex-wrapper
+  //          to pick the OSC 10/11 reply that drives codex's light/dark
+  //          ratatui palette.
   // Final positional arg is the command tmux will run in the initial window.
   // Codex (Ratatui-based) sends OSC 10 + OSC 11 at startup to probe the outer
   // terminal's fg/bg and only fills the chat-input block when both responses
@@ -135,7 +138,13 @@ function createSession(id: string): void {
   const cmd = TUI_CMD === 'codex'
     ? ['tsx', path.join(__dirname, 'codex-wrapper.ts')]
     : [TUI_CMD]
-  const r = tmux(['new-session', '-d', '-s', id, '-x', '120', '-y', '32', '-c', WORK_DIR, ...cmd])
+  const r = tmux([
+    'new-session', '-d', '-s', id,
+    '-x', '120', '-y', '32',
+    '-c', WORK_DIR,
+    '-e', `CATTERY_THEME=${theme}`,
+    ...cmd,
+  ])
   if (r.code !== 0) {
     throw new Error(`tmux new-session failed: ${r.stderr || r.stdout}`)
   }
@@ -158,10 +167,12 @@ app.get('/session', (_req, res) => {
   res.json(listSessions())
 })
 
-app.post('/session', (_req, res) => {
+app.post('/session', (req, res) => {
   const id = randomUUID()
+  const rawTheme = (req.body && (req.body as { theme?: unknown }).theme)
+  const theme: 'light' | 'dark' = rawTheme === 'light' ? 'light' : 'dark'
   try {
-    createSession(id)
+    createSession(id, theme)
   } catch (err) {
     console.error('[POST /session] failed:', err instanceof Error ? err.message : err)
     return void res.status(500).json({ error: 'failed to create tmux session' })
