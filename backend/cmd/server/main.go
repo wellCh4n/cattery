@@ -8,6 +8,7 @@ import (
 	"github.com/wellch4n/cattery/internal/db"
 	"github.com/wellch4n/cattery/internal/harness"
 	k8sclient "github.com/wellch4n/cattery/internal/k8s"
+	"github.com/wellch4n/cattery/internal/sandbox"
 )
 
 func main() {
@@ -24,14 +25,15 @@ func main() {
 		log.Fatalf("k8s client: %v", err)
 	}
 
-	agentStore := db.NewAgentStore(database)
+	harnessStore := db.NewHarnessStore(database)
 	sessionStore := db.NewSessionStore(database)
 	harnessClient := harness.NewClient()
+	sandboxMgr := sandbox.NewManager(harnessStore, k8s, harnessClient, cfg)
 
-	agentH := api.NewAgentHandler(agentStore, k8s)
-	sessionH := api.NewSessionHandler(sessionStore, agentStore, k8s, harnessClient, cfg)
+	harnessH := api.NewHarnessHandler(harnessStore, sandboxMgr)
+	sessionH := api.NewSessionHandler(sessionStore, harnessStore, harnessClient, sandboxMgr)
 
-	router := api.NewRouter(agentH, sessionH)
+	router := api.NewRouter(harnessH, sessionH)
 	log.Printf("starting server on :%s", cfg.Port)
 	log.Fatal(router.Start(":" + cfg.Port))
 }

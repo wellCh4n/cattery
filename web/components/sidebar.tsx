@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
-import { CreateAgentDialog } from "@/components/create-agent-dialog"
+import { CreateHarnessDialog } from "@/components/create-harness-dialog"
 import { HarnessIcon } from "@/components/harness-icon"
 import { ThemeToggle } from "@/components/theme-toggle"
 import {
@@ -29,26 +29,27 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog"
 import {
-  listAgents,
+  listHarnesses,
   listSessions,
   createSession,
-  deleteAgent,
+  deleteHarness,
   deleteSession,
+  getHarness,
   getSession,
-  updateAgent,
+  updateHarness,
   updateSessionTitle,
-  type Agent,
+  type Harness,
   type Session,
 } from "@/lib/api"
 
-interface AgentWithSessions extends Agent {
+interface HarnessWithSessions extends Harness {
   sessions: Session[]
   expanded: boolean
 }
 
 type DeleteTarget =
-  | { kind: "agent"; id: string; name: string }
-  | { kind: "session"; id: string; agentId: string }
+  | { kind: "harness"; id: string; name: string }
+  | { kind: "session"; id: string; harnessId: string }
 
 export function Sidebar() {
   const router = useRouter()
@@ -56,17 +57,17 @@ export function Sidebar() {
   const selectedSessionId = pathname.startsWith("/sessions/")
     ? pathname.slice("/sessions/".length)
     : null
-  const [agents, setAgents] = useState<AgentWithSessions[]>([])
+  const [harnesses, setHarnesses] = useState<HarnessWithSessions[]>([])
   const [launching, setLaunching] = useState<string | null>(null)
   const [busySessions, setBusySessions] = useState<Set<string>>(new Set())
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
   const [deleting, setDeleting] = useState(false)
-  const [editing, setEditing] = useState<{ kind: "agent"; id: string; original: string } | { kind: "session"; id: string; original: string } | null>(null)
+  const [editing, setEditing] = useState<{ kind: "harness"; id: string; original: string } | { kind: "session"; id: string; original: string } | null>(null)
   const [editValue, setEditValue] = useState("")
   const editInputRef = useRef<HTMLInputElement>(null)
 
-  function startEdit(kind: "agent" | "session", id: string, current: string) {
-    setEditing({ kind, id, original: current } as { kind: "agent"; id: string; original: string } | { kind: "session"; id: string; original: string })
+  function startEdit(kind: "harness" | "session", id: string, current: string) {
+    setEditing({ kind, id, original: current } as { kind: "harness"; id: string; original: string } | { kind: "session"; id: string; original: string })
     setEditValue(current)
     setTimeout(() => editInputRef.current?.focus(), 0)
   }
@@ -79,14 +80,14 @@ export function Sidebar() {
       return
     }
     try {
-      if (editing.kind === "agent") {
-        const updated = await updateAgent(editing.id, { agent_name: val })
-        setAgents(prev => prev.map(a => a.agent_id === editing.id ? { ...a, agent_name: updated.agent_name } : a))
+      if (editing.kind === "harness") {
+        const updated = await updateHarness(editing.id, { harness_name: val })
+        setHarnesses(prev => prev.map(h => h.harness_id === editing.id ? { ...h, harness_name: updated.harness_name } : h))
       } else {
         const updated = await updateSessionTitle(editing.id, { title: val })
-        setAgents(prev => prev.map(a => ({
-          ...a,
-          sessions: a.sessions.map(s => s.session_id === editing.id ? { ...s, title: updated.title } : s),
+        setHarnesses(prev => prev.map(h => ({
+          ...h,
+          sessions: h.sessions.map(s => s.session_id === editing.id ? { ...s, title: updated.title } : s),
         })))
       }
     } catch { /* ignore */ }
@@ -106,29 +107,29 @@ export function Sidebar() {
     cancelEdit()
   }
 
-  const loadAgents = useCallback(async () => {
-    const list = await listAgents()
+  const loadHarnesses = useCallback(async () => {
+    const list = await listHarnesses()
     const withSessions = await Promise.all(
-      list.map(async a => ({ agent: a, sessions: await listSessions(a.agent_id).catch(() => []) }))
+      list.map(async h => ({ harness: h, sessions: await listSessions(h.harness_id).catch(() => []) }))
     )
-    setAgents(prev =>
-      withSessions.map(({ agent, sessions }) => {
-        const existing = prev.find(p => p.agent_id === agent.agent_id)
-        return { ...agent, sessions, expanded: existing?.expanded ?? true }
+    setHarnesses(prev =>
+      withSessions.map(({ harness, sessions }) => {
+        const existing = prev.find(p => p.harness_id === harness.harness_id)
+        return { ...harness, sessions, expanded: existing?.expanded ?? true }
       })
     )
   }, [])
 
   useEffect(() => {
-    loadAgents()
-  }, [loadAgents])
+    loadHarnesses()
+  }, [loadHarnesses])
 
   useEffect(() => {
     function onTitle(e: Event) {
       const { sessionId, title } = (e as CustomEvent<{ sessionId: string; title: string }>).detail
-      setAgents(prev => prev.map(a => ({
-        ...a,
-        sessions: a.sessions.map(s =>
+      setHarnesses(prev => prev.map(h => ({
+        ...h,
+        sessions: h.sessions.map(s =>
           s.session_id === sessionId ? { ...s, title } : s
         ),
       })))
@@ -149,50 +150,50 @@ export function Sidebar() {
     }
   }, [])
 
-  async function toggleExpand(agentId: string) {
-    setAgents(prev => prev.map(a => {
-      if (a.agent_id !== agentId) return a
-      if (!a.expanded && a.sessions.length === 0) {
-        loadSessionsFor(agentId)
+  async function toggleExpand(harnessId: string) {
+    setHarnesses(prev => prev.map(h => {
+      if (h.harness_id !== harnessId) return h
+      if (!h.expanded && h.sessions.length === 0) {
+        loadSessionsFor(harnessId)
       }
-      return { ...a, expanded: !a.expanded }
+      return { ...h, expanded: !h.expanded }
     }))
   }
 
-  async function loadSessionsFor(agentId: string) {
-    const sessions = await listSessions(agentId)
-    setAgents(prev => prev.map(a =>
-      a.agent_id === agentId ? { ...a, sessions, expanded: true } : a
+  async function loadSessionsFor(harnessId: string) {
+    const sessions = await listSessions(harnessId)
+    setHarnesses(prev => prev.map(h =>
+      h.harness_id === harnessId ? { ...h, sessions, expanded: true } : h
     ))
   }
 
-  async function handleNewSession(agent: AgentWithSessions) {
-    setLaunching(agent.agent_id)
+  async function handleNewSession(harness: HarnessWithSessions) {
+    setLaunching(harness.harness_id)
     try {
-      const session = await createSession(agent.agent_id)
-      setAgents(prev => prev.map(a =>
-        a.agent_id === agent.agent_id
-          ? { ...a, sessions: [session, ...a.sessions], expanded: true }
-          : a
+      const session = await createSession(harness.harness_id)
+      setHarnesses(prev => prev.map(h =>
+        h.harness_id === harness.harness_id
+          ? { ...h, sessions: [session, ...h.sessions], expanded: true }
+          : h
       ))
       router.push(`/sessions/${session.session_id}`)
-      pollSessionStatus(session.session_id, agent.agent_id)
+      pollSessionStatus(session.session_id, harness.harness_id)
     } finally {
       setLaunching(null)
     }
   }
 
-  function pollSessionStatus(sessionId: string, agentId: string) {
+  function pollSessionStatus(sessionId: string, harnessId: string) {
     const timer = setInterval(async () => {
       try {
         const updated = await getSession(sessionId)
         if (updated.status !== "creating") {
           clearInterval(timer)
         }
-        setAgents(prev => prev.map(a =>
-          a.agent_id === agentId
-            ? { ...a, sessions: a.sessions.map(s => s.session_id === sessionId ? updated : s) }
-            : a
+        setHarnesses(prev => prev.map(h =>
+          h.harness_id === harnessId
+            ? { ...h, sessions: h.sessions.map(s => s.session_id === sessionId ? updated : s) }
+            : h
         ))
       } catch {
         clearInterval(timer)
@@ -200,23 +201,47 @@ export function Sidebar() {
     }, 1500)
   }
 
+  // 持续轮询所有未到终态的 harness sandbox，直到 ready / failed。
+  // 不只盯 starting 是因为：harness 刚创建时 DB 还是 idle，要等后端 goroutine
+  // 写 starting；这段窗口前端如果只看 starting 就永远不会刷新。依赖 pollingKey
+  // (id 串) 而不是整个 harnesses 数组，避免每次状态变更都重建定时器。
+  const pollingKey = harnesses
+    .filter(h => h.sandbox_status !== "ready" && h.sandbox_status !== "failed")
+    .map(h => h.harness_id)
+    .sort()
+    .join(",")
+  useEffect(() => {
+    if (!pollingKey) return
+    const ids = pollingKey.split(",")
+    const timer = setInterval(async () => {
+      const updates = await Promise.all(ids.map(id => getHarness(id).catch(() => null)))
+      setHarnesses(prev => prev.map(h => {
+        const u = updates.find(x => x?.harness_id === h.harness_id)
+        return u && u.sandbox_status !== h.sandbox_status
+          ? { ...h, sandbox_status: u.sandbox_status }
+          : h
+      }))
+    }, 1500)
+    return () => clearInterval(timer)
+  }, [pollingKey])
+
   async function confirmDelete() {
     if (!deleteTarget) return
     setDeleting(true)
     try {
-      if (deleteTarget.kind === "agent") {
-        const removed = agents.find(a => a.agent_id === deleteTarget.id)
-        await deleteAgent(deleteTarget.id)
-        setAgents(prev => prev.filter(a => a.agent_id !== deleteTarget.id))
+      if (deleteTarget.kind === "harness") {
+        const removed = harnesses.find(h => h.harness_id === deleteTarget.id)
+        await deleteHarness(deleteTarget.id)
+        setHarnesses(prev => prev.filter(h => h.harness_id !== deleteTarget.id))
         if (removed?.sessions.some(s => s.session_id === selectedSessionId)) {
           router.push("/")
         }
       } else {
         await deleteSession(deleteTarget.id)
-        setAgents(prev => prev.map(a =>
-          a.agent_id === deleteTarget.agentId
-            ? { ...a, sessions: a.sessions.filter(s => s.session_id !== deleteTarget.id) }
-            : a
+        setHarnesses(prev => prev.map(h =>
+          h.harness_id === deleteTarget.harnessId
+            ? { ...h, sessions: h.sessions.filter(s => s.session_id !== deleteTarget.id) }
+            : h
         ))
         if (selectedSessionId === deleteTarget.id) {
           router.push("/")
@@ -234,9 +259,18 @@ export function Sidebar() {
     return "bg-amber-400 animate-pulse"
   }
 
-  // harness id 在创建对话框里有大小写规范的 label（OpenCode / Claude Code / Codex / Hermes），
+  // sandbox 状态点：idle 灰、starting 黄脉冲、ready 绿、failed 红。
+  // ready 时不显示，避免成功后的视觉噪音。
+  function sandboxDot(status: string): string | null {
+    if (status === "ready") return null
+    if (status === "failed") return "bg-destructive"
+    if (status === "starting") return "bg-amber-400 animate-pulse"
+    return "bg-muted-foreground/40"
+  }
+
+  // harness type 在创建对话框里有大小写规范的 label（OpenCode / Claude Code / Codex / Hermes），
   // 这里复用同一份映射，避免侧栏显示成全小写的 `opencode` / `claude-code`。
-  const HARNESS_LABELS: Record<string, string> = {
+  const TYPE_LABELS: Record<string, string> = {
     "opencode":    "OpenCode",
     "claude-code": "Claude Code",
     "codex":       "Codex",
@@ -244,8 +278,8 @@ export function Sidebar() {
   }
 
   // 最近沟通的 session：按 last_seen_at（fallback created_at）倒序，取前 3
-  const recentSessions: Array<Session & { agent_name: string | null }> = agents
-    .flatMap(a => a.sessions.map(s => ({ ...s, agent_name: a.agent_name })))
+  const recentSessions: Array<Session & { harness_name: string | null }> = harnesses
+    .flatMap(h => h.sessions.map(s => ({ ...s, harness_name: h.harness_name })))
     .filter(s => s.status !== "dead")
     .sort((a, b) => {
       const ta = new Date(a.last_seen_at ?? a.created_at).getTime()
@@ -264,9 +298,9 @@ export function Sidebar() {
           </div>
           <div className="flex items-center gap-1">
             <ThemeToggle />
-            <CreateAgentDialog
-              onCreated={agent =>
-                setAgents(prev => [{ ...agent, sessions: [], expanded: true }, ...prev])
+            <CreateHarnessDialog
+              onCreated={harness =>
+                setHarnesses(prev => [{ ...harness, sessions: [], expanded: true }, ...prev])
               }
             />
           </div>
@@ -300,7 +334,7 @@ export function Sidebar() {
                       {sess.title ?? "New Session"}
                     </span>
                     <span className="text-[10px] text-muted-foreground/60 shrink-0 truncate max-w-[60px]">
-                      {sess.agent_name ?? "Untitled"}
+                      {sess.harness_name ?? "Untitled"}
                     </span>
                   </div>
                 ))}
@@ -308,30 +342,36 @@ export function Sidebar() {
               <div className="mx-2 my-2 border-t border-border/60" />
             </div>
           )}
-          {agents.length === 0 && (
+          {harnesses.length === 0 && (
             <div className="px-4 py-8 text-center">
               <Bot className="size-8 mx-auto text-muted-foreground/50" />
-              <p className="text-xs text-muted-foreground mt-2">No agents yet</p>
+              <p className="text-xs text-muted-foreground mt-2">No harnesses yet</p>
               <p className="text-[11px] text-muted-foreground/70 mt-0.5">
                 Create one to get started
               </p>
             </div>
           )}
-          {agents.map(agent => (
-            <div key={agent.agent_id} className="px-1.5 mb-1">
+          {harnesses.map(harness => (
+            <div key={harness.harness_id} className="px-1.5 mb-1">
               <div className="group flex items-center gap-0.5 rounded-md pl-1 pr-0.5 h-8 hover:bg-muted transition-colors">
                 <button
                   className="flex-1 flex cursor-pointer items-center gap-1.5 min-w-0 h-full text-left text-sm font-medium outline-none"
-                  onClick={() => toggleExpand(agent.agent_id)}
+                  onClick={() => toggleExpand(harness.harness_id)}
                 >
                   <ChevronRight
                     className={cn(
                       "size-3.5 text-muted-foreground transition-transform shrink-0",
-                      agent.expanded && "rotate-90"
+                      harness.expanded && "rotate-90"
                     )}
                   />
-                  <HarnessIcon id={agent.harness_id} className="size-3.5 text-muted-foreground shrink-0" />
-                  {editing?.kind === "agent" && editing.id === agent.agent_id ? (
+                  {sandboxDot(harness.sandbox_status) && (
+                    <span
+                      title={`sandbox: ${harness.sandbox_status}`}
+                      className={cn("size-1.5 rounded-full shrink-0", sandboxDot(harness.sandbox_status))}
+                    />
+                  )}
+                  <HarnessIcon id={harness.type} className="size-3.5 text-muted-foreground shrink-0" />
+                  {editing?.kind === "harness" && editing.id === harness.harness_id ? (
                     <Input
                       ref={editInputRef}
                       className="flex-1 h-6 pl-4 pr-2 py-0 text-sm font-medium min-w-0"
@@ -348,13 +388,13 @@ export function Sidebar() {
                   ) : (
                     <>
                       <span className="truncate min-w-0 flex-1">
-                        {agent.agent_name ?? "Untitled"}
+                        {harness.harness_name ?? "Untitled"}
                       </span>
                       <Badge
                         variant="secondary"
                         className="text-[10px] h-4 px-1.5 font-normal shrink-0 group-hover:hidden"
                       >
-                        {HARNESS_LABELS[agent.harness_id] ?? agent.harness_id}
+                        {TYPE_LABELS[harness.type] ?? harness.type}
                       </Badge>
                     </>
                   )}
@@ -362,14 +402,14 @@ export function Sidebar() {
                 <button
                   className="hidden group-hover:inline-flex focus-visible:inline-flex cursor-pointer items-center justify-center size-6 rounded text-muted-foreground hover:bg-foreground/10 hover:text-foreground disabled:opacity-50 transition-colors"
                   title="New session"
-                  disabled={launching === agent.agent_id}
-                  onClick={() => handleNewSession(agent)}
+                  disabled={launching === harness.harness_id}
+                  onClick={() => handleNewSession(harness)}
                 >
-                  {launching === agent.agent_id
+                  {launching === harness.harness_id
                     ? <Loader2 className="size-3.5 animate-spin" />
                     : <Plus className="size-3.5" />}
                 </button>
-                {editing?.kind === "agent" && editing.id === agent.agent_id ? (
+                {editing?.kind === "harness" && editing.id === harness.harness_id ? (
                   <button
                     data-edit-save
                     className="inline-flex cursor-pointer items-center justify-center size-6 rounded text-primary hover:bg-primary/10 transition-colors"
@@ -382,29 +422,29 @@ export function Sidebar() {
                   <button
                     className="hidden group-hover:inline-flex focus-visible:inline-flex cursor-pointer items-center justify-center size-6 rounded text-muted-foreground hover:bg-foreground/10 hover:text-foreground transition-colors"
                     title="Rename"
-                    onClick={() => startEdit("agent", agent.agent_id, agent.agent_name ?? "")}
+                    onClick={() => startEdit("harness", harness.harness_id, harness.harness_name ?? "")}
                   >
                     <Pencil className="size-3.5" />
                   </button>
                 )}
                 <button
                   className="hidden group-hover:inline-flex focus-visible:inline-flex cursor-pointer items-center justify-center size-6 rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
-                  title="Delete agent"
-                  onClick={() => setDeleteTarget({ kind: "agent", id: agent.agent_id, name: agent.agent_name ?? "Untitled" })}
+                  title="Delete harness"
+                  onClick={() => setDeleteTarget({ kind: "harness", id: harness.harness_id, name: harness.harness_name ?? "Untitled" })}
                 >
                   <Trash2 className="size-3.5" />
                 </button>
               </div>
 
-              {agent.expanded && (
+              {harness.expanded && (
                 <div className="ml-3.5 mt-1 border-l border-border/60 pl-1.5 space-y-0.5">
-                  {agent.sessions.length === 0 ? (
+                  {harness.sessions.length === 0 ? (
                     <div className="flex items-center gap-1.5 px-2 py-1 text-[11px] text-muted-foreground">
                       <MessagesSquare className="size-3" />
                       <span>No sessions</span>
                     </div>
                   ) : (
-                    agent.sessions.map(sess => (
+                    harness.sessions.map(sess => (
                       <div
                         key={sess.session_id}
                         className={cn(
@@ -468,7 +508,7 @@ export function Sidebar() {
                           title="Delete session"
                           onClick={e => {
                             e.stopPropagation()
-                            setDeleteTarget({ kind: "session", id: sess.session_id, agentId: agent.agent_id })
+                            setDeleteTarget({ kind: "session", id: sess.session_id, harnessId: harness.harness_id })
                           }}
                         >
                           <Trash2 className="size-3" />
@@ -487,10 +527,10 @@ export function Sidebar() {
         <DialogContent showCloseButton={false}>
           <DialogHeader>
             <DialogTitle>
-              {deleteTarget?.kind === "agent" ? "Delete agent" : "Delete session"}
+              {deleteTarget?.kind === "harness" ? "Delete harness" : "Delete session"}
             </DialogTitle>
             <DialogDescription>
-              {deleteTarget?.kind === "agent"
+              {deleteTarget?.kind === "harness"
                 ? <>Delete <strong>{deleteTarget.name}</strong> and all its sessions? This will also stop the sandbox.</>
                 : "Delete this session? Conversation history will be lost."}
             </DialogDescription>

@@ -1,13 +1,11 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
-CREATE TABLE agents (
-    agent_id        UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    agent_name      TEXT,
+CREATE TABLE harnesses (
+    harness_id      UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    harness_name    TEXT,
     model           TEXT        NOT NULL,
-    prompt          TEXT,
-    harness_id      TEXT        NOT NULL DEFAULT 'opencode',
+    type            TEXT        NOT NULL DEFAULT 'opencode',
     env_vars        JSONB       NOT NULL DEFAULT '{}',
-    container_port  INT         NOT NULL DEFAULT 4096,
     sandbox_status  TEXT        NOT NULL DEFAULT 'idle',
     task_name       TEXT,
     sandbox_url     TEXT,
@@ -16,7 +14,7 @@ CREATE TABLE agents (
 
 CREATE TABLE sessions (
     session_id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    agent_id            UUID        NOT NULL REFERENCES agents(agent_id) ON DELETE CASCADE,
+    harness_id          UUID        NOT NULL REFERENCES harnesses(harness_id) ON DELETE CASCADE,
     status              TEXT        NOT NULL DEFAULT 'creating',
     phase               TEXT,
     title               TEXT,
@@ -26,5 +24,5 @@ CREATE TABLE sessions (
     stopped_at          TIMESTAMPTZ
 );
 
-CREATE INDEX idx_sessions_agent_id ON sessions(agent_id);
-CREATE INDEX idx_sessions_status   ON sessions(status);
+CREATE INDEX idx_sessions_harness_id ON sessions(harness_id);
+CREATE INDEX idx_sessions_status     ON sessions(status);

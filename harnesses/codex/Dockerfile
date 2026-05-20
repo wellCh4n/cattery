@@ -36,7 +36,7 @@ RUN printf 'set -g mouse on\nset -g history-limit 50000\nset -g default-terminal
 USER node
 
 ENV PATH="/app/node_modules/.bin:${PATH}"
-ENV PORT=4096
+ENV PORT=1114
 ENV WORK_DIR=/work
 ENV HOME=/home/node
 ENV TUI_CMD=codex
@@ -46,6 +46,6 @@ ENV TUI_CMD=codex
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 
-EXPOSE 4096
+EXPOSE 1114
 
 CMD ["node_modules/.bin/tsx", "src/server.ts"]

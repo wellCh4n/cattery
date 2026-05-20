@@ -5,7 +5,7 @@ import (
 	"github.com/labstack/echo/v4/middleware"
 )
 
-func NewRouter(agentH *AgentHandler, sessionH *SessionHandler) *echo.Echo {
+func NewRouter(harnessH *HarnessHandler, sessionH *SessionHandler) *echo.Echo {
 	e := echo.New()
 	e.HideBanner = true
 	e.Use(middleware.Logger())
@@ -18,15 +18,15 @@ func NewRouter(agentH *AgentHandler, sessionH *SessionHandler) *echo.Echo {
 
 	v1 := e.Group("/api/v1")
 
-	agents := v1.Group("/agents")
-	agents.POST("", agentH.Create)
-	agents.GET("", agentH.List)
-	agents.GET("/:agent_id", agentH.Get)
-	agents.PATCH("/:agent_id", agentH.Update)
-	agents.DELETE("/:agent_id", agentH.Delete)
-	agents.POST("/:agent_id/sessions", sessionH.Create)
-	agents.GET("/:agent_id/sessions", sessionH.ListByAgent)
-	agents.DELETE("/:agent_id/sandbox", sessionH.StopSandbox)
+	harnesses := v1.Group("/harnesses")
+	harnesses.POST("", harnessH.Create)
+	harnesses.GET("", harnessH.List)
+	harnesses.GET("/:harness_id", harnessH.Get)
+	harnesses.PATCH("/:harness_id", harnessH.Update)
+	harnesses.DELETE("/:harness_id", harnessH.Delete)
+	harnesses.POST("/:harness_id/sessions", sessionH.Create)
+	harnesses.GET("/:harness_id/sessions", sessionH.ListByHarness)
+	harnesses.DELETE("/:harness_id/sandbox", sessionH.StopSandbox)
 
 	sessions := v1.Group("/sessions")
 	sessions.GET("/:session_id", sessionH.Get)

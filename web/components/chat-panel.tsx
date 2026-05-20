@@ -23,7 +23,7 @@ import { Badge } from "@/components/ui/badge"
 import { Markdown } from "@/components/markdown"
 import { FileViewer } from "@/components/file-viewer"
 import { cn } from "@/lib/utils"
-import { getHistory, abortSession, answerSession, type Session, type Agent, type QuestionAnswer } from "@/lib/api"
+import { getHistory, abortSession, answerSession, type Session, type Harness, type QuestionAnswer } from "@/lib/api"
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080"
 
@@ -96,10 +96,10 @@ interface Bubble {
 
 interface Props {
   session: Session
-  agent: Agent
+  harness: Harness
 }
 
-export function ChatPanel({ session, agent }: Props) {
+export function ChatPanel({ session, harness }: Props) {
   const [bubbles, setBubbles] = useState<Bubble[]>([])
   const [input, setInput] = useState("")
   const [sending, setSending] = useState(false)
@@ -502,7 +502,7 @@ export function ChatPanel({ session, agent }: Props) {
               </div>
               <p className="text-sm font-medium">Session ready</p>
               <p className="text-xs text-muted-foreground mt-1">
-                Send a message to start working with {agent.agent_name ?? "the agent"}.
+                Send a message to start working with {harness.harness_name ?? "the harness"}.
               </p>
             </div>
           )}
@@ -543,7 +543,7 @@ export function ChatPanel({ session, agent }: Props) {
                 <CornerDownLeft className="size-3" />
                 <span>Newline</span>
                 <span className="text-muted-foreground/40">·</span>
-                <span className="font-mono text-[10px]">{agent.model}</span>
+                <span className="font-mono text-[10px]">{harness.model}</span>
               </span>
               {sending ? (
                 <Button

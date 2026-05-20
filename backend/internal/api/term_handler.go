@@ -28,14 +28,14 @@ func (h *SessionHandler) Term(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusNotFound, "session not found")
 	}
-	agent, err := h.agentStore.GetByID(c.Request().Context(), sess.AgentID)
+	inst, err := h.harnessStore.GetByID(c.Request().Context(), sess.HarnessID)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusNotFound, "agent not found")
+		return echo.NewHTTPError(http.StatusNotFound, "harness not found")
 	}
-	if harness.KindFor(agent.HarnessID) != harness.KindTerminal {
-		return echo.NewHTTPError(http.StatusBadRequest, "harness is not a terminal kind")
+	if harness.KindFor(inst.Type) != harness.KindTerminal {
+		return echo.NewHTTPError(http.StatusBadRequest, "harness type is not terminal kind")
 	}
-	if agent.SandboxURL == nil || sess.HarnessSessionID == nil {
+	if inst.SandboxURL == nil || sess.HarnessSessionID == nil {
 		return echo.NewHTTPError(http.StatusConflict, "session not ready")
 	}
 
@@ -50,7 +50,7 @@ func (h *SessionHandler) Term(c echo.Context) error {
 	defer clientWS.CloseNow()
 
 	// Connect upstream WS to the tui-bridge.
-	upstreamURL := buildUpstreamTermURL(*agent.SandboxURL, *sess.HarnessSessionID)
+	upstreamURL := buildUpstreamTermURL(*inst.SandboxURL, *sess.HarnessSessionID)
 	ctx, cancel := context.WithCancel(c.Request().Context())
 	defer cancel()
 

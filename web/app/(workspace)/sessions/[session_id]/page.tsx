@@ -4,7 +4,7 @@ import { use, useEffect, useState } from "react"
 import { AlertTriangle, Loader2 } from "lucide-react"
 import { ChatPanel } from "@/components/chat-panel"
 import { TerminalView } from "@/components/terminal-view"
-import { getSession, listAgents, type Agent, type Session } from "@/lib/api"
+import { getSession, listHarnesses, type Harness, type Session } from "@/lib/api"
 
 interface PageParams {
   session_id: string
@@ -12,7 +12,7 @@ interface PageParams {
 
 export default function SessionPage({ params }: { params: Promise<PageParams> }) {
   const { session_id } = use(params)
-  const [data, setData] = useState<{ session: Session; agent: Agent } | null>(null)
+  const [data, setData] = useState<{ session: Session; harness: Harness } | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -24,14 +24,14 @@ export default function SessionPage({ params }: { params: Promise<PageParams> })
     async function load() {
       try {
         const session = await getSession(session_id)
-        const agents = await listAgents()
-        const agent = agents.find(a => a.agent_id === session.agent_id)
+        const harnesses = await listHarnesses()
+        const harness = harnesses.find(h => h.harness_id === session.harness_id)
         if (cancelled) return
-        if (!agent) {
-          setError("Agent not found for this session.")
+        if (!harness) {
+          setError("Harness not found for this session.")
           return
         }
-        setData({ session, agent })
+        setData({ session, harness })
         if (session.status === "creating") timer = setTimeout(poll, 1500)
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load session")
@@ -72,17 +72,17 @@ export default function SessionPage({ params }: { params: Promise<PageParams> })
     )
   }
 
-  return data.agent.harness_kind === "terminal" ? (
+  return data.harness.transport_kind === "terminal" ? (
     <TerminalView
       key={data.session.session_id}
       session={data.session}
-      agent={data.agent}
+      harness={data.harness}
     />
   ) : (
     <ChatPanel
       key={data.session.session_id}
       session={data.session}
-      agent={data.agent}
+      harness={data.harness}
     />
   )
 }

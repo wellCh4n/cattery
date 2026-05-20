@@ -18,15 +18,15 @@ import {
   DialogClose,
 } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
-import { createAgent, type Agent } from "@/lib/api"
+import { createHarness, type Harness } from "@/lib/api"
 import { HarnessIcon } from "@/components/harness-icon"
 import { ModelIcon } from "@/components/model-icon"
 
 interface Props {
-  onCreated: (agent: Agent) => void
+  onCreated: (harness: Harness) => void
 }
 
-const HARNESSES = [
+const TYPES = [
   { id: "opencode",    label: "OpenCode",    kind: "chat", available: true },
   { id: "claude-code", label: "Claude Code", kind: "chat", available: true },
   { id: "hermes",      label: "Hermes",      kind: "tui",  available: true },
@@ -36,29 +36,27 @@ const HARNESSES = [
 interface ModelOption {
   id: string
   label: string
-  harnesses: string[]
+  types: string[]
 }
 
 const MODELS: ModelOption[] = [
-  { id: "claude-sonnet-4-6", label: "claude-sonnet-4-6", harnesses: ["opencode", "claude-code", "hermes"] },
-  { id: "claude-opus-4-6",   label: "claude-opus-4-6",   harnesses: ["opencode", "claude-code", "hermes"] },
-  { id: "claude-opus-4-7",   label: "claude-opus-4-7",   harnesses: ["opencode", "claude-code", "hermes"] },
-  { id: "gpt-5.4",           label: "gpt-5.4",           harnesses: ["opencode", "claude-code", "hermes", "codex"] },
-  { id: "gpt-5.5",           label: "gpt-5.5",           harnesses: ["opencode", "claude-code", "hermes", "codex"] },
-  { id: "__custom__",        label: "Custom",            harnesses: ["opencode", "claude-code", "hermes", "codex"] },
+  { id: "claude-sonnet-4-6", label: "claude-sonnet-4-6", types: ["opencode", "claude-code", "hermes"] },
+  { id: "claude-opus-4-6",   label: "claude-opus-4-6",   types: ["opencode", "claude-code", "hermes"] },
+  { id: "claude-opus-4-7",   label: "claude-opus-4-7",   types: ["opencode", "claude-code", "hermes"] },
+  { id: "gpt-5.4",           label: "gpt-5.4",           types: ["opencode", "claude-code", "hermes", "codex"] },
+  { id: "gpt-5.5",           label: "gpt-5.5",           types: ["opencode", "claude-code", "hermes", "codex"] },
+  { id: "__custom__",        label: "Custom",            types: ["opencode", "claude-code", "hermes", "codex"] },
 ]
 
 const defaultForm = {
-  agent_name: "",
+  harness_name: "",
   model: "claude-sonnet-4-6",
   custom_model: "",
-  prompt: "",
-  harness_id: "opencode",
-  container_port: 4096,
+  type: "opencode",
   env_vars: "",
 }
 
-export function CreateAgentDialog({ onCreated }: Props) {
+export function CreateHarnessDialog({ onCreated }: Props) {
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [form, setForm] = useState(defaultForm)
@@ -75,15 +73,13 @@ export function CreateAgentDialog({ onCreated }: Props) {
         }
       }
       const model = form.model === "__custom__" ? form.custom_model : form.model
-      const agent = await createAgent({
-        agent_name: form.agent_name || null,
+      const harness = await createHarness({
+        harness_name: form.harness_name || null,
         model,
-        prompt: form.prompt || null,
-        harness_id: form.harness_id,
-        container_port: form.container_port,
+        type: form.type,
         env_vars,
       })
-      onCreated(agent)
+      onCreated(harness)
       setForm(defaultForm)
       setOpen(false)
     } finally {
@@ -95,64 +91,64 @@ export function CreateAgentDialog({ onCreated }: Props) {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger
         render={
-          <Button variant="ghost" size="icon-sm" title="New agent">
+          <Button variant="ghost" size="icon-sm" title="New harness">
             <Plus />
           </Button>
         }
       />
       <DialogContent className="sm:max-w-[620px]">
         <DialogHeader>
-          <DialogTitle>Create Agent</DialogTitle>
+          <DialogTitle>Create Harness</DialogTitle>
           <DialogDescription>
-            Configure a new agent template. It will run in an isolated Kubernetes sandbox.
+            Configure a new harness. It will run in an isolated Kubernetes sandbox.
           </DialogDescription>
         </DialogHeader>
 
-        <form id="create-agent-form" onSubmit={handleSubmit} className="space-y-4" autoComplete="off">
+        <form id="create-harness-form" onSubmit={handleSubmit} className="space-y-4" autoComplete="off">
           {/* Name */}
           <div className="space-y-1.5">
-            <Label htmlFor="agent_name">Name</Label>
+            <Label htmlFor="harness_name">Name</Label>
             <Input
-              id="agent_name"
-              name="agent_name"
+              id="harness_name"
+              name="harness_name"
               autoComplete="off"
               spellCheck={false}
-              value={form.agent_name}
-              onChange={e => setForm(f => ({ ...f, agent_name: e.target.value }))}
+              value={form.harness_name}
+              onChange={e => setForm(f => ({ ...f, harness_name: e.target.value }))}
             />
           </div>
 
-          {/* Harness */}
+          {/* Type */}
           <div className="space-y-1.5">
-            <Label>Harness</Label>
+            <Label>Type</Label>
             <div className="grid grid-cols-4 gap-2">
-              {HARNESSES.map(h => (
+              {TYPES.map(t => (
                 <button
-                  key={h.id}
+                  key={t.id}
                   type="button"
-                  disabled={!h.available}
+                  disabled={!t.available}
                   onClick={() => setForm(f => {
                     const cur = MODELS.find(m => m.id === f.model)
-                    const needsReset = cur && !cur.harnesses.includes(h.id)
-                    return { ...f, harness_id: h.id, ...(needsReset ? { model: "gpt-5.5" } : {}) }
+                    const needsReset = cur && !cur.types.includes(t.id)
+                    return { ...f, type: t.id, ...(needsReset ? { model: "gpt-5.5" } : {}) }
                   })}
                   className={cn(
                     "relative flex cursor-pointer flex-col items-center justify-center gap-1.5 rounded-lg border px-2 py-3 text-xs font-medium transition-colors outline-none",
                     "disabled:opacity-40 disabled:cursor-not-allowed",
-                    form.harness_id === h.id && h.available
+                    form.type === t.id && t.available
                       ? "border-primary bg-primary/5 text-primary"
                       : "border-border bg-muted/30 text-muted-foreground hover:bg-muted/60"
                   )}
                 >
-                  <HarnessIcon id={h.id} className="size-5" />
-                  {h.label}
+                  <HarnessIcon id={t.id} className="size-5" />
+                  {t.label}
                   <Badge
                     variant="outline"
                     className="absolute top-1 right-1 text-[9px] px-1 py-0 h-3.5 font-normal pointer-events-none uppercase tracking-wide"
                   >
-                    {h.kind}
+                    {t.kind}
                   </Badge>
-                  {!h.available && (
+                  {!t.available && (
                     <Badge variant="outline" className="absolute top-1 left-1 text-[9px] px-1 py-0 h-3.5 font-normal pointer-events-none">
                       soon
                     </Badge>
@@ -166,7 +162,7 @@ export function CreateAgentDialog({ onCreated }: Props) {
           <div className="space-y-1.5">
             <Label>Model</Label>
             <div className="grid grid-cols-3 gap-2">
-              {MODELS.filter(m => m.harnesses.includes(form.harness_id)).map(m => (
+              {MODELS.filter(m => m.types.includes(form.type)).map(m => (
                 <button
                   key={m.id}
                   type="button"
@@ -197,20 +193,6 @@ export function CreateAgentDialog({ onCreated }: Props) {
             )}
           </div>
 
-          {/* System Prompt */}
-          <div className="space-y-1.5">
-            <Label htmlFor="prompt">System Prompt</Label>
-            <Textarea
-              id="prompt"
-              name="prompt"
-              rows={3}
-              autoComplete="off"
-              spellCheck={false}
-              value={form.prompt}
-              onChange={e => setForm(f => ({ ...f, prompt: e.target.value }))}
-            />
-          </div>
-
           {/* Env Vars */}
           <div className="space-y-1.5">
             <Label htmlFor="env_vars">
@@ -236,11 +218,11 @@ export function CreateAgentDialog({ onCreated }: Props) {
           <DialogClose render={<Button variant="outline" disabled={loading}>Cancel</Button>} />
           <Button
             type="submit"
-            form="create-agent-form"
+            form="create-harness-form"
             disabled={loading}
           >
             {loading && <Loader2 className="animate-spin" />}
-            {loading ? "Creating…" : "Create agent"}
+            {loading ? "Creating…" : "Create harness"}
           </Button>
         </DialogFooter>
       </DialogContent>

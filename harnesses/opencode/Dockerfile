@@ -9,7 +9,7 @@ RUN curl -fsSL https://opencode.ai/install | bash
 
 ENV PATH="/root/.opencode/bin:${PATH}"
 
-ENV PORT=4096
+ENV PORT=1114
 ENV REPO_DIR=/work/repo
 
 WORKDIR /work
@@ -17,6 +17,6 @@ WORKDIR /work
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-EXPOSE 4096
+EXPOSE 1114
 
 ENTRYPOINT ["/entrypoint.sh"]

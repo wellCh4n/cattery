@@ -43,7 +43,7 @@ func NewClient(namespace string) (*Client, error) {
 type SandboxSpec struct {
 	Name          string
 	SessionID     string
-	AgentID       string
+	HarnessID     string
 	HarnessImage  string
 	ContainerPort int
 	Env           map[string]string
@@ -63,7 +63,7 @@ func (c *Client) RunTask(ctx context.Context, spec SandboxSpec) error {
 				"name":      spec.Name,
 				"namespace": c.namespace,
 				"labels": map[string]interface{}{
-					"cattery-agent-id": spec.AgentID,
+					"cattery-harness-id": spec.HarnessID,
 				},
 			},
 			"spec": map[string]interface{}{
@@ -136,7 +136,7 @@ func containerPort(obj map[string]interface{}) int64 {
 			}
 		}
 	}
-	return 4096
+	return 1114
 }
 
 func (c *Client) StopTask(ctx context.Context, name string) error {

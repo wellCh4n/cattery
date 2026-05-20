@@ -2,7 +2,7 @@
 set -euo pipefail
 
 REPO_DIR="${REPO_DIR:-/work/repo}"
-PORT="${PORT:-4096}"
+PORT="${PORT:-1114}"
 
 # clone repo if specified
 if [ -n "${REPO_URL:-}" ]; then

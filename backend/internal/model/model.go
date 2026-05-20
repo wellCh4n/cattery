@@ -6,23 +6,21 @@ import (
 	"github.com/google/uuid"
 )
 
-type Agent struct {
-	AgentID        uuid.UUID         `db:"agent_id"        json:"agent_id"`
-	AgentName      *string           `db:"agent_name"      json:"agent_name"`
-	Model          string            `db:"model"           json:"model"`
-	Prompt         *string           `db:"prompt"          json:"prompt"`
-	HarnessID      string            `db:"harness_id"      json:"harness_id"`
-	EnvVars        map[string]string `db:"env_vars"        json:"env_vars"`
-	ContainerPort  int               `db:"container_port"  json:"container_port"`
-	SandboxStatus  string            `db:"sandbox_status"  json:"sandbox_status"`
-	TaskName       *string           `db:"task_name"       json:"task_name"`
-	SandboxURL     *string           `db:"sandbox_url"     json:"sandbox_url"`
-	CreatedAt      time.Time         `db:"created_at"      json:"created_at"`
+type Harness struct {
+	HarnessID     uuid.UUID         `db:"harness_id"     json:"harness_id"`
+	HarnessName   *string           `db:"harness_name"   json:"harness_name"`
+	Model         string            `db:"model"          json:"model"`
+	Type          string            `db:"type"           json:"type"`
+	EnvVars       map[string]string `db:"env_vars"       json:"env_vars"`
+	SandboxStatus string            `db:"sandbox_status" json:"sandbox_status"`
+	TaskName      *string           `db:"task_name"      json:"task_name"`
+	SandboxURL    *string           `db:"sandbox_url"    json:"sandbox_url"`
+	CreatedAt     time.Time         `db:"created_at"     json:"created_at"`
 }
 
 type Session struct {
 	SessionID        uuid.UUID  `db:"session_id"         json:"session_id"`
-	AgentID          uuid.UUID  `db:"agent_id"           json:"agent_id"`
+	HarnessID        uuid.UUID  `db:"harness_id"         json:"harness_id"`
 	Status           string     `db:"status"             json:"status"`
 	Phase            *string    `db:"phase"              json:"phase"`
 	Title            *string    `db:"title"              json:"title"`

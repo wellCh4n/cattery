@@ -1,22 +1,21 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080"
 
-export type HarnessKind = "http" | "terminal"
+export type TransportKind = "http" | "terminal"
 
-export interface Agent {
-  agent_id: string
-  agent_name: string | null
-  model: string
-  prompt: string | null
+export interface Harness {
   harness_id: string
-  harness_kind: HarnessKind
+  harness_name: string | null
+  model: string
+  type: string
+  transport_kind: TransportKind
   env_vars: Record<string, string>
-  container_port: number
+  sandbox_status: string
   created_at: string
 }
 
 export interface Session {
   session_id: string
-  agent_id: string
+  harness_id: string
   status: string
   phase: string | null
   title: string | null
@@ -27,44 +26,50 @@ export interface Session {
   stopped_at: string | null
 }
 
-export async function listAgents(): Promise<Agent[]> {
-  const res = await fetch(`${API_BASE}/api/v1/agents`, { cache: "no-store" })
-  if (!res.ok) throw new Error("failed to list agents")
+export async function listHarnesses(): Promise<Harness[]> {
+  const res = await fetch(`${API_BASE}/api/v1/harnesses`, { cache: "no-store" })
+  if (!res.ok) throw new Error("failed to list harnesses")
   return res.json()
 }
 
-export async function createAgent(data: Omit<Agent, "agent_id" | "created_at" | "harness_kind">): Promise<Agent> {
-  const res = await fetch(`${API_BASE}/api/v1/agents`, {
+export async function createHarness(data: Omit<Harness, "harness_id" | "created_at" | "transport_kind" | "sandbox_status">): Promise<Harness> {
+  const res = await fetch(`${API_BASE}/api/v1/harnesses`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   })
-  if (!res.ok) throw new Error("failed to create agent")
+  if (!res.ok) throw new Error("failed to create harness")
   return res.json()
 }
 
-export async function updateAgent(agentId: string, data: { agent_name: string }): Promise<Agent> {
-  const res = await fetch(`${API_BASE}/api/v1/agents/${agentId}`, {
+export async function getHarness(harnessId: string): Promise<Harness> {
+  const res = await fetch(`${API_BASE}/api/v1/harnesses/${harnessId}`, { cache: "no-store" })
+  if (!res.ok) throw new Error("failed to get harness")
+  return res.json()
+}
+
+export async function updateHarness(harnessId: string, data: { harness_name: string }): Promise<Harness> {
+  const res = await fetch(`${API_BASE}/api/v1/harnesses/${harnessId}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   })
-  if (!res.ok) throw new Error("failed to update agent")
+  if (!res.ok) throw new Error("failed to update harness")
   return res.json()
 }
 
-export async function deleteAgent(agentId: string): Promise<void> {
-  await fetch(`${API_BASE}/api/v1/agents/${agentId}`, { method: "DELETE" })
+export async function deleteHarness(harnessId: string): Promise<void> {
+  await fetch(`${API_BASE}/api/v1/harnesses/${harnessId}`, { method: "DELETE" })
 }
 
-export async function listSessions(agentId: string): Promise<Session[]> {
-  const res = await fetch(`${API_BASE}/api/v1/agents/${agentId}/sessions`, { cache: "no-store" })
+export async function listSessions(harnessId: string): Promise<Session[]> {
+  const res = await fetch(`${API_BASE}/api/v1/harnesses/${harnessId}/sessions`, { cache: "no-store" })
   if (!res.ok) throw new Error("failed to list sessions")
   return res.json()
 }
 
-export async function createSession(agentId: string): Promise<Session> {
-  const res = await fetch(`${API_BASE}/api/v1/agents/${agentId}/sessions`, {
+export async function createSession(harnessId: string): Promise<Session> {
+  const res = await fetch(`${API_BASE}/api/v1/harnesses/${harnessId}/sessions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({}),

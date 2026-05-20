@@ -18,10 +18,10 @@ RUN mkdir -p /work && chown -R node:node /app /work
 USER node
 
 ENV PATH="/app/node_modules/.bin:${PATH}"
-ENV PORT=4096
+ENV PORT=1114
 ENV WORK_DIR=/work
 ENV HOME=/home/node
 
-EXPOSE 4096
+EXPOSE 1114
 
 CMD ["node_modules/.bin/tsx", "src/server.ts"]

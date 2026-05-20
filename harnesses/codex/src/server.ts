@@ -19,7 +19,7 @@
  * so re-attaching restores the same TUI screen — this is how "resume" works.
  *
  * Config via env:
- *   PORT      — listen port (default 4096; matches existing HTTP harnesses)
+ *   PORT      — listen port (default 1114; matches existing HTTP harnesses)
  *   TUI_CMD   — the command to spawn inside tmux (e.g. `codex`, `hermes`)
  *   WORK_DIR  — cwd for the tmux session (default /work)
  */
@@ -31,7 +31,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as pty from 'node-pty'
 import { WebSocketServer, WebSocket } from 'ws'
-const PORT     = Number(process.env.PORT ?? 4096)
+const PORT     = Number(process.env.PORT ?? 1114)
 const TUI_CMD  = process.env.TUI_CMD ?? ''
 const WORK_DIR = process.env.WORK_DIR ?? '/work'
 

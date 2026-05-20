@@ -16,12 +16,12 @@ import "@xterm/xterm/css/xterm.css"
 // CSS @font-faces that don't pin a range; explicit `unicode-range` is what
 // actually forces the browser to use our self-hosted woff2s for those blocks.
 import "@fontsource/noto-sans-symbols-2/symbols-400.css"
-import { termURL, type Session, type Agent } from "@/lib/api"
+import { termURL, type Session, type Harness } from "@/lib/api"
 import { Badge } from "@/components/ui/badge"
 
 interface Props {
   session: Session
-  agent: Agent
+  harness: Harness
 }
 
 // TerminalView 把 sandbox tmux PTY 字节流直接渲染到 xterm.js。

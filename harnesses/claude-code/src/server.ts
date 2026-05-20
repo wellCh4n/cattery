@@ -59,7 +59,7 @@ console.log('[startup] ANTHROPIC_API_KEY :', process.env.ANTHROPIC_API_KEY ? '(s
 const app = express()
 app.use(express.json({ limit: '10mb' }))
 
-const PORT    = Number(process.env.PORT ?? 4096)
+const PORT    = Number(process.env.PORT ?? 1114)
 const MODEL   = process.env.MODEL        ?? 'claude-sonnet-4-6'
 const PROMPT  = process.env.AGENT_PROMPT ?? ''
 const WORKDIR = process.env.WORK_DIR     ?? '/work'

@@ -8,7 +8,7 @@ import (
 	"github.com/wellch4n/cattery/internal/model"
 )
 
-const sessionColumns = `session_id, agent_id, status, phase, title, harness_session_id, created_at, last_seen_at, stopped_at`
+const sessionColumns = `session_id, harness_id, status, phase, title, harness_session_id, created_at, last_seen_at, stopped_at`
 
 type SessionStore struct{ db *sqlx.DB }
 
@@ -16,10 +16,10 @@ func NewSessionStore(db *sqlx.DB) *SessionStore { return &SessionStore{db} }
 
 func (s *SessionStore) Create(ctx context.Context, sess *model.Session) error {
 	return s.db.QueryRowxContext(ctx, `
-		INSERT INTO sessions (session_id, agent_id, status)
+		INSERT INTO sessions (session_id, harness_id, status)
 		VALUES ($1,$2,$3)
 		RETURNING created_at`,
-		sess.SessionID, sess.AgentID, sess.Status,
+		sess.SessionID, sess.HarnessID, sess.Status,
 	).Scan(&sess.CreatedAt)
 }
 
@@ -34,10 +34,10 @@ func (s *SessionStore) GetByID(ctx context.Context, id uuid.UUID) (*model.Sessio
 	return &sess, nil
 }
 
-func (s *SessionStore) ListByAgent(ctx context.Context, agentID uuid.UUID) ([]*model.Session, error) {
+func (s *SessionStore) ListByHarness(ctx context.Context, harnessID uuid.UUID) ([]*model.Session, error) {
 	var sessions []*model.Session
 	err := s.db.SelectContext(ctx, &sessions,
-		`SELECT `+sessionColumns+` FROM sessions WHERE agent_id=$1 AND status != 'dead' ORDER BY created_at DESC`, agentID,
+		`SELECT `+sessionColumns+` FROM sessions WHERE harness_id=$1 AND status != 'dead' ORDER BY created_at DESC`, harnessID,
 	)
 	return sessions, err
 }
