@@ -269,9 +269,13 @@ wss.on('connection', (ws: WebSocket, sessionId: string) => {
       else pendingInput.push(text)
       return
     }
-    const bytes = raw.toString('binary')
-    if (term) term.write(bytes)
-    else pendingInput.push(bytes)
+    // Browser sends keystrokes as UTF-8 bytes via TextEncoder. Decoding with
+    // 'binary' (latin1) and then letting node-pty re-encode as UTF-8 doubles
+    // every non-ASCII byte — typing "中" (E4 B8 AD) lands at the PTY as
+    // "Ã¸\xad" mojibake. Decode as UTF-8 so the bytes pass through unchanged.
+    const text = raw.toString('utf-8')
+    if (term) term.write(text)
+    else pendingInput.push(text)
   })
 
   ws.on('close', () => {

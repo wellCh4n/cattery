@@ -68,7 +68,11 @@ codex.onData((data) => {
 
 if (process.stdin.isTTY) process.stdin.setRawMode(true)
 process.stdin.on('data', (chunk) => {
-  codex.write(chunk.toString('binary'))
+  // Decode as UTF-8, not 'binary' (latin1). The bytes coming in are already
+  // UTF-8 from the browser → tui-bridge → tmux path; latin1-decoding then
+  // letting node-pty re-encode doubles every non-ASCII byte (typing "中"
+  // arrives at codex as "Ã¸\xad" mojibake).
+  codex.write(chunk.toString('utf-8'))
 })
 
 process.stdout.on('resize', () => {
