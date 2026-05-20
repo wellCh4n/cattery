@@ -1,0 +1,88 @@
+# Full-stack dev/preview compose: postgres + backend + web.
+#
+# Modes:
+#   docker compose -f docker/docker-compose.yml up -d
+#     → everything (postgres + backend + web)
+#
+#   docker compose -f docker/docker-compose.yml up -d --no-deps backend web
+#     → just backend + web. Postgres is skipped; you're expected to point
+#       DATABASE_URL at an external DB, e.g.:
+#         DATABASE_URL=postgres://user:pass@host.docker.internal:5432/cattery?sslmode=disable \
+#           docker compose -f docker/docker-compose.yml up -d --no-deps backend web
+#
+#   docker compose -f docker/docker-compose.yml up -d postgres
+#     → just the db (use this with `make dev-back` on the host).
+#
+# Caveats:
+# - The backend talks to a Kubernetes API to create sandbox pods. We mount
+#   `~/.kube` read-only into the container; the backend's k8s client falls back
+#   from in-cluster config to ~/.kube/config, so the same kubeconfig that
+#   `make dev-back` uses on the host works here too.
+# - The backend reaches each sandbox by its pod IP (returned in the Sandbox
+#   CR's status). Whether those pod IPs are routable from a docker container
+#   depends on your local cluster: Docker Desktop's built-in Kubernetes shares
+#   a network so it works; minikube/kind/k3d typically don't, and you'll need
+#   `kubectl port-forward` or a tunnel. In that case run the backend on the
+#   host (`make dev-back`) and only start the `postgres` service here.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cattery-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: cattery
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ../backend/internal/db/migrations/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d cattery"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: cattery-backend
+    restart: unless-stopped
+    # backend/.env is sourced for model gateway + namespace; DATABASE_URL is
+    # overridden below because the in-container DB hostname is `postgres`, not
+    # localhost. Override the override by setting DATABASE_URL in your shell
+    # (e.g. when pointing at an external DB with `--no-deps`).
+    env_file:
+      - ../backend/.env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgres://postgres:postgres@postgres:5432/cattery?sslmode=disable}
+      PORT: "8080"
+    ports:
+      - "8080:8080"
+    volumes:
+      - ${HOME}/.kube:/root/.kube:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ../web
+      dockerfile: Dockerfile
+      args:
+        # Baked into the JS bundle — browser reads it directly, so it must be
+        # the URL *the browser* uses to hit the backend, not the in-network
+        # service name.
+        NEXT_PUBLIC_API_URL: http://localhost:8080
+    container_name: cattery-web
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:

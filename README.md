@@ -17,10 +17,10 @@ web (Next.js + shadcn)   →   backend (Go + Echo)   →   K8s Sandbox Pod
 
 - **Kubernetes cluster** (any flavor — kind, minikube, EKS, GKE, etc.) with kubeconfig reachable from the backend
 - **[Agent Sandbox](https://github.com/kubernetes-sigs/agent-sandbox) controller** installed in the cluster — provides the `agents.x-k8s.io/v1alpha1` `Sandbox` CRD that Cattery uses to launch isolated agent pods
-- **PostgreSQL** (any 14+)
-- **Go** ≥ 1.22
-- **Bun** ≥ 1.0 (for the Next.js frontend)
-- **Docker** (only needed to build harness images)
+- **PostgreSQL** 14+ — run it yourself, or let the bundled `docker-compose.yml` start one for you
+- **Go** ≥ 1.22 (only if you run the backend on the host instead of in compose)
+- **Bun** ≥ 1.0 (only if you run the frontend on the host)
+- **Docker** — required for harness images, plus the optional compose stack
 - **An OpenAI- or Anthropic-compatible model gateway** (e.g. NewAPI, LiteLLM, the upstream provider directly)
 
 ### Install the Agent Sandbox controller
@@ -47,13 +47,9 @@ See the [Agent Sandbox Getting Started guide](https://agent-sandbox.sigs.k8s.io/
 # 1. clone
 git clone https://github.com/wellCh4n/cattery.git && cd cattery
 
-# 2. create the database and apply schema
-createdb cattery
-make migrate
-
-# 3. backend env
+# 2. backend env
 cat > backend/.env <<EOF
-DATABASE_URL=postgres://postgres@localhost:5432/cattery?sslmode=disable
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/cattery?sslmode=disable
 PORT=8080
 K8S_NAMESPACE=default
 MODEL_API_BASE=https://your-gateway.example.com/v1
@@ -61,19 +57,31 @@ MODEL_API_KEY=sk-...
 MODEL_API_STYLE=anthropic    # or "openai"
 EOF
 
-# 4. build & push harness images so the cluster can pull them
+# 3. build harness images so the cluster can pull them
 make build-harness                       # builds opencode, claude-code, codex, hermes
-# or build a single one:
-# make build-harness HARNESS=opencode
-# tag and push to your registry, e.g.:
+# tag and push to your registry as needed:
 # docker tag opencode-sandbox:dev your-registry/opencode-sandbox:dev
-# docker push your-registry/opencode-sandbox:dev
+# docker push  your-registry/opencode-sandbox:dev
 
-# 5. run
-make dev           # starts backend on :8080 and frontend on :3000
+# 4. run — pick one of the modes below
+```
+
+Pick the mode that fits your setup:
+
+```bash
+# A) Everything in Docker (db + backend + web)
+docker compose -f docker/docker-compose.yml up -d
+
+# B) Backend + web in Docker, point at an existing external database
+DATABASE_URL='postgres://user:pw@host.docker.internal:5432/cattery?sslmode=disable' \
+  docker compose -f docker/docker-compose.yml up -d --no-deps backend web
 ```
 
 Open <http://localhost:3000> and click `+` in the sidebar to create your first agent.
+
+> The first time `postgres` starts, the compose mount auto-applies
+> [`backend/internal/db/migrations/init.sql`](backend/internal/db/migrations/init.sql).
+> Bringing the volume down (`docker compose down -v`) re-runs it on next start.
 
 ## Make targets
 
@@ -84,7 +92,6 @@ Open <http://localhost:3000> and click `+` in the sidebar to create your first a
 | `make dev-front`    | Frontend dev server (`bun dev`)                                    |
 | `make build`        | Compile the Go server to `backend/bin/server`                      |
 | `make stop`         | Kill processes on `:8080` and `:3000`                              |
-| `make migrate`      | Apply `backend/internal/db/migrations/init.sql`                    |
 | `make build-harness`| Build all harness Docker images; pass `HARNESS=<name>` to build one |
 
 ## Configuration
