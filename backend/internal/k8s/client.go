@@ -20,6 +20,12 @@ var sandboxGVR = schema.GroupVersionResource{
 	Resource: "sandboxes",
 }
 
+var podGVR = schema.GroupVersionResource{
+	Group:    "",
+	Version:  "v1",
+	Resource: "pods",
+}
+
 type Client struct {
 	dynamic   dynamic.Interface
 	namespace string
@@ -106,13 +112,12 @@ func (c *Client) WaitReady(ctx context.Context, name string, timeout time.Durati
 				continue
 			}
 			if cond["type"] == "Ready" && cond["status"] == "True" {
-				// podIPs 是字符串数组 ["192.168.x.x", "fd07::..."]
-				podIPs, _, _ := unstructured.NestedStringSlice(obj.Object, "status", "podIPs")
-				for _, ip := range podIPs {
-					if ip != "" && !strings.Contains(ip, ":") { // 跳过 IPv6
-						port := containerPort(obj.Object)
-						return fmt.Sprintf("http://%s:%d", ip, port), nil
-					}
+				port := containerPort(obj.Object)
+				if url, ok := urlFromStatusPodIPs(obj.Object, port); ok {
+					return url, nil
+				}
+				if url, ok := c.urlFromSelectedPod(ctx, obj.Object, port); ok {
+					return url, nil
 				}
 			}
 		}
@@ -120,6 +125,34 @@ func (c *Client) WaitReady(ctx context.Context, name string, timeout time.Durati
 		time.Sleep(500 * time.Millisecond)
 	}
 	return "", fmt.Errorf("timeout waiting for sandbox %s", name)
+}
+
+func urlFromStatusPodIPs(obj map[string]interface{}, port int64) (string, bool) {
+	podIPs, _, _ := unstructured.NestedStringSlice(obj, "status", "podIPs")
+	for _, ip := range podIPs {
+		if ip != "" && !strings.Contains(ip, ":") {
+			return fmt.Sprintf("http://%s:%d", ip, port), true
+		}
+	}
+	return "", false
+}
+
+func (c *Client) urlFromSelectedPod(ctx context.Context, obj map[string]interface{}, port int64) (string, bool) {
+	selector, _, _ := unstructured.NestedString(obj, "status", "selector")
+	if selector == "" {
+		return "", false
+	}
+	pods, err := c.dynamic.Resource(podGVR).Namespace(c.namespace).List(ctx, metav1.ListOptions{LabelSelector: selector})
+	if err != nil {
+		return "", false
+	}
+	for _, pod := range pods.Items {
+		ip, _, _ := unstructured.NestedString(pod.Object, "status", "podIP")
+		if ip != "" && !strings.Contains(ip, ":") {
+			return fmt.Sprintf("http://%s:%d", ip, port), true
+		}
+	}
+	return "", false
 }
 
 func containerPort(obj map[string]interface{}) int64 {
