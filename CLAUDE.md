@@ -24,7 +24,7 @@ make build-harness HARNESS=codex  # build a single harness (opencode | claude-co
 
 Go binary lives at `/usr/local/go/bin/go`; PATH typically does not include it, so prefer `make` targets or call the absolute path directly. Same for bun at `~/.bun/bin/bun`.
 
-Backend env vars (see `backend/.env`, gitignored): `DATABASE_URL`, `PORT`, `K8S_NAMESPACE`, `MODEL_API_BASE`, `MODEL_API_KEY`, `MODEL_API_STYLE` (`openai` | `anthropic`).
+Backend env vars (see `backend/.env`, gitignored): `DATABASE_URL`, `PORT`, `K8S_NAMESPACE`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_API_KEY`.
 
 ## Architecture
 

@@ -52,9 +52,10 @@ cat > backend/.env <<EOF
 DATABASE_URL=postgres://postgres:postgres@localhost:5432/cattery?sslmode=disable
 PORT=8080
 K8S_NAMESPACE=default
-MODEL_API_BASE=https://your-gateway.example.com/v1
-MODEL_API_KEY=sk-...
-MODEL_API_STYLE=anthropic    # or "openai"
+ANTHROPIC_BASE_URL=https://api.anthropic.com
+ANTHROPIC_API_KEY=sk-ant-...
+OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_API_KEY=sk-...
 EOF
 
 # 3. build harness images so the cluster can pull them
@@ -103,9 +104,10 @@ Backend env vars (file: `backend/.env`, gitignored):
 | `DATABASE_URL`     | `postgres://postgres@localhost:5432/cattery?sslmode=disable`       | Postgres DSN                                                    |
 | `PORT`             | `8080`                                                             | HTTP listen port                                                |
 | `K8S_NAMESPACE`    | `default`                                                          | Namespace where Sandbox CRs are created                         |
-| `MODEL_API_BASE`   | —                                                                  | URL of the model gateway (OpenAI- or Anthropic-compatible)      |
-| `MODEL_API_KEY`    | —                                                                  | Auth token forwarded to the harness                             |
-| `MODEL_API_STYLE`  | `openai`                                                           | `openai` or `anthropic` — determines the harness env wiring     |
+| `ANTHROPIC_BASE_URL` | —                                                                | Anthropic-compatible API base URL                               |
+| `ANTHROPIC_API_KEY`  | —                                                                | Auth token for Anthropic models                                 |
+| `OPENAI_BASE_URL`    | —                                                                | OpenAI-compatible API base URL, including `/v1`                 |
+| `OPENAI_API_KEY`     | —                                                                | Auth token for OpenAI models                                    |
 
 The backend uses `clientcmd.RecommendedHomeFile` (`~/.kube/config`) when not running in-cluster.
 

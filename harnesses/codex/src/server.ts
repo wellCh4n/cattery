@@ -75,7 +75,7 @@ if (TUI_CMD === 'codex') {
 // Stays alive for the container's lifetime; if it dies, codex requests fail
 // loudly with connection refused — we surface that via stderr passthrough.
 function startCodexRelay(): void {
-  const upstream = (process.env.OPENAI_BASE_URL ?? '').replace(/\/+$/, '') + '/v1'
+  const upstream = (process.env.OPENAI_BASE_URL ?? '').replace(/\/+$/, '')
   const apiKey   = process.env.OPENAI_API_KEY ?? ''
 
   const relay = spawn('codex-relay', [], {
@@ -116,7 +116,7 @@ function seedCodexConfig(): void {
   // to the upstream NewAPI gateway, which already speaks Responses natively.
   const baseURL = CODEX_NEEDS_RELAY
     ? `http://127.0.0.1:${CODEX_RELAY_PORT}/v1`
-    : (process.env.OPENAI_BASE_URL ?? '').replace(/\/+$/, '') + '/v1'
+    : (process.env.OPENAI_BASE_URL ?? '').replace(/\/+$/, '')
   const model   = CODEX_MODEL
 
   const toml = [

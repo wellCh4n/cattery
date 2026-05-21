@@ -1,9 +1,15 @@
 package model
 
 import (
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
+)
+
+const (
+	ProviderAnthropic = "anthropic"
+	ProviderOpenAI    = "openai"
 )
 
 type Harness struct {
@@ -28,4 +34,21 @@ type Session struct {
 	CreatedAt        time.Time  `db:"created_at"         json:"created_at"`
 	LastSeenAt       *time.Time `db:"last_seen_at"       json:"last_seen_at"`
 	StoppedAt        *time.Time `db:"stopped_at"         json:"stopped_at"`
+}
+
+var ModelProviders = map[string]string{
+	"claude-sonnet-4-6": ProviderAnthropic,
+	"claude-opus-4-6":   ProviderAnthropic,
+	"claude-opus-4-7":   ProviderAnthropic,
+	"gpt-5.4":           ProviderOpenAI,
+	"gpt-5.5":           ProviderOpenAI,
+}
+
+// ProviderForModel returns the canonical provider family for configured model IDs.
+func ProviderForModel(modelID string) (string, bool) {
+	normalized := strings.ToLower(strings.TrimSpace(modelID))
+	if provider, ok := ModelProviders[normalized]; ok {
+		return provider, true
+	}
+	return ProviderOpenAI, false
 }

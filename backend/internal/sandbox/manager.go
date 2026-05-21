@@ -77,23 +77,49 @@ func (m *Manager) EnsureReady(ctx context.Context, inst *model.Harness) (string,
 	env["PORT"] = fmt.Sprintf("%d", Port)
 	env["AGENT_ID"] = inst.HarnessID.String()
 
-	base := strings.TrimRight(m.cfg.ModelAPIBase, "/")
-	if m.cfg.ModelAPIStyle == "anthropic" {
-		env["ANTHROPIC_BASE_URL"] = base
-		env["ANTHROPIC_API_KEY"] = m.cfg.ModelAPIKey
+	provider, ok := model.ProviderForModel(inst.Model)
+	if !ok {
+		_ = m.store.UpdateSandboxStatus(ctx, inst.HarnessID, "failed")
+		return "", fmt.Errorf("unknown provider for model %q", inst.Model)
+	}
+	anthropicBase := strings.TrimRight(m.cfg.AnthropicBaseURL, "/")
+	openaiBase := strings.TrimRight(m.cfg.OpenAIBaseURL, "/")
+	if provider == model.ProviderAnthropic {
+		if anthropicBase == "" || m.cfg.AnthropicAPIKey == "" {
+			_ = m.store.UpdateSandboxStatus(ctx, inst.HarnessID, "failed")
+			return "", fmt.Errorf("anthropic config is required for model %q", inst.Model)
+		}
+		env["ANTHROPIC_BASE_URL"] = anthropicBase
+		env["ANTHROPIC_API_KEY"] = m.cfg.AnthropicAPIKey
 	} else {
-		env["OPENAI_BASE_URL"] = base
-		env["OPENAI_API_KEY"] = m.cfg.ModelAPIKey
+		if openaiBase == "" || m.cfg.OpenAIAPIKey == "" {
+			_ = m.store.UpdateSandboxStatus(ctx, inst.HarnessID, "failed")
+			return "", fmt.Errorf("openai config is required for model %q", inst.Model)
+		}
+		env["OPENAI_BASE_URL"] = openaiBase
+		env["OPENAI_API_KEY"] = m.cfg.OpenAIAPIKey
 	}
-	// claude-code SDK always wants ANTHROPIC_* regardless of proxy style
+	// claude-code SDK always wants ANTHROPIC_*; GPT models run through the
+	// configured OpenAI-compatible gateway exposed via Anthropic env names.
 	if inst.Type == "claude-code" {
-		env["ANTHROPIC_BASE_URL"] = base
-		env["ANTHROPIC_API_KEY"] = m.cfg.ModelAPIKey
+		if provider == model.ProviderAnthropic {
+			env["ANTHROPIC_BASE_URL"] = anthropicBase
+			env["ANTHROPIC_API_KEY"] = m.cfg.AnthropicAPIKey
+		} else {
+			env["ANTHROPIC_BASE_URL"] = anthropicBase
+			env["ANTHROPIC_API_KEY"] = m.cfg.AnthropicAPIKey
+		}
 	}
-	// codex CLI 写死从 OPENAI_API_KEY 读 key，即便 gateway 是 anthropic 风格也要塞
+	// codex CLI and codex-relay both read OPENAI_*; Anthropic models use the
+	// Anthropic-compatible gateway behind the OpenAI env names.
 	if inst.Type == "codex" {
-		env["OPENAI_BASE_URL"] = base
-		env["OPENAI_API_KEY"] = m.cfg.ModelAPIKey
+		if provider == model.ProviderAnthropic {
+			env["OPENAI_BASE_URL"] = withPathSuffix(anthropicBase, "/v1")
+			env["OPENAI_API_KEY"] = m.cfg.AnthropicAPIKey
+		} else {
+			env["OPENAI_BASE_URL"] = openaiBase
+			env["OPENAI_API_KEY"] = m.cfg.OpenAIAPIKey
+		}
 	}
 
 	spec := k8s.SandboxSpec{
@@ -126,6 +152,14 @@ func (m *Manager) waitURL(ctx context.Context, name string, harnessID uuid.UUID)
 	}
 	_ = m.store.UpdateSandboxReady(ctx, harnessID, url)
 	return url, nil
+}
+
+func withPathSuffix(base, suffix string) string {
+	base = strings.TrimRight(base, "/")
+	if strings.HasSuffix(base, suffix) {
+		return base
+	}
+	return base + suffix
 }
 
 // Stop 删除对应的 Sandbox CR；本地状态置 idle。

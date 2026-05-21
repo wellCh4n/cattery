@@ -16,11 +16,11 @@ mkdir -p ~/.config/opencode
 
 # 支持 anthropic 风格和 openai 风格
 if [ -n "${ANTHROPIC_BASE_URL:-}" ]; then
-  API_BASE="${ANTHROPIC_BASE_URL}/v1"
+  API_BASE="${ANTHROPIC_BASE_URL}"
   API_KEY="${ANTHROPIC_API_KEY:-}"
   NPM_PKG="@ai-sdk/anthropic"
 else
-  API_BASE="${OPENAI_BASE_URL:-}/v1"
+  API_BASE="${OPENAI_BASE_URL:-}"
   API_KEY="${OPENAI_API_KEY:-}"
   NPM_PKG="@ai-sdk/openai-compatible"
 fi
