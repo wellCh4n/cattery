@@ -1,4 +1,4 @@
-.PHONY: dev dev-front dev-back build stop build-harness
+.PHONY: dev dev-front dev-back build stop build-harness build-sidecar
 
 GO = $(shell which go)
 BUN = $(shell which bun)
@@ -57,3 +57,16 @@ _build-harness-codex:
 _build-harness-hermes:
 	@echo "→ building hermes-sandbox:dev"
 	@docker build -t hermes-sandbox:dev harnesses/hermes/
+
+# Sidecar images bundled into every harness Pod.
+# make build-sidecar                  — build all sidecars (currently: filemgr)
+# make build-sidecar SIDECAR=filemgr  — build one
+SIDECAR ?=
+build-sidecar:
+	$(if $(SIDECAR), \
+		$(MAKE) _build-sidecar-$(SIDECAR), \
+		$(MAKE) _build-sidecar-filemgr)
+
+_build-sidecar-filemgr:
+	@echo "→ building cattery-filemgr:dev"
+	@docker build -t cattery-filemgr:dev sidecars/filemgr/

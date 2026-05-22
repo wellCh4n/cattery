@@ -88,7 +88,7 @@ export function FileViewer({ path, lines }: Props) {
   }, [code, lang])
 
   return (
-    <table className="w-full border-collapse text-xs font-mono [font-variant-ligatures:none]">
+    <table className="shiki-dual w-full border-collapse text-xs font-mono [font-variant-ligatures:none]">
       <tbody>
         {lines.map((line, i) => {
           const lineTokens = tokens?.[i]

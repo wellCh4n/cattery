@@ -5,7 +5,7 @@ import (
 	"github.com/labstack/echo/v4/middleware"
 )
 
-func NewRouter(harnessH *HarnessHandler, sessionH *SessionHandler) *echo.Echo {
+func NewRouter(harnessH *HarnessHandler, sessionH *SessionHandler, filesH *FilesHandler) *echo.Echo {
 	e := echo.New()
 	e.HideBanner = true
 	e.Use(middleware.Logger())
@@ -27,6 +27,11 @@ func NewRouter(harnessH *HarnessHandler, sessionH *SessionHandler) *echo.Echo {
 	harnesses.POST("/:harness_id/sessions", sessionH.Create)
 	harnesses.GET("/:harness_id/sessions", sessionH.ListByHarness)
 	harnesses.DELETE("/:harness_id/sandbox", sessionH.StopSandbox)
+	harnesses.GET("/:harness_id/files/list", filesH.List)
+	harnesses.GET("/:harness_id/files/read", filesH.Read)
+	harnesses.GET("/:harness_id/files/raw", filesH.Raw)
+	harnesses.GET("/:harness_id/files/download", filesH.Download)
+	harnesses.POST("/:harness_id/files/upload", filesH.Upload)
 
 	sessions := v1.Group("/sessions")
 	sessions.GET("/:session_id", sessionH.Get)

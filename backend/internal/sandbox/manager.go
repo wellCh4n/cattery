@@ -20,6 +20,13 @@ import (
 // Port 是所有 harness sandbox 容器对外暴露的统一端口。
 const Port = 1114
 
+// FileMgrPort 是 filemgr sidecar 在 Pod 内监听的端口，跟 harness 共享同一个
+// Pod IP。后端 /files 路由会把请求转发到这个端口。
+const FileMgrPort = 1115
+
+// FileMgrImage 是 filemgr sidecar 镜像。`make build-sidecar` 构建。
+const FileMgrImage = "cattery-filemgr:dev"
+
 var images = map[string]string{
 	"opencode":    "opencode-sandbox:dev",
 	"claude-code": "claude-code-sandbox:dev",
@@ -129,6 +136,17 @@ func (m *Manager) EnsureReady(ctx context.Context, inst *model.Harness) (string,
 		HarnessImage:  image,
 		ContainerPort: Port,
 		Env:           env,
+		Sidecars: []k8s.SidecarSpec{
+			{
+				Name:          "filemgr",
+				Image:         FileMgrImage,
+				ContainerPort: FileMgrPort,
+				Env: map[string]string{
+					"FILEMGR_ROOT": "/work",
+					"PORT":         fmt.Sprintf("%d", FileMgrPort),
+				},
+			},
+		},
 	}
 
 	_ = m.store.UpdateSandboxStarting(ctx, inst.HarnessID, name)

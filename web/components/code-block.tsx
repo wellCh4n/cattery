@@ -73,7 +73,7 @@ export function CodeBlock({ code, lang, className }: Props) {
           <span>{copied ? "Copied" : "Copy"}</span>
         </button>
       </div>
-      <pre className="max-h-96 overflow-auto px-3 py-2.5 text-[12px] leading-relaxed font-mono [font-variant-ligatures:none]">
+      <pre className="shiki-dual max-h-96 overflow-auto px-3 py-2.5 text-[12px] leading-relaxed font-mono [font-variant-ligatures:none]">
         <code>
           {lines.map((line, i) => (
             <div key={i} className="whitespace-pre">

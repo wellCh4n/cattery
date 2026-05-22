@@ -114,6 +114,14 @@ export function ChatPanel({ session, harness }: Props) {
     }))
   }, [session.session_id, sending])
 
+  // Catch-all: whenever bubbles change in any way (new tool card, tool result,
+  // delta append, question card, ...) or the bottom loader toggles, pin to
+  // the bottom. Individual handlers used to do this per-event-type and missed
+  // tool.start / tool.done / question.* — single effect avoids that.
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" })
+  }, [bubbles, sending])
+
   useEffect(() => {
     abortRef.current?.abort()
     setBubbles([])
@@ -244,7 +252,6 @@ export function ChatPanel({ session, harness }: Props) {
             done: false,
           }]
         })
-        bottomRef.current?.scrollIntoView({ behavior: "smooth" })
         break
       }
 
@@ -263,7 +270,6 @@ export function ChatPanel({ session, harness }: Props) {
             { id: partID, role: "assistant", kind: "thinking", content: delta, done: false },
           ]
         })
-        bottomRef.current?.scrollIntoView({ behavior: "smooth" })
         break
       }
 
@@ -408,7 +414,6 @@ export function ChatPanel({ session, harness }: Props) {
         done: false,
       },
     ])
-
     const ctrl = new AbortController()
     abortRef.current = ctrl
 
@@ -507,6 +512,13 @@ export function ChatPanel({ session, harness }: Props) {
             </div>
           )}
           {bubbles.map((b) => <BubbleRow key={b.id} bubble={b} sessionId={session.session_id} />)}
+          {sending && (
+            // Persistent loader anchored below the last message — stays until
+            // session.idle (or error) flips `sending` back to false.
+            <div className="flex justify-start pl-1">
+              <Loader2 className="size-4 animate-spin text-muted-foreground" />
+            </div>
+          )}
           <div ref={bottomRef} />
         </div>
       </div>
@@ -691,33 +703,26 @@ function BubbleRow({ bubble, sessionId }: { bubble: Bubble; sessionId: string })
   if (bubble.role === "user") {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[75%] rounded-2xl bg-primary text-primary-foreground dark:bg-secondary dark:text-secondary-foreground px-4 py-2.5 text-sm whitespace-pre-wrap break-words">
+        <div className="max-w-[75%] rounded-2xl bg-secondary text-secondary-foreground px-4 py-2.5 text-sm whitespace-pre-wrap break-words">
           {bubble.content}
         </div>
       </div>
     )
   }
 
-  const isThinking = !bubble.done && bubble.content === ""
+  // An empty in-flight bubble renders nothing (no placeholder); the global
+  // spinner below the message list is the only loading indicator between
+  // submit and session.idle.
   return (
     <div className="flex justify-start">
       <div className="group/msg max-w-[90%] min-w-[50%]">
-        {isThinking ? (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="size-3.5 animate-spin" />
-            <span>thinking…</span>
+        <div>
+          <Markdown>{bubble.content}</Markdown>
+        </div>
+        {bubble.done && bubble.content && (
+          <div className="mt-1">
+            <CopyButton text={bubble.content} />
           </div>
-        ) : (
-          <>
-            <div>
-              <Markdown>{bubble.content}</Markdown>
-            </div>
-            {bubble.done && bubble.content && (
-              <div className="mt-1">
-                <CopyButton text={bubble.content} />
-              </div>
-            )}
-          </>
         )}
       </div>
     </div>

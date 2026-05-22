@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
+import { useResizable } from "@/lib/use-resizable"
 import { CreateHarnessDialog } from "@/components/create-harness-dialog"
 import { HarnessIcon } from "@/components/harness-icon"
 import { ThemeToggle } from "@/components/theme-toggle"
@@ -65,6 +66,14 @@ export function Sidebar() {
   const [editing, setEditing] = useState<{ kind: "harness"; id: string; original: string } | { kind: "session"; id: string; original: string } | null>(null)
   const [editValue, setEditValue] = useState("")
   const editInputRef = useRef<HTMLInputElement>(null)
+  // sidebar resize — same UX as RightRail, handle on the right edge
+  const { width: sidebarWidth, onMouseDown: onSidebarMouseDown } = useResizable({
+    initial: 256, // matches the old `w-64`
+    min: 200,
+    max: 480,
+    storageKey: "cattery:sidebar:width",
+    side: "right",
+  })
 
   function startEdit(kind: "harness" | "session", id: string, current: string) {
     setEditing({ kind, id, original: current } as { kind: "harness"; id: string; original: string } | { kind: "session"; id: string; original: string })
@@ -293,7 +302,15 @@ export function Sidebar() {
 
   return (
     <>
-      <aside className="flex flex-col h-full border-r bg-sidebar w-64 shrink-0">
+      <aside
+        className="relative flex flex-col h-full border-r bg-sidebar shrink-0"
+        style={{ width: sidebarWidth }}
+      >
+        {/* drag handle on the right edge — same UX as RightRail */}
+        <div
+          onMouseDown={onSidebarMouseDown}
+          className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/40 transition-colors translate-x-1/2 z-10"
+        />
         <header className="flex items-center justify-between px-3 h-12 border-b shrink-0">
           <div className="flex items-center gap-1.5">
             <Cat className="size-4 text-foreground" />

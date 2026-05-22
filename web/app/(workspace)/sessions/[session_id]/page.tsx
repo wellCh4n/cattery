@@ -4,6 +4,7 @@ import { use, useEffect, useState } from "react"
 import { AlertTriangle, Loader2 } from "lucide-react"
 import { ChatPanel } from "@/components/chat-panel"
 import { TerminalView } from "@/components/terminal-view"
+import { RightRail } from "@/components/right-rail"
 import { getSession, listHarnesses, type Harness, type Session } from "@/lib/api"
 
 interface PageParams {
@@ -72,7 +73,7 @@ export default function SessionPage({ params }: { params: Promise<PageParams> })
     )
   }
 
-  return data.harness.transport_kind === "terminal" ? (
+  const main = data.harness.transport_kind === "terminal" ? (
     <TerminalView
       key={data.session.session_id}
       session={data.session}
@@ -85,4 +86,6 @@ export default function SessionPage({ params }: { params: Promise<PageParams> })
       harness={data.harness}
     />
   )
+
+  return <RightRail harness={data.harness}>{main}</RightRail>
 }

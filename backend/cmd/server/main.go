@@ -32,8 +32,9 @@ func main() {
 
 	harnessH := api.NewHarnessHandler(harnessStore, sandboxMgr)
 	sessionH := api.NewSessionHandler(sessionStore, harnessStore, harnessClient, sandboxMgr)
+	filesH := api.NewFilesHandler(harnessStore)
 
-	router := api.NewRouter(harnessH, sessionH)
+	router := api.NewRouter(harnessH, sessionH, filesH)
 	log.Printf("starting server on :%s", cfg.Port)
 	log.Fatal(router.Start(":" + cfg.Port))
 }

@@ -138,3 +138,53 @@ export function termURL(sessionId: string): string {
   const base = API_BASE.replace(/^http(s?):/, "ws$1:")
   return `${base}/api/v1/sessions/${sessionId}/term`
 }
+
+// ---- filemgr (sidecar in each harness Pod, proxied through backend) ----
+
+export interface FileEntry {
+  name: string
+  type: "file" | "dir" | "link"
+  size: number
+  mtime: number
+}
+
+export interface FileReadResponse {
+  path: string
+  size: number
+  truncated: boolean
+  binary: boolean
+  content?: string
+}
+
+export async function listFiles(harnessId: string, path: string): Promise<FileEntry[]> {
+  const url = `${API_BASE}/api/v1/harnesses/${harnessId}/files/list?path=${encodeURIComponent(path)}`
+  const res = await fetch(url, { cache: "no-store" })
+  if (!res.ok) throw new Error(`list files failed: ${res.status}`)
+  return res.json()
+}
+
+export async function readFile(harnessId: string, path: string): Promise<FileReadResponse> {
+  const url = `${API_BASE}/api/v1/harnesses/${harnessId}/files/read?path=${encodeURIComponent(path)}`
+  const res = await fetch(url, { cache: "no-store" })
+  if (!res.ok) throw new Error(`read file failed: ${res.status}`)
+  return res.json()
+}
+
+// downloadFileURL 让浏览器走原生下载（带 Content-Disposition），不走 fetch。
+export function downloadFileURL(harnessId: string, path: string): string {
+  return `${API_BASE}/api/v1/harnesses/${harnessId}/files/download?path=${encodeURIComponent(path)}`
+}
+
+// rawFileURL 用于内联展示（<img>、<video>、<iframe> 之类）。
+// 跟 download 区别：服务端会按扩展名设 Content-Type，不带 Content-Disposition。
+export function rawFileURL(harnessId: string, path: string): string {
+  return `${API_BASE}/api/v1/harnesses/${harnessId}/files/raw?path=${encodeURIComponent(path)}`
+}
+
+export async function uploadFile(harnessId: string, dir: string, file: File): Promise<void> {
+  const fd = new FormData()
+  fd.append("file", file)
+  const url = `${API_BASE}/api/v1/harnesses/${harnessId}/files/upload?path=${encodeURIComponent(dir)}`
+  const res = await fetch(url, { method: "POST", body: fd })
+  if (!res.ok) throw new Error(`upload failed: ${res.status}`)
+}

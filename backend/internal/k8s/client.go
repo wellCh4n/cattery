@@ -53,12 +53,68 @@ type SandboxSpec struct {
 	HarnessImage  string
 	ContainerPort int
 	Env           map[string]string
+	// Sidecars contains additional containers that share a workspace volume
+	// (mounted at WorkVolumeMount, default /work) with the harness container.
+	Sidecars []SidecarSpec
+	// WorkVolumeMount is the path mounted into the harness and all sidecars
+	// as the shared workspace. Defaults to "/work" when zero.
+	WorkVolumeMount string
+}
+
+// SidecarSpec describes one additional container to colocate with the harness.
+// The shared workspace volume is automatically mounted at WorkVolumeMount.
+type SidecarSpec struct {
+	Name          string
+	Image         string
+	ContainerPort int
+	Env           map[string]string
 }
 
 func (c *Client) RunTask(ctx context.Context, spec SandboxSpec) error {
+	workMount := spec.WorkVolumeMount
+	if workMount == "" {
+		workMount = "/work"
+	}
+	const workVolumeName = "workspace"
+
 	envList := make([]interface{}, 0, len(spec.Env))
 	for k, v := range spec.Env {
 		envList = append(envList, map[string]interface{}{"name": k, "value": v})
+	}
+
+	volumeMounts := []interface{}{
+		map[string]interface{}{"name": workVolumeName, "mountPath": workMount},
+	}
+
+	containers := []interface{}{
+		map[string]interface{}{
+			"name":  "harness",
+			"image": spec.HarnessImage,
+			"ports": []interface{}{
+				map[string]interface{}{"containerPort": int64(spec.ContainerPort)},
+			},
+			"env":          envList,
+			"volumeMounts": volumeMounts,
+		},
+	}
+
+	for _, sc := range spec.Sidecars {
+		sEnv := make([]interface{}, 0, len(sc.Env))
+		for k, v := range sc.Env {
+			sEnv = append(sEnv, map[string]interface{}{"name": k, "value": v})
+		}
+		container := map[string]interface{}{
+			"name":         sc.Name,
+			"image":        sc.Image,
+			"env":          sEnv,
+			"volumeMounts": volumeMounts,
+		}
+		if sc.ContainerPort > 0 {
+			container["ports"] = []interface{}{
+				map[string]interface{}{"containerPort": int64(sc.ContainerPort)},
+			}
+		}
+		containers = append(containers, container)
 	}
 
 	sandbox := &unstructured.Unstructured{
@@ -76,16 +132,20 @@ func (c *Client) RunTask(ctx context.Context, spec SandboxSpec) error {
 				"podTemplate": map[string]interface{}{
 					"spec": map[string]interface{}{
 						"restartPolicy": "Never",
-						"containers": []interface{}{
+						// emptyDir defaults to root:root, but claude-code / codex / hermes
+						// run as the unprivileged `node` user (uid 1000) and need write
+						// access to /work. fsGroup makes K8s chown the volume to gid 1000
+						// so node can write; opencode (root) ignores ownership anyway.
+						"securityContext": map[string]interface{}{
+							"fsGroup": int64(1000),
+						},
+						"volumes": []interface{}{
 							map[string]interface{}{
-								"name":  "harness",
-								"image": spec.HarnessImage,
-								"ports": []interface{}{
-									map[string]interface{}{"containerPort": int64(spec.ContainerPort)},
-								},
-								"env": envList,
+								"name":     workVolumeName,
+								"emptyDir": map[string]interface{}{},
 							},
 						},
+						"containers": containers,
 					},
 				},
 			},

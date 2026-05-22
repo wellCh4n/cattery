@@ -171,3 +171,16 @@
   unicode-range: U+2800-28FF;
 }
 
+/*
+ * Shiki dual-theme: tokens get inline styles like
+ *   color:#24292e; --shiki-dark:#e1e4e8;
+ * Without an explicit dark-mode rule, the browser keeps using the light
+ * `color` value. Override here under `.dark .shiki-dual` so every token
+ * (and the table background) flips to the dark palette.
+ */
+.dark .shiki-dual,
+.dark .shiki-dual span {
+  color: var(--shiki-dark) !important;
+  background-color: var(--shiki-dark-bg) !important;
+}
+
