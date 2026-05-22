@@ -394,7 +394,7 @@ export function Sidebar() {
                   {editing?.kind === "harness" && editing.id === harness.harness_id ? (
                     <Input
                       ref={editInputRef}
-                      className="flex-1 h-6 pl-4 pr-2 py-0 text-sm font-medium min-w-0"
+                      className="flex-1 h-6 pl-2 pr-2 py-0 text-sm font-medium min-w-0"
                       value={editValue}
                       onChange={e => setEditValue(e.target.value)}
                       onKeyDown={e => { if (e.key === "Enter") commitEdit(); if (e.key === "Escape") cancelEdit() }}
