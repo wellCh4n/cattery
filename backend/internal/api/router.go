@@ -49,6 +49,7 @@ func NewRouter(harnessH *HarnessHandler, sessionH *SessionHandler, filesH *Files
 	harnesses.GET("/:harness_id/files/list", filesH.List)
 	harnesses.GET("/:harness_id/files/read", filesH.Read)
 	harnesses.GET("/:harness_id/files/raw", filesH.Raw)
+	harnesses.GET("/:harness_id/files/raw-path/*", filesH.RawPath)
 	harnesses.GET("/:harness_id/files/download", filesH.Download)
 	harnesses.POST("/:harness_id/files/upload", filesH.Upload)
 

@@ -181,6 +181,11 @@ export function rawFileURL(harnessId: string, path: string): string {
   return `${API_BASE}/api/v1/harnesses/${harnessId}/files/raw?path=${encodeURIComponent(path)}`
 }
 
+export function rawFilePathURL(harnessId: string, path: string): string {
+  const encodedPath = path.split("/").map(segment => encodeURIComponent(segment)).join("/")
+  return `${API_BASE}/api/v1/harnesses/${harnessId}/files/raw-path${encodedPath}`
+}
+
 export async function uploadFile(harnessId: string, dir: string, file: File): Promise<void> {
   const fd = new FormData()
   fd.append("file", file)

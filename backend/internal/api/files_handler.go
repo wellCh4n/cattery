@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
@@ -72,6 +73,31 @@ func (h *FilesHandler) Raw(c echo.Context) error {
 	return h.proxyGET(c, "/raw")
 }
 
+// RawPath proxies GET /harnesses/:id/files/raw-path/<path> as /raw?path=<path>.
+// It exists so HTML previews have a path-like base URL and relative assets
+// such as ./style.css resolve to neighboring files in the same sandbox dir.
+func (h *FilesHandler) RawPath(c echo.Context) error {
+	path := "/" + strings.TrimPrefix(c.Param("*"), "/")
+	if path == "/" {
+		return echo.NewHTTPError(http.StatusBadRequest, "missing path")
+	}
+	query := url.Values{}
+	query.Set("path", path)
+	if raw := c.Request().URL.RawQuery; raw != "" {
+		if existing, err := url.ParseQuery(raw); err == nil {
+			for key, values := range existing {
+				if key == "path" {
+					continue
+				}
+				for _, value := range values {
+					query.Add(key, value)
+				}
+			}
+		}
+	}
+	return h.proxyGETRawQuery(c, "/raw", query.Encode())
+}
+
 // Upload proxies POST /harnesses/:id/files/upload?path=... with the original
 // multipart body. We forward Content-Type so the sidecar can parse the
 // multipart boundary the client picked.
@@ -96,11 +122,18 @@ func (h *FilesHandler) Upload(c echo.Context) error {
 }
 
 func (h *FilesHandler) proxyGET(c echo.Context, sidecarPath string) error {
+	return h.proxyGETRawQuery(c, sidecarPath, c.Request().URL.RawQuery)
+}
+
+func (h *FilesHandler) proxyGETRawQuery(c echo.Context, sidecarPath string, rawQuery string) error {
 	base, err := h.resolveFileMgrURL(c)
 	if err != nil {
 		return err
 	}
-	target := base + sidecarPath + "?" + c.Request().URL.RawQuery
+	target := base + sidecarPath
+	if rawQuery != "" {
+		target += "?" + rawQuery
+	}
 	req, err := http.NewRequestWithContext(c.Request().Context(), http.MethodGet, target, nil)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
@@ -126,4 +159,3 @@ func forward(c echo.Context, req *http.Request) error {
 	_, _ = io.Copy(c.Response().Writer, resp.Body)
 	return nil
 }
-

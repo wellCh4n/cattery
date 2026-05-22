@@ -184,3 +184,15 @@
   background-color: var(--shiki-dark-bg) !important;
 }
 
+html:has(.file-preview-dialog) {
+  overscroll-behavior-x: none;
+}
+
+html:has(.file-preview-dialog) body {
+  overscroll-behavior-x: none;
+}
+
+.file-preview-dialog,
+.file-preview-scroll {
+  overscroll-behavior-x: contain;
+}

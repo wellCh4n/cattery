@@ -15,15 +15,19 @@ import {
   File as FileIcon,
   Folder,
   Loader2,
+  Maximize2,
+  Minimize2,
   RefreshCw,
   Upload,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { FileViewer } from "@/components/file-viewer"
+import { Markdown } from "@/components/markdown"
 import { cn } from "@/lib/utils"
 import {
   downloadFileURL,
+  rawFilePathURL,
   listFiles,
   rawFileURL,
   readFile,
@@ -36,11 +40,25 @@ import {
 const IMAGE_EXTS = new Set([
   "png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico", "avif",
 ])
+const HTML_EXTS = new Set(["html", "htm"])
+const MARKDOWN_EXTS = new Set(["md", "markdown", "mdown", "mkd"])
 
 function isImagePath(path: string): boolean {
   const dot = path.lastIndexOf(".")
   if (dot < 0) return false
   return IMAGE_EXTS.has(path.slice(dot + 1).toLowerCase())
+}
+
+function isHtmlPath(path: string): boolean {
+  const dot = path.lastIndexOf(".")
+  if (dot < 0) return false
+  return HTML_EXTS.has(path.slice(dot + 1).toLowerCase())
+}
+
+function isMarkdownPath(path: string): boolean {
+  const dot = path.lastIndexOf(".")
+  if (dot < 0) return false
+  return MARKDOWN_EXTS.has(path.slice(dot + 1).toLowerCase())
 }
 
 interface Props {
@@ -53,6 +71,10 @@ interface Props {
 type OpenedFile =
   | { kind: "text"; path: string; data: FileReadResponse }
   | { kind: "image"; path: string }
+  | { kind: "html"; path: string; data: FileReadResponse }
+  | { kind: "markdown"; path: string; data: FileReadResponse }
+
+type PreviewMode = "preview" | "source"
 
 export function FileBrowserPanel({ harness }: Props) {
   const [dir, setDir] = useState("/")
@@ -104,8 +126,6 @@ export function FileBrowserPanel({ harness }: Props) {
 
   async function openFile(name: string) {
     const path = dir === "/" ? `/${name}` : `${dir}/${name}`
-    // Images skip /read — the dialog renders an <img> straight against /raw.
-    // That avoids pulling the binary bytes into JS just to throw them away.
     if (isImagePath(path)) {
       setOpened({ kind: "image", path })
       return
@@ -113,13 +133,26 @@ export function FileBrowserPanel({ harness }: Props) {
     setOpenLoading(true)
     try {
       const data = await readFile(harness.harness_id, path)
+      if (isHtmlPath(path)) {
+        setOpened({ kind: "html", path, data })
+        return
+      }
+      if (isMarkdownPath(path)) {
+        setOpened({ kind: "markdown", path, data })
+        return
+      }
       setOpened({ kind: "text", path, data })
     } catch (e) {
-      setOpened({
-        kind: "text",
-        path,
-        data: { path, size: 0, truncated: false, binary: false, content: `Error: ${e instanceof Error ? e.message : "unknown"}` },
-      })
+      const data = { path, size: 0, truncated: false, binary: false, content: `Error: ${e instanceof Error ? e.message : "unknown"}` }
+      if (isHtmlPath(path)) {
+        setOpened({ kind: "html", path, data })
+        return
+      }
+      if (isMarkdownPath(path)) {
+        setOpened({ kind: "markdown", path, data })
+        return
+      }
+      setOpened({ kind: "text", path, data })
     } finally {
       setOpenLoading(false)
     }
@@ -254,11 +287,28 @@ function FileViewerDialog({
   loading: boolean
   onClose: () => void
 }) {
+  const [fullscreen, setFullscreen] = useState(false)
+  const [modeByPath, setModeByPath] = useState<{ path: string | null; mode: PreviewMode }>({
+    path: null,
+    mode: "preview",
+  })
+
+  const canToggleMode = opened?.kind === "html" || opened?.kind === "markdown"
+  const mode = canToggleMode && modeByPath.path === opened.path ? modeByPath.mode : "preview"
+  const close = () => {
+    setFullscreen(false)
+    onClose()
+  }
+
   return (
-    <Dialog open={opened !== null} onOpenChange={open => { if (!open) onClose() }}>
+    <Dialog open={opened !== null} onOpenChange={open => { if (!open) close() }}>
       <DialogContent
         showCloseButton={false}
-        className="w-[calc(100%-2rem)] sm:max-w-5xl h-[80vh] p-0 gap-0 flex flex-col overflow-hidden"
+        className={cn(
+          opened && "file-preview-dialog",
+          "w-[calc(100%-2rem)] sm:max-w-5xl h-[80vh] p-0 gap-0 flex flex-col overflow-hidden",
+          fullscreen && "top-0 left-0 !h-dvh !w-screen !max-w-none translate-x-0 translate-y-0 rounded-none sm:!max-w-none"
+        )}
       >
         {opened && (
           <>
@@ -268,10 +318,34 @@ function FileViewerDialog({
               <span className="text-xs font-mono truncate flex-1" title={opened.path}>
                 {opened.path}
               </span>
-              {opened.kind === "text" && opened.data.truncated && (
+              {(opened.kind === "text" || opened.kind === "html" || opened.kind === "markdown") && opened.data.truncated && (
                 <span className="text-[10px] text-amber-600 dark:text-amber-400 shrink-0">
                   truncated
                 </span>
+              )}
+              {canToggleMode && (
+                <div className="flex h-7 shrink-0 items-center rounded border bg-muted/30 p-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setModeByPath({ path: opened.path, mode: "preview" })}
+                    className={cn(
+                      "h-6 px-2 text-[11px] rounded cursor-pointer",
+                      mode === "preview" ? "bg-background text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    Preview
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setModeByPath({ path: opened.path, mode: "source" })}
+                    className={cn(
+                      "h-6 px-2 text-[11px] rounded cursor-pointer",
+                      mode === "source" ? "bg-background text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    Source
+                  </button>
+                </div>
               )}
               <a
                 href={downloadFileURL(harnessId, opened.path)}
@@ -282,14 +356,23 @@ function FileViewerDialog({
               </a>
               <button
                 type="button"
-                onClick={onClose}
+                onClick={() => setFullscreen(value => !value)}
+                className="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-muted cursor-pointer"
+                title={fullscreen ? "Exit fullscreen" : "Fullscreen"}
+                aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
+              >
+                {fullscreen ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
+              </button>
+              <button
+                type="button"
+                onClick={close}
                 className="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-muted text-xs cursor-pointer"
                 aria-label="Close"
               >
                 ✕
               </button>
             </div>
-            <div className="flex-1 min-h-0 overflow-auto">
+            <div className="file-preview-scroll flex-1 min-h-0 overflow-auto">
               {opened.kind === "image" ? (
                 <div className="flex h-full items-center justify-center p-4">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -298,6 +381,19 @@ function FileViewerDialog({
                     alt={opened.path}
                     className="max-w-full max-h-full object-contain"
                   />
+                </div>
+              ) : opened.kind === "html" && mode === "preview" ? (
+                <iframe
+                  src={rawFilePathURL(harnessId, opened.path)}
+                  title={opened.path}
+                  sandbox="allow-forms allow-modals allow-popups allow-same-origin allow-scripts"
+                  className="h-full w-full border-0 bg-white"
+                />
+              ) : opened.kind === "markdown" && mode === "preview" ? (
+                <div className="mx-auto w-full max-w-4xl p-6">
+                  <Markdown className="text-foreground">
+                    {opened.data.content ?? ""}
+                  </Markdown>
                 </div>
               ) : loading ? (
                 <div className="p-4 text-muted-foreground"><Loader2 className="size-4 animate-spin" /></div>
