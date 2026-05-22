@@ -177,6 +177,7 @@ export function Sidebar() {
   }
 
   async function handleNewSession(harness: HarnessWithSessions) {
+    if (!canCreateSession(harness)) return
     setLaunching(harness.harness_id)
     try {
       // 把当前页面主题透给 codex —— 它只在启动时探一次 OSC 10/11，
@@ -278,6 +279,14 @@ export function Sidebar() {
     if (status === "failed") return "bg-destructive"
     if (status === "starting") return "bg-amber-400 animate-pulse"
     return "bg-muted-foreground/40"
+  }
+
+  function canCreateSession(harness: HarnessWithSessions): boolean {
+    return harness.sandbox_status === "ready"
+  }
+
+  function newSessionTitle(harness: HarnessWithSessions): string {
+    return canCreateSession(harness) ? "New session" : "Sandbox is not ready"
   }
 
   // harness type 在创建对话框里有大小写规范的 label（OpenCode / Claude Code / Codex / Hermes），
@@ -420,9 +429,15 @@ export function Sidebar() {
                   )}
                 </button>
                 <button
-                  className="hidden group-hover:inline-flex focus-visible:inline-flex cursor-pointer items-center justify-center size-6 rounded text-muted-foreground hover:bg-foreground/10 hover:text-foreground disabled:opacity-50 transition-colors"
-                  title="New session"
-                  disabled={launching === harness.harness_id}
+                  className={cn(
+                    "hidden group-hover:inline-flex focus-visible:inline-flex items-center justify-center size-6 rounded transition-colors disabled:cursor-not-allowed disabled:opacity-40",
+                    "disabled:text-muted-foreground disabled:hover:bg-transparent disabled:hover:text-muted-foreground",
+                    canCreateSession(harness)
+                      ? "cursor-pointer text-muted-foreground hover:bg-foreground/10 hover:text-foreground"
+                      : "cursor-not-allowed text-muted-foreground/40 hover:bg-transparent hover:text-muted-foreground/40"
+                  )}
+                  title={newSessionTitle(harness)}
+                  disabled={launching === harness.harness_id || !canCreateSession(harness)}
                   onClick={() => handleNewSession(harness)}
                 >
                   {launching === harness.harness_id

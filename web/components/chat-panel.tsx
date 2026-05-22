@@ -602,9 +602,9 @@ function ThinkingBubble({ bubble }: { bubble: Bubble }) {
           <ChevronDown className={cn("size-3 ml-auto transition-transform", !open && "-rotate-90")} />
         </button>
         {open && (
-          <div className="px-3 pb-2.5 text-xs text-muted-foreground italic whitespace-pre-wrap break-words leading-relaxed">
+          <Markdown className="px-3 pb-2.5 text-xs text-muted-foreground italic [&_*]:text-inherit">
             {bubble.content}
-          </div>
+          </Markdown>
         )}
       </div>
     </div>

@@ -45,6 +45,9 @@ func (h *SessionHandler) Create(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusNotFound, "harness not found")
 	}
+	if inst.SandboxStatus != "ready" {
+		return echo.NewHTTPError(http.StatusConflict, "sandbox is not ready")
+	}
 
 	// theme 仅 terminal harness（codex）使用 —— 用来生成正确的 OSC 10/11 应答色，
 	// 让 codex 启动时按当前页面主题挑亮色/暗色调色板。前端如果未传则默认 dark。
