@@ -32,32 +32,39 @@ export function HarnessInfoPanel({ harness }: { harness: Harness }) {
         </span>
       </header>
 
-      <div className="flex-1 overflow-y-auto p-3 space-y-4 text-xs">
-        <Field label="Type">
-          <span>{TYPE_LABELS[harness.type] ?? harness.type}</span>
-        </Field>
-        <Field label="Model">
-          <span className="inline-flex items-center gap-1.5">
-            <ModelIcon id={harness.model} className="size-3.5" />
-            {harness.model}
-          </span>
-        </Field>
-        <Field label="Transport">
-          <Badge variant="outline" className="text-[10px] font-normal">
-            {harness.transport_kind}
-          </Badge>
-        </Field>
-        <Field label="Sandbox">{statusBadge(harness.sandbox_status)}</Field>
-        <Field label="Created">
-          <span className="text-muted-foreground">
-            {new Date(harness.created_at).toLocaleString()}
-          </span>
-        </Field>
-        <Field label="Harness ID">
-          <code className="text-[10px] text-muted-foreground break-all">{harness.harness_id}</code>
-        </Field>
+      <div className="flex-1 overflow-y-auto px-3 text-xs">
+        {/* divide-y draws a 1px line between each Field row — pair with py-3
+            on Field for consistent vertical rhythm. */}
+        <div className="divide-y divide-border/50">
+          <Field label="Type">
+            <span className="inline-flex items-center gap-1.5">
+              <HarnessIcon id={harness.type} className="size-3.5" />
+              {TYPE_LABELS[harness.type] ?? harness.type}
+            </span>
+          </Field>
+          <Field label="Model">
+            <span className="inline-flex items-center gap-1.5">
+              <ModelIcon id={harness.model} className="size-3.5" />
+              {harness.model}
+            </span>
+          </Field>
+          <Field label="Transport">
+            <Badge variant="outline" className="text-[10px] font-normal">
+              {harness.transport_kind}
+            </Badge>
+          </Field>
+          <Field label="Sandbox">{statusBadge(harness.sandbox_status)}</Field>
+          <Field label="Created">
+            <span className="text-muted-foreground">
+              {new Date(harness.created_at).toLocaleString()}
+            </span>
+          </Field>
+          <Field label="Harness ID">
+            <code className="text-[10px] text-muted-foreground break-all">{harness.harness_id}</code>
+          </Field>
+        </div>
 
-        <div>
+        <div className="pt-4 pb-3">
           <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground mb-1.5">
             Environment Variables
           </div>
@@ -87,12 +94,16 @@ export function HarnessInfoPanel({ harness }: { harness: Harness }) {
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  // leading-none on both sides drops the default 1.5x line-height so the
+  // boxes match the actual glyph heights. Otherwise items-center aligns the
+  // boxes but the uppercase label's optical center (no descenders) sits 1-2px
+  // above the value text's center, which reads as misaligned.
   return (
-    <div className="flex items-baseline gap-3">
-      <div className="w-20 shrink-0 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+    <div className="flex items-center gap-3 py-2.5">
+      <div className="w-20 shrink-0 text-[10px] font-medium uppercase tracking-wide text-muted-foreground leading-none">
         {label}
       </div>
-      <div className="flex-1 min-w-0">{children}</div>
+      <div className="flex-1 min-w-0 leading-none">{children}</div>
     </div>
   )
 }
