@@ -1,6 +1,8 @@
 package api
 
 import (
+	"log"
+
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 )
@@ -8,7 +10,24 @@ import (
 func NewRouter(harnessH *HarnessHandler, sessionH *SessionHandler, filesH *FilesHandler) *echo.Echo {
 	e := echo.New()
 	e.HideBanner = true
-	e.Use(middleware.Logger())
+	// middleware.Logger() was deprecated in favor of RequestLogger; same
+	// fields, just opt-in instead of the legacy fixed format.
+	e.Use(middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
+		LogMethod:  true,
+		LogURI:     true,
+		LogStatus:  true,
+		LogLatency: true,
+		LogError:   true,
+		HandleError: true,
+		LogValuesFunc: func(_ echo.Context, v middleware.RequestLoggerValues) error {
+			if v.Error != nil {
+				log.Printf("%s %s %d %s err=%v", v.Method, v.URI, v.Status, v.Latency, v.Error)
+			} else {
+				log.Printf("%s %s %d %s", v.Method, v.URI, v.Status, v.Latency)
+			}
+			return nil
+		},
+	}))
 	e.Use(middleware.Recover())
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
 		AllowOrigins: []string{"*"},
