@@ -72,7 +72,7 @@ func parseReadOutput(output string) *harness.ParsedFileRead {
 		rawContent = contentM[1]
 	}
 
-	var lines []harness.FileLine
+	lines := []harness.FileLine{}
 	totalLines := 0
 	for _, line := range strings.Split(rawContent, "\n") {
 		if m := reFileLine.FindStringSubmatch(line); m != nil {

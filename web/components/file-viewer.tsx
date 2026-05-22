@@ -67,7 +67,8 @@ function tokenStyle(t: ThemedToken): React.CSSProperties {
 
 export function FileViewer({ path, lines }: Props) {
   const [tokens, setTokens] = useState<ThemedToken[][] | null>(null)
-  const code = lines.map(l => l.text).join("\n")
+  const safeLines = lines ?? []
+  const code = safeLines.map(l => l.text).join("\n")
   const lang = detectLanguage(path)
 
   useEffect(() => {
@@ -90,7 +91,7 @@ export function FileViewer({ path, lines }: Props) {
   return (
     <table className="shiki-dual w-full border-collapse text-xs font-mono [font-variant-ligatures:none]">
       <tbody>
-        {lines.map((line, i) => {
+        {safeLines.map((line, i) => {
           const lineTokens = tokens?.[i]
           return (
             <tr key={line.n} className="hover:bg-muted/30">
