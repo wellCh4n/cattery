@@ -23,99 +23,33 @@ import { Badge } from "@/components/ui/badge"
 import { Markdown } from "@/components/markdown"
 import { FileViewer } from "@/components/file-viewer"
 import { cn } from "@/lib/utils"
-import { getHistory, abortSession, answerSession, type Session, type Harness, type QuestionAnswer } from "@/lib/api"
-import { useWorkspaceStore } from "@/lib/workspace-store"
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080"
-
-interface PlatformEvent {
-  type:
-    | "message.delta"
-    | "message.thinking"
-    | "tool.start"
-    | "tool.done"
-    | "question.asked"
-    | "question.answered"
-    | "session.idle"
-    | "session.error"
-    | "session.title"
-  data:
-    | MessageDeltaData
-    | ToolStartData
-    | ToolDoneData
-    | SessionErrorData
-    | SessionTitleData
-    | QuestionAskedData
-    | QuestionAnsweredData
-    | Record<string, never>
-}
-
-interface MessageDeltaData  { partId: string; text: string }
-interface ToolStartData     { toolId: string; tool: string; input?: string }
-interface ToolDoneData      { toolId: string; tool: string; output?: string; parsed?: unknown }
-interface SessionErrorData  { message: string }
-interface SessionTitleData  { title: string }
-
-interface QuestionOption {
-  label: string
-  description: string
-  preview?: string
-}
-interface QuestionItem {
-  question: string
-  header: string
-  options: QuestionOption[]
-  multiSelect?: boolean
-}
-interface QuestionAskedData     { partId: string; questions: QuestionItem[] }
-interface QuestionAnsweredData  { partId: string; answers: QuestionAnswer[] }
-
-interface ParsedFileRead {
-  path: string
-  fileType: "file" | "directory"
-  lines: { n: number; text: string }[]
-  totalLines: number
-}
-
-interface ParsedGlob {
-  paths: string[]
-}
-
-interface Bubble {
-  id: string
-  role: "user" | "assistant"
-  kind: "text" | "thinking" | "tool" | "error" | "question"
-  content: string
-  toolName?: string
-  toolStatus?: "pending" | "running" | "completed"
-  toolOutput?: string
-  toolParsed?: unknown
-  questions?: QuestionItem[]
-  questionAnswers?: QuestionAnswer[]
-  done: boolean
-}
+import { answerSession, type Session, type Harness, type QuestionAnswer } from "@/lib/api"
+import {
+  useChatStreamStore,
+  type Bubble,
+  type ParsedFileRead,
+  type ParsedGlob,
+} from "@/lib/chat-stream-store"
 
 interface Props {
   session: Session
   harness: Harness
 }
 
+const EMPTY_BUBBLES: Bubble[] = []
+
 export function ChatPanel({ session, harness }: Props) {
-  const [bubbles, setBubbles] = useState<Bubble[]>([])
   const [input, setInput] = useState("")
-  const [sending, setSending] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
-  const sessionIdRef = useRef(session.session_id)
-  const abortRef = useRef<AbortController | null>(null)
-  const setSessionBusy = useWorkspaceStore(state => state.setSessionBusy)
-  const updateSessionTitle = useWorkspaceStore(state => state.updateSessionTitle)
+  const chat = useChatStreamStore(state => state.sessions[session.session_id])
+  const bubbles = chat?.bubbles ?? EMPTY_BUBBLES
+  const sending = chat?.sending ?? false
+  const ensureSession = useChatStreamStore(state => state.ensureSession)
+  const loadHistory = useChatStreamStore(state => state.loadHistory)
+  const sendMessage = useChatStreamStore(state => state.sendMessage)
+  const stopSession = useChatStreamStore(state => state.stopSession)
   const title = session.title
   const harnessName = harness.harness_name ?? "Untitled"
-
-  useEffect(() => {
-    setSessionBusy(session.session_id, sending)
-    return () => setSessionBusy(session.session_id, false)
-  }, [session.session_id, sending, setSessionBusy])
 
   // Catch-all: whenever bubbles change in any way (new tool card, tool result,
   // delta append, question card, ...) or the bottom loader toggles, pin to
@@ -126,339 +60,27 @@ export function ChatPanel({ session, harness }: Props) {
   }, [bubbles, sending])
 
   useEffect(() => {
-    let cancelled = false
-    abortRef.current?.abort()
-    queueMicrotask(() => {
-      if (cancelled) return
-      setBubbles([])
-      setInput("")
-      setSending(false)
-    })
-    sessionIdRef.current = session.session_id
-    return () => { cancelled = true }
-  }, [session.session_id])
-
-  useEffect(() => {
     if (session.status !== "ready") return
+    ensureSession(session.session_id)
     let cancelled = false
-    getHistory(session.session_id).then(items => {
-      if (cancelled || sessionIdRef.current !== session.session_id) return
-      const restored: Bubble[] = []
-      for (const item of items) {
-        if (item.role === "user") {
-          const text = item.events
-            .filter(e => e.type === "message.delta")
-            .map(e => (e.data as { text?: string }).text ?? "")
-            .join("")
-          if (text) {
-            restored.push({
-              id: item.messageId,
-              role: "user",
-              kind: "text",
-              content: text,
-              done: true,
-            })
-          }
-          continue
-        }
-        for (const ev of item.events) {
-          if (ev.type === "message.delta" || ev.type === "message.thinking") {
-            const d = ev.data as { partId?: string; text?: string }
-            if (!d.partId || !d.text) continue
-            const kind = ev.type === "message.thinking" ? "thinking" : "text"
-            const existing = restored.find(b => b.id === d.partId)
-            if (existing) {
-              existing.content = d.text
-            } else {
-              restored.push({
-                id: d.partId,
-                role: "assistant",
-                kind,
-                content: d.text,
-                done: true,
-              })
-            }
-          } else if (ev.type === "tool.start") {
-            const d = ev.data as { toolId?: string; tool?: string; input?: string }
-            if (!d.toolId) continue
-            if (!restored.find(b => b.id === d.toolId)) {
-              restored.push({
-                id: d.toolId,
-                role: "assistant",
-                kind: "tool",
-                content: d.input ?? "",
-                toolName: d.tool,
-                toolStatus: "running",
-                done: false,
-              })
-            }
-          } else if (ev.type === "tool.done") {
-            const d = ev.data as { toolId?: string; output?: string; parsed?: ParsedFileRead }
-            if (!d.toolId) continue
-            const existing = restored.find(b => b.id === d.toolId)
-            if (existing) {
-              existing.toolStatus = "completed"
-              existing.toolOutput = d.output ?? ""
-              existing.toolParsed = d.parsed
-              existing.done = true
-            }
-          } else if (ev.type === "question.asked") {
-            const d = ev.data as Partial<QuestionAskedData>
-            if (!d.partId || !d.questions) continue
-            if (!restored.find(b => b.id === d.partId)) {
-              restored.push({
-                id: d.partId,
-                role: "assistant",
-                kind: "question",
-                content: "",
-                questions: d.questions,
-                done: false,
-              })
-            }
-          } else if (ev.type === "question.answered") {
-            const d = ev.data as Partial<QuestionAnsweredData>
-            if (!d.partId) continue
-            const existing = restored.find(b => b.id === d.partId)
-            if (existing) {
-              existing.questionAnswers = d.answers ?? []
-              existing.done = true
-            }
-          }
-        }
-      }
-      setBubbles(restored)
+    loadHistory(session.session_id).then(() => {
+      if (cancelled) return
       requestAnimationFrame(() => {
         bottomRef.current?.scrollIntoView({ behavior: "auto" })
       })
     }).catch(() => { /* ignore */ })
     return () => { cancelled = true }
-  }, [session.session_id, session.status])
-
-  function handleEvent(ev: PlatformEvent) {
-    switch (ev.type) {
-      case "message.delta": {
-        const d = ev.data as MessageDeltaData
-        if (!d.text || !d.partId) break
-        const partID = d.partId
-        const delta = d.text
-        setBubbles(prev => {
-          const existing = prev.find(b => b.id === partID && b.kind === "text")
-          if (existing) {
-            return prev.map(b => b.id === partID && b.kind === "text" ? { ...b, content: b.content + delta } : b)
-          }
-          const pendingIdx = prev.findIndex(b =>
-            b.role === "assistant" && b.kind === "text" && !b.done && b.id.startsWith("pending-")
-          )
-          if (pendingIdx >= 0) {
-            return prev.map((b, i) => i === pendingIdx ? { ...b, id: partID, content: delta } : b)
-          }
-          return [...prev, {
-            id: partID,
-            role: "assistant",
-            kind: "text",
-            content: delta,
-            done: false,
-          }]
-        })
-        break
-      }
-
-      case "message.thinking": {
-        const d = ev.data as MessageDeltaData
-        if (!d.text || !d.partId) break
-        const partID = d.partId
-        const delta = d.text
-        setBubbles(prev => {
-          const existing = prev.find(b => b.id === partID && b.kind === "thinking")
-          if (existing) {
-            return prev.map(b => b.id === partID && b.kind === "thinking" ? { ...b, content: b.content + delta } : b)
-          }
-          return [
-            ...prev.filter(b => !(b.kind === "text" && !b.done && b.content === "")),
-            { id: partID, role: "assistant", kind: "thinking", content: delta, done: false },
-          ]
-        })
-        break
-      }
-
-      case "tool.start": {
-        const d = ev.data as ToolStartData
-        setBubbles(prev => {
-          const next = prev
-            .filter(b => !(b.kind === "text" && !b.done && b.content === ""))
-            .map(b => (b.kind === "text" || b.kind === "thinking") && !b.done ? { ...b, done: true } : b)
-          const existing = next.find(b => b.id === d.toolId)
-          if (existing) {
-            return next.map(b => b.id === d.toolId
-              ? { ...b, content: d.input ?? b.content }
-              : b
-            )
-          }
-          return [...next, {
-            id: d.toolId,
-            role: "assistant",
-            kind: "tool",
-            content: d.input ?? "",
-            toolName: d.tool,
-            toolStatus: "running",
-            done: false,
-          }]
-        })
-        break
-      }
-
-      case "tool.done": {
-        const d = ev.data as ToolDoneData
-        setBubbles(prev => prev.map(b =>
-          b.id === d.toolId
-            ? { ...b, toolStatus: "completed", toolOutput: d.output ?? "", toolParsed: d.parsed, done: true }
-            : b
-        ))
-        break
-      }
-
-      case "question.asked": {
-        const d = ev.data as QuestionAskedData
-        if (!d.partId || !d.questions) break
-        setBubbles(prev => {
-          // close any in-flight text/thinking bubble; render question card next
-          const next = prev
-            .filter(b => !(b.kind === "text" && !b.done && b.content === ""))
-            .map(b => (b.kind === "text" || b.kind === "thinking") && !b.done ? { ...b, done: true } : b)
-          if (next.find(b => b.id === d.partId)) return next
-          return [...next, {
-            id: d.partId,
-            role: "assistant",
-            kind: "question",
-            content: "",
-            questions: d.questions,
-            done: false,
-          }]
-        })
-        break
-      }
-
-      case "question.answered": {
-        const d = ev.data as QuestionAnsweredData
-        setBubbles(prev => prev.map(b =>
-          b.id === d.partId
-            ? { ...b, questionAnswers: d.answers, done: true }
-            : b
-        ))
-        break
-      }
-
-      case "session.idle": {
-        setSending(false)
-        setBubbles(prev => prev
-          .filter(b => !(b.kind === "text" && !b.done && b.content === ""))
-          .map(b => b.done ? b : { ...b, done: true })
-        )
-        break
-      }
-
-      case "session.title": {
-        const d = ev.data as SessionTitleData
-        if (d.title) {
-          updateSessionTitle(session.session_id, d.title)
-        }
-        break
-      }
-
-      case "session.error": {
-        const d = ev.data as SessionErrorData
-        setSending(false)
-        setBubbles(prev => [
-          ...prev.filter(b => !(b.kind === "text" && !b.done && b.content === "")),
-          {
-            id: `err-${Date.now()}`,
-            role: "assistant",
-            kind: "error",
-            content: d.message,
-            done: true,
-          },
-        ])
-        break
-      }
-    }
-  }
+  }, [ensureSession, loadHistory, session.session_id, session.status])
 
   async function handleStop() {
-    abortRef.current?.abort()
-    try {
-      await abortSession(session.session_id)
-    } catch { /* ignore */ }
-    setSending(false)
-    setBubbles(prev => prev
-      .filter(b => !(b.kind === "text" && !b.done && b.content === ""))
-      .map(b => b.done ? b : { ...b, done: true })
-    )
+    await stopSession(session.session_id)
   }
 
   async function handleSend() {
     if (!input.trim() || sending) return
-    setSending(true)
     const text = input.trim()
     setInput("")
-
-    const ts = Date.now()
-    setBubbles(prev => [
-      ...prev,
-      {
-        id: `user-${ts}`,
-        role: "user",
-        kind: "text",
-        content: text,
-        done: true,
-      },
-      {
-        id: `pending-${ts}`,
-        role: "assistant",
-        kind: "text",
-        content: "",
-        done: false,
-      },
-    ])
-    const ctrl = new AbortController()
-    abortRef.current = ctrl
-
-    try {
-      const res = await fetch(`${API_BASE}/api/v1/sessions/${session.session_id}/message`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
-        signal: ctrl.signal,
-      })
-      if (!res.ok || !res.body) {
-        setSending(false)
-        return
-      }
-
-      const reader = res.body.getReader()
-      const decoder = new TextDecoder()
-      let buf = ""
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buf += decoder.decode(value, { stream: true })
-        const lines = buf.split("\n")
-        buf = lines.pop() ?? ""
-        for (const line of lines) {
-          if (!line.startsWith("data:")) continue
-          const data = line.slice(5).trim()
-          if (!data) continue
-          try {
-            handleEvent(JSON.parse(data) as PlatformEvent)
-          } catch { /* ignore */ }
-        }
-      }
-    } catch (e: unknown) {
-      if (e instanceof Error && e.name !== "AbortError") setSending(false)
-    } finally {
-      abortRef.current = null
-      setSending(false)
-    }
+    void sendMessage(session.session_id, text)
   }
 
   function statusVariant(s: string): "default" | "secondary" | "destructive" {
@@ -852,6 +474,7 @@ function ToolStatusIcon({ status }: { status?: "pending" | "running" | "complete
 function QuestionBubble({ bubble, sessionId }: { bubble: Bubble; sessionId: string }) {
   const questions = bubble.questions ?? []
   const answered = !!bubble.questionAnswers
+  const appendQuestionAnswer = useChatStreamStore(state => state.appendQuestionAnswer)
   const [selected, setSelected] = useState<string[][]>(() => questions.map(() => []))
   const [submitting, setSubmitting] = useState(false)
 
@@ -881,6 +504,7 @@ function QuestionBubble({ bubble, sessionId }: { bubble: Bubble; sessionId: stri
         selectedLabels: selected[i],
       }))
       await answerSession(sessionId, bubble.id, answers)
+      appendQuestionAnswer(sessionId, bubble.id, answers)
     } catch (err) {
       console.error("answer submit failed:", err)
       setSubmitting(false)

@@ -102,6 +102,23 @@ export async function abortSession(sessionId: string): Promise<void> {
   await fetch(`${API_BASE}/api/v1/sessions/${sessionId}/abort`, { method: "POST" })
 }
 
+export async function sendSessionMessageStream(
+  sessionId: string,
+  text: string,
+  signal?: AbortSignal,
+): Promise<ReadableStreamDefaultReader<Uint8Array>> {
+  const res = await fetch(`${API_BASE}/api/v1/sessions/${sessionId}/message`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+    signal,
+  })
+  if (!res.ok || !res.body) {
+    throw new Error("failed to send message")
+  }
+  return res.body.getReader()
+}
+
 export interface QuestionAnswer {
   question: string
   selectedLabels: string[]
