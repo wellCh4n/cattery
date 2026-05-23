@@ -25,11 +25,14 @@ const cols = process.stdout.columns ?? 120
 const rows = process.stdout.rows ?? 32
 
 const codex = pty.spawn('codex', [], {
-  name: 'xterm-256color',
+  name: 'tmux-256color',
   cols,
   rows,
   cwd: process.cwd(),
-  env: process.env as Record<string, string>,
+  env: {
+    ...process.env,
+    COLORTERM: 'truecolor',
+  } as Record<string, string>,
 })
 
 // Colors track the cattery web theme palette in

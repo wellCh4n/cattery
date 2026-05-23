@@ -108,6 +108,7 @@ export function TerminalView({ session, harness }: Props) {
         ws.close()
         return
       }
+      ws.send(JSON.stringify({ type: "theme", theme: isDarkRef.current ? "dark" : "light" }))
       // Tell the bridge our current viewport so tmux can size the PTY.
       const sendResize = () => {
         if (ws.readyState !== ws.OPEN) return
@@ -158,7 +159,7 @@ export function TerminalView({ session, harness }: Props) {
       try { ws.close() } catch { /* already closed */ }
       term.dispose()
     }
-  }, [session.session_id, session.status, session.harness_session_id])
+  }, [session.session_id, session.status, session.harness_session_id, isDark])
 
   const title = session.title ?? "New Session"
   const harnessName = harness.harness_name ?? "Untitled"
@@ -237,6 +238,8 @@ function themeFor(isDark: boolean) {
       magenta: "#c084fc",
       cyan:    "#22d3ee",
       white:   "#e5e7eb",
+      brightBlack: "#262626",
+      brightWhite: "#e5e7eb",
     }
   }
   return {
@@ -252,5 +255,7 @@ function themeFor(isDark: boolean) {
     magenta: "#9333ea",
     cyan:    "#0891b2",
     white:   "#f3f4f6",
+    brightBlack: "#eeeeee",
+    brightWhite: "#ffffff",
   }
 }

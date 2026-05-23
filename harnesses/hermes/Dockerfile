@@ -58,7 +58,7 @@ RUN mkdir -p /work && chown -R node:node /app /work
 # copy-mode so users can scroll TUI history (hermes/codex sit in
 # alt-screen, so xterm's own scrollback never fills). A generous
 # history-limit gives them something to scroll through.
-RUN printf 'set -g mouse on\nset -g history-limit 50000\nset -g default-terminal "xterm-256color"\n' > /home/node/.tmux.conf \
+RUN printf 'set -g mouse on\nset -g history-limit 50000\nset -g default-terminal "tmux-256color"\nset -as terminal-overrides ",*:Tc"\n' > /home/node/.tmux.conf \
     && chown node:node /home/node/.tmux.conf
 
 USER node

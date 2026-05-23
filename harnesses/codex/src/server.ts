@@ -250,10 +250,21 @@ interface ResizeFrame {
   rows: number
 }
 
+interface ThemeFrame {
+  type: 'theme'
+  theme: 'light' | 'dark'
+}
+
 function isResizeFrame(v: unknown): v is ResizeFrame {
   if (typeof v !== 'object' || v === null) return false
   const o = v as Record<string, unknown>
   return o.type === 'resize' && typeof o.cols === 'number' && typeof o.rows === 'number'
+}
+
+function isThemeFrame(v: unknown): v is ThemeFrame {
+  if (typeof v !== 'object' || v === null) return false
+  const o = v as Record<string, unknown>
+  return o.type === 'theme' && (o.theme === 'light' || o.theme === 'dark')
 }
 
 function normalizeResizeFrame(frame: ResizeFrame): ResizeFrame | null {
@@ -261,6 +272,84 @@ function normalizeResizeFrame(frame: ResizeFrame): ResizeFrame | null {
   const rows = Math.floor(frame.rows)
   if (!Number.isFinite(cols) || !Number.isFinite(rows) || cols < 2 || rows < 2) return null
   return { type: 'resize', cols, rows }
+}
+
+const CODEX_LIGHT_INPUT_BG_SEMI = '48;2;238;238;238'
+const CODEX_DARK_INPUT_BG_SEMI  = '48;2;38;38;38'
+const CODEX_LIGHT_INPUT_BG_COLON = '48:2::238:238:238'
+const CODEX_DARK_INPUT_BG_COLON  = '48:2::38:38:38'
+
+function rewriteCodexThemeColors(data: string, theme: 'light' | 'dark'): string {
+  // Codex paints its chat-input block with truecolor SGR derived from the
+  // startup OSC 10/11 probe. Browser theme changes do not make the running
+  // TUI recompute that palette, so rewrite the known input-block background
+  // colors as bytes leave tmux for this browser connection.
+  const target = theme === 'light' ? CODEX_LIGHT_INPUT_BG_SEMI : CODEX_DARK_INPUT_BG_SEMI
+  const targetParts = target.split(';')
+  const rewritten = data.replace(/\x1b\[([0-9;]*)m/g, (seq, params: string) => {
+    const parts = params.split(';')
+    const next: string[] = []
+    let changed = false
+
+    for (let i = 0; i < parts.length; i++) {
+      const code = Number(parts[i])
+      if (theme === 'light' && (code === 40 || code === 100)) {
+        next.push(...targetParts)
+        changed = true
+        continue
+      }
+      if (theme === 'dark' && (code === 47 || code === 107)) {
+        next.push(...targetParts)
+        changed = true
+        continue
+      }
+      if (code === 48 && parts[i + 1] === '5') {
+        const color = Number(parts[i + 2])
+        const shouldRewrite = theme === 'light'
+          ? color >= 232 && color <= 238
+          : color >= 250 && color <= 255
+        if (shouldRewrite) {
+          next.push(...targetParts)
+          changed = true
+          i += 2
+          continue
+        }
+      }
+      if (code === 48 && parts[i + 1] === '2') {
+        const r = Number(parts[i + 2])
+        const g = Number(parts[i + 3])
+        const b = Number(parts[i + 4])
+        const shouldRewrite = theme === 'light'
+          ? isDarkNeutral(r, g, b)
+          : isLightNeutral(r, g, b)
+        if (shouldRewrite) {
+          next.push(...targetParts)
+          changed = true
+          i += 4
+          continue
+        }
+      }
+      next.push(parts[i])
+    }
+
+    return changed ? `\x1b[${next.join(';')}m` : seq
+  })
+
+  return theme === 'light'
+    ? rewritten.replace(/48:2::(?:35:35:35|38:38:38|40:40:40)/g, CODEX_LIGHT_INPUT_BG_COLON)
+    : rewritten.replace(/48:2::(?:229:229:229|235:235:235|238:238:238)/g, CODEX_DARK_INPUT_BG_COLON)
+}
+
+function isDarkNeutral(r: number, g: number, b: number): boolean {
+  return Number.isFinite(r) && Number.isFinite(g) && Number.isFinite(b)
+    && Math.max(r, g, b) <= 70
+    && Math.max(r, g, b) - Math.min(r, g, b) <= 12
+}
+
+function isLightNeutral(r: number, g: number, b: number): boolean {
+  return Number.isFinite(r) && Number.isFinite(g) && Number.isFinite(b)
+    && Math.min(r, g, b) >= 220
+    && Math.max(r, g, b) - Math.min(r, g, b) <= 20
 }
 
 wss.on('connection', (ws: WebSocket, sessionId: string) => {
@@ -278,6 +367,7 @@ wss.on('connection', (ws: WebSocket, sessionId: string) => {
   // window between ws.open and the resize frame). Flushed in startAttach.
   const pendingInput: string[] = []
   let currentSize: { cols: number; rows: number } | null = null
+  let currentTheme: 'light' | 'dark' = 'dark'
 
   const startAttach = (cols: number, rows: number): void => {
     if (term) return
@@ -286,16 +376,19 @@ wss.on('connection', (ws: WebSocket, sessionId: string) => {
     // fighting over the same PTY. Each browser connection becomes the sole
     // attached client for the duration of the WS.
     term = pty.spawn('tmux', ['attach-session', '-d', '-t', sessionId], {
-      name: 'xterm-256color',
+      name: 'tmux-256color',
       cols,
       rows,
       cwd: WORK_DIR,
-      env: process.env as Record<string, string>,
+      env: {
+        ...process.env,
+        COLORTERM: 'truecolor',
+      } as Record<string, string>,
     })
     console.log(`[ws] attached to ${sessionId} (pid=${term.pid}, ${cols}x${rows})`)
 
     term.onData((data) => {
-      if (ws.readyState === ws.OPEN) ws.send(data)
+      if (ws.readyState === ws.OPEN) ws.send(rewriteCodexThemeColors(data, currentTheme))
     })
 
     term.onExit(({ exitCode }) => {
@@ -327,6 +420,10 @@ wss.on('connection', (ws: WebSocket, sessionId: string) => {
             currentSize = { cols: nextSize.cols, rows: nextSize.rows }
             term.resize(nextSize.cols, nextSize.rows)
           }
+          return
+        }
+        if (isThemeFrame(parsed)) {
+          currentTheme = parsed.theme
           return
         }
       } catch {

@@ -196,10 +196,21 @@ interface ResizeFrame {
   rows: number
 }
 
+interface ThemeFrame {
+  type: 'theme'
+  theme: 'light' | 'dark'
+}
+
 function isResizeFrame(v: unknown): v is ResizeFrame {
   if (typeof v !== 'object' || v === null) return false
   const o = v as Record<string, unknown>
   return o.type === 'resize' && typeof o.cols === 'number' && typeof o.rows === 'number'
+}
+
+function isThemeFrame(v: unknown): v is ThemeFrame {
+  if (typeof v !== 'object' || v === null) return false
+  const o = v as Record<string, unknown>
+  return o.type === 'theme' && (o.theme === 'light' || o.theme === 'dark')
 }
 
 function normalizeResizeFrame(frame: ResizeFrame): ResizeFrame | null {
@@ -232,11 +243,14 @@ wss.on('connection', (ws: WebSocket, sessionId: string) => {
     // fighting over the same PTY. Each browser connection becomes the sole
     // attached client for the duration of the WS.
     term = pty.spawn('tmux', ['attach-session', '-d', '-t', sessionId], {
-      name: 'xterm-256color',
+      name: 'tmux-256color',
       cols,
       rows,
       cwd: WORK_DIR,
-      env: process.env as Record<string, string>,
+      env: {
+        ...process.env,
+        COLORTERM: 'truecolor',
+      } as Record<string, string>,
     })
     console.log(`[ws] attached to ${sessionId} (pid=${term.pid}, ${cols}x${rows})`)
 
@@ -275,6 +289,7 @@ wss.on('connection', (ws: WebSocket, sessionId: string) => {
           }
           return
         }
+        if (isThemeFrame(parsed)) return
       } catch {
         // not JSON — fall through and treat as input bytes
       }

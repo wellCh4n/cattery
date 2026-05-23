@@ -40,7 +40,7 @@ RUN mkdir -p /work /home/node/.codex && chown -R node:node /app /work /home/node
 # tmux config — mouse on routes xterm.js wheel events into tmux's copy-mode
 # so users can scroll TUI history (codex sits in alt-screen, so xterm's
 # own scrollback never fills). history-limit grows what's scrollable.
-RUN printf 'set -g mouse on\nset -g history-limit 50000\nset -g default-terminal "xterm-256color"\n' > /home/node/.tmux.conf \
+RUN printf 'set -g mouse on\nset -g history-limit 50000\nset -g default-terminal "tmux-256color"\nset -as terminal-overrides ",*:Tc"\n' > /home/node/.tmux.conf \
     && chown node:node /home/node/.tmux.conf
 
 USER node
