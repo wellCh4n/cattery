@@ -1,9 +1,10 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useCallback, useState, useEffect, useRef } from "react"
 import {
   Bot,
   ArrowUp,
+  ArrowDown,
   Square,
   Loader2,
   CheckCircle2,
@@ -40,6 +41,8 @@ const EMPTY_BUBBLES: Bubble[] = []
 
 export function ChatPanel({ session, harness }: Props) {
   const [input, setInput] = useState("")
+  const [showJumpToBottom, setShowJumpToBottom] = useState(false)
+  const scrollRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const chat = useChatStreamStore(state => state.sessions[session.session_id])
   const bubbles = chat?.bubbles ?? EMPTY_BUBBLES
@@ -51,13 +54,29 @@ export function ChatPanel({ session, harness }: Props) {
   const title = session.title
   const harnessName = harness.harness_name ?? "Untitled"
 
-  // Catch-all: whenever bubbles change in any way (new tool card, tool result,
-  // delta append, question card, ...) or the bottom loader toggles, pin to
-  // the bottom. Individual handlers used to do this per-event-type and missed
-  // tool.start / tool.done / question.* — single effect avoids that.
+  const isNearBottom = useCallback((): boolean => {
+    const el = scrollRef.current
+    if (!el) return true
+    return el.scrollHeight - el.scrollTop - el.clientHeight < 96
+  }, [])
+
+  const updateJumpVisibility = useCallback(() => {
+    setShowJumpToBottom(!isNearBottom())
+  }, [isNearBottom])
+
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+    bottomRef.current?.scrollIntoView({ behavior })
+  }, [])
+
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [bubbles, sending])
+    requestAnimationFrame(() => {
+      if (isNearBottom()) {
+        scrollToBottom("smooth")
+      } else {
+        setShowJumpToBottom(true)
+      }
+    })
+  }, [bubbles, isNearBottom, scrollToBottom, sending])
 
   useEffect(() => {
     if (session.status !== "ready") return
@@ -66,11 +85,12 @@ export function ChatPanel({ session, harness }: Props) {
     loadHistory(session.session_id).then(() => {
       if (cancelled) return
       requestAnimationFrame(() => {
-        bottomRef.current?.scrollIntoView({ behavior: "auto" })
+        scrollToBottom("auto")
+        updateJumpVisibility()
       })
     }).catch(() => { /* ignore */ })
     return () => { cancelled = true }
-  }, [ensureSession, loadHistory, session.session_id, session.status])
+  }, [ensureSession, loadHistory, scrollToBottom, session.session_id, session.status, updateJumpVisibility])
 
   async function handleStop() {
     await stopSession(session.session_id)
@@ -114,41 +134,67 @@ export function ChatPanel({ session, harness }: Props) {
         </Badge>
       </header>
 
-      <div className="flex-1 overflow-y-auto px-4 md:px-8 py-6">
-        <div className="max-w-3xl mx-auto space-y-4">
-          {session.status === "creating" && (
-            <div className="flex items-center gap-2 rounded-lg border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
-              <Loader2 className="size-4 animate-spin" />
-              <span>Starting sandbox… {phaseLabel(session.phase)}</span>
-            </div>
-          )}
-          {session.status === "failed" && (
-            <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-              <AlertTriangle className="size-4 shrink-0 mt-0.5" />
-              <span>{phaseLabel(session.phase)}</span>
-            </div>
-          )}
-          {session.status === "ready" && bubbles.length === 0 && (
-            <div className="flex flex-col items-center justify-center text-center py-16">
-              <div className="rounded-full bg-muted p-3 mb-3">
-                <Sparkles className="size-6 text-muted-foreground" />
+      <div className="relative flex-1 min-h-0">
+        <div
+          ref={scrollRef}
+          onScroll={updateJumpVisibility}
+          className="h-full overflow-y-auto px-4 md:px-8 py-6"
+        >
+          <div className="max-w-3xl mx-auto space-y-4">
+            {session.status === "creating" && (
+              <div className="flex items-center gap-2 rounded-lg border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+                <Loader2 className="size-4 animate-spin" />
+                <span>Starting sandbox… {phaseLabel(session.phase)}</span>
               </div>
-              <p className="text-sm font-medium">Session ready</p>
-              <p className="text-xs text-muted-foreground mt-1">
-                Send a message to start working with {harness.harness_name ?? "the harness"}.
-              </p>
-            </div>
-          )}
-          {bubbles.map((b) => <BubbleRow key={b.id} bubble={b} sessionId={session.session_id} />)}
-          {sending && (
-            // Persistent loader anchored below the last message — stays until
-            // session.idle (or error) flips `sending` back to false.
-            <div className="flex justify-start pl-1">
-              <Loader2 className="size-4 animate-spin text-muted-foreground" />
-            </div>
-          )}
-          <div ref={bottomRef} />
+            )}
+            {session.status === "failed" && (
+              <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+                <AlertTriangle className="size-4 shrink-0 mt-0.5" />
+                <span>{phaseLabel(session.phase)}</span>
+              </div>
+            )}
+            {session.status === "ready" && bubbles.length === 0 && (
+              <div className="flex flex-col items-center justify-center text-center py-16">
+                <div className="rounded-full bg-muted p-3 mb-3">
+                  <Sparkles className="size-6 text-muted-foreground" />
+                </div>
+                <p className="text-sm font-medium">Session ready</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Send a message to start working with {harness.harness_name ?? "the harness"}.
+                </p>
+              </div>
+            )}
+            {bubbles.map((b) => <BubbleRow key={b.id} bubble={b} sessionId={session.session_id} />)}
+            {sending && (
+              // Persistent loader anchored below the last message — stays until
+              // session.idle (or error) flips `sending` back to false.
+              <div className="flex justify-start pl-1">
+                <Loader2 className="size-4 animate-spin text-muted-foreground" />
+              </div>
+            )}
+            <div ref={bottomRef} />
+          </div>
         </div>
+        {showJumpToBottom && (
+          <div className="pointer-events-none absolute inset-x-4 bottom-3 md:inset-x-8">
+            <div className="mx-auto flex max-w-3xl justify-end">
+              <Button
+                type="button"
+                size="icon-sm"
+                variant="secondary"
+                title="Jump to bottom"
+                aria-label="Jump to bottom"
+                onClick={() => {
+                  scrollToBottom("smooth")
+                  setShowJumpToBottom(false)
+                }}
+                className="pointer-events-auto rounded-full shadow-md"
+              >
+                <ArrowDown />
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="bg-background px-4 md:px-8 pb-4 pt-2 shrink-0">
