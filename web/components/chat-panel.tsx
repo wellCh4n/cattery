@@ -553,7 +553,7 @@ export function ChatPanel({ session, harness }: Props) {
               }}
             />
             <div className="flex items-center justify-between px-2 pb-2">
-              <span className="pl-2 inline-flex items-center gap-1.5 text-[11px] text-muted-foreground/70 select-none">
+              <span className="pl-2 inline-flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground/70 select-none">
                 <CornerDownLeft className="size-3" />
                 <span>Send</span>
                 <span className="text-muted-foreground/40">·</span>
@@ -561,7 +561,7 @@ export function ChatPanel({ session, harness }: Props) {
                 <CornerDownLeft className="size-3" />
                 <span>Newline</span>
                 <span className="text-muted-foreground/40">·</span>
-                <span className="font-mono text-[10px]">{harness.model}</span>
+                <span className="font-mono font-medium text-[10px]">{harness.model}</span>
               </span>
               {sending ? (
                 <Button
