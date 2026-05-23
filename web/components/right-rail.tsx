@@ -12,12 +12,13 @@ import { cn } from "@/lib/utils"
 import { useResizable } from "@/lib/use-resizable"
 import { HarnessInfoPanel } from "@/components/harness-info-panel"
 import { FileBrowserPanel } from "@/components/file-browser-panel"
-import type { Harness } from "@/lib/api"
+import type { Harness, Session } from "@/lib/api"
 
 type PanelId = "info" | "files"
 
 interface Props {
   harness: Harness
+  session: Session
   children: React.ReactNode
 }
 
@@ -27,7 +28,7 @@ const DEFAULT_WIDTH = 360
 const WIDTH_KEY = "cattery:rightrail:width"
 const ACTIVE_KEY = "cattery:rightrail:active"
 
-export function RightRail({ harness, children }: Props) {
+export function RightRail({ harness, session, children }: Props) {
   const [active, setActive] = useState<PanelId | null>(null)
   const { width, onMouseDown } = useResizable({
     initial: DEFAULT_WIDTH,
@@ -39,10 +40,15 @@ export function RightRail({ harness, children }: Props) {
 
   // Hydrate the open panel choice. (Width hydration lives in useResizable.)
   useEffect(() => {
-    const savedActive = localStorage.getItem(ACTIVE_KEY)
-    if (savedActive === "info" || savedActive === "files") {
-      setActive(savedActive)
-    }
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
+      const savedActive = localStorage.getItem(ACTIVE_KEY)
+      if (savedActive === "info" || savedActive === "files") {
+        setActive(savedActive)
+      }
+    })
+    return () => { cancelled = true }
   }, [])
 
   function toggle(id: PanelId) {
@@ -69,7 +75,7 @@ export function RightRail({ harness, children }: Props) {
             className="absolute left-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/40 transition-colors -translate-x-1/2 z-10"
           />
           <div className="flex-1 min-w-0 overflow-hidden">
-            {active === "info" && <HarnessInfoPanel harness={harness} />}
+            {active === "info" && <HarnessInfoPanel harness={harness} session={session} />}
             {active === "files" && <FileBrowserPanel harness={harness} />}
           </div>
         </div>

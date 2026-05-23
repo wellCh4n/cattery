@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge"
 import { HarnessIcon } from "@/components/harness-icon"
 import { ModelIcon } from "@/components/model-icon"
 import { cn } from "@/lib/utils"
-import type { Harness } from "@/lib/api"
+import type { Harness, Session } from "@/lib/api"
 
 const TYPE_LABELS: Record<string, string> = {
   "opencode":    "OpenCode",
@@ -21,14 +21,16 @@ function statusBadge(status: string) {
   return <Badge variant="secondary">{status}</Badge>
 }
 
-export function HarnessInfoPanel({ harness }: { harness: Harness }) {
+export function HarnessInfoPanel({ harness, session }: { harness: Harness; session: Session }) {
   const envEntries = Object.entries(harness.env_vars ?? {})
+  const harnessName = harness.harness_name ?? "Untitled"
+  const sessionTitle = session.title ?? "New Session"
   return (
     <div className="flex h-full flex-col">
       <header className="flex items-center gap-2 px-3 h-12 border-b shrink-0">
         <HarnessIcon id={harness.type} className="size-4 text-muted-foreground" />
         <span className="text-sm font-medium truncate">
-          {harness.harness_name ?? "Untitled"}
+          {harnessName}
         </span>
       </header>
 
@@ -48,6 +50,18 @@ export function HarnessInfoPanel({ harness }: { harness: Harness }) {
               {harness.model}
             </span>
           </Field>
+          <Field label="ID">
+            <code className="text-[10px] text-muted-foreground break-all">{harness.harness_id}</code>
+          </Field>
+          <Field label="Name">
+            <span className="truncate">{harnessName}</span>
+          </Field>
+          <Field label="Session ID">
+            <code className="text-[10px] text-muted-foreground break-all">{session.session_id}</code>
+          </Field>
+          <Field label="Session Name">
+            <span className="truncate">{sessionTitle}</span>
+          </Field>
           <Field label="Transport">
             <Badge variant="outline" className="text-[10px] font-normal">
               {harness.transport_kind}
@@ -58,9 +72,6 @@ export function HarnessInfoPanel({ harness }: { harness: Harness }) {
             <span className="text-muted-foreground">
               {new Date(harness.created_at).toLocaleString()}
             </span>
-          </Field>
-          <Field label="Harness ID">
-            <code className="text-[10px] text-muted-foreground break-all">{harness.harness_id}</code>
           </Field>
         </div>
 

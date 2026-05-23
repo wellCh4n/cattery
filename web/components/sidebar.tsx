@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useEffect, useState, useRef } from "react"
 import { usePathname, useRouter } from "next/navigation"
 import {
   Bot,
@@ -30,23 +30,9 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog"
 import {
-  listHarnesses,
-  listSessions,
-  createSession,
-  deleteHarness,
-  deleteSession,
-  getHarness,
-  getSession,
-  updateHarness,
-  updateSessionTitle,
-  type Harness,
   type Session,
 } from "@/lib/api"
-
-interface HarnessWithSessions extends Harness {
-  sessions: Session[]
-  expanded: boolean
-}
+import { type HarnessWithSessions, useWorkspaceStore } from "@/lib/workspace-store"
 
 type DeleteTarget =
   | { kind: "harness"; id: string; name: string }
@@ -58,9 +44,18 @@ export function Sidebar() {
   const selectedSessionId = pathname.startsWith("/sessions/")
     ? pathname.slice("/sessions/".length)
     : null
-  const [harnesses, setHarnesses] = useState<HarnessWithSessions[]>([])
+  const harnesses = useWorkspaceStore(state => state.harnesses)
+  const busySessions = useWorkspaceStore(state => state.busySessions)
+  const loadHarnesses = useWorkspaceStore(state => state.loadHarnesses)
+  const pollHarnesses = useWorkspaceStore(state => state.pollHarnesses)
+  const toggleExpand = useWorkspaceStore(state => state.toggleExpand)
+  const renameHarness = useWorkspaceStore(state => state.renameHarness)
+  const renameSession = useWorkspaceStore(state => state.renameSession)
+  const addHarness = useWorkspaceStore(state => state.addHarness)
+  const createSession = useWorkspaceStore(state => state.createSession)
+  const deleteHarness = useWorkspaceStore(state => state.deleteHarness)
+  const deleteSession = useWorkspaceStore(state => state.deleteSession)
   const [launching, setLaunching] = useState<string | null>(null)
-  const [busySessions, setBusySessions] = useState<Set<string>>(new Set())
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [editing, setEditing] = useState<{ kind: "harness"; id: string; original: string } | { kind: "session"; id: string; original: string } | null>(null)
@@ -90,14 +85,9 @@ export function Sidebar() {
     }
     try {
       if (editing.kind === "harness") {
-        const updated = await updateHarness(editing.id, { harness_name: val })
-        setHarnesses(prev => prev.map(h => h.harness_id === editing.id ? { ...h, harness_name: updated.harness_name } : h))
+        await renameHarness(editing.id, val)
       } else {
-        const updated = await updateSessionTitle(editing.id, { title: val })
-        setHarnesses(prev => prev.map(h => ({
-          ...h,
-          sessions: h.sessions.map(s => s.session_id === editing.id ? { ...s, title: updated.title } : s),
-        })))
+        await renameSession(editing.id, val)
       }
     } catch { /* ignore */ }
     setEditing(null)
@@ -116,65 +106,27 @@ export function Sidebar() {
     cancelEdit()
   }
 
-  const loadHarnesses = useCallback(async () => {
-    const list = await listHarnesses()
-    const withSessions = await Promise.all(
-      list.map(async h => ({ harness: h, sessions: await listSessions(h.harness_id).catch(() => []) }))
-    )
-    setHarnesses(prev =>
-      withSessions.map(({ harness, sessions }) => {
-        const existing = prev.find(p => p.harness_id === harness.harness_id)
-        return { ...harness, sessions, expanded: existing?.expanded ?? true }
-      })
-    )
-  }, [])
-
   useEffect(() => {
-    loadHarnesses()
+    let cancelled = false
+    queueMicrotask(() => {
+      if (!cancelled) void loadHarnesses()
+    })
+    return () => { cancelled = true }
   }, [loadHarnesses])
 
+  const pollingKey = harnesses
+    .filter(h => h.sandbox_status !== "ready" && h.sandbox_status !== "failed")
+    .map(h => h.harness_id)
+    .sort()
+    .join(",")
+
   useEffect(() => {
-    function onTitle(e: Event) {
-      const { sessionId, title } = (e as CustomEvent<{ sessionId: string; title: string }>).detail
-      setHarnesses(prev => prev.map(h => ({
-        ...h,
-        sessions: h.sessions.map(s =>
-          s.session_id === sessionId ? { ...s, title } : s
-        ),
-      })))
-    }
-    function onBusy(e: Event) {
-      const { sessionId, busy } = (e as CustomEvent<{ sessionId: string; busy: boolean }>).detail
-      setBusySessions(prev => {
-        const next = new Set(prev)
-        if (busy) next.add(sessionId); else next.delete(sessionId)
-        return next
-      })
-    }
-    window.addEventListener("cattery:title", onTitle)
-    window.addEventListener("cattery:session-busy", onBusy)
-    return () => {
-      window.removeEventListener("cattery:title", onTitle)
-      window.removeEventListener("cattery:session-busy", onBusy)
-    }
-  }, [])
-
-  async function toggleExpand(harnessId: string) {
-    setHarnesses(prev => prev.map(h => {
-      if (h.harness_id !== harnessId) return h
-      if (!h.expanded && h.sessions.length === 0) {
-        loadSessionsFor(harnessId)
-      }
-      return { ...h, expanded: !h.expanded }
-    }))
-  }
-
-  async function loadSessionsFor(harnessId: string) {
-    const sessions = await listSessions(harnessId)
-    setHarnesses(prev => prev.map(h =>
-      h.harness_id === harnessId ? { ...h, sessions, expanded: true } : h
-    ))
-  }
+    if (!pollingKey) return
+    const timer = setInterval(() => {
+      void pollHarnesses()
+    }, 1500)
+    return () => clearInterval(timer)
+  }, [pollHarnesses, pollingKey])
 
   async function handleNewSession(harness: HarnessWithSessions) {
     if (!canCreateSession(harness)) return
@@ -183,79 +135,24 @@ export function Sidebar() {
       // 把当前页面主题透给 codex —— 它只在启动时探一次 OSC 10/11，
       // 之后用户在浏览器里切主题，codex 那边不会同步变。
       const theme = document.documentElement.classList.contains("dark") ? "dark" : "light"
-      const session = await createSession(harness.harness_id, theme)
-      setHarnesses(prev => prev.map(h =>
-        h.harness_id === harness.harness_id
-          ? { ...h, sessions: [session, ...h.sessions], expanded: true }
-          : h
-      ))
+      const session = await createSession(harness, theme)
       router.push(`/sessions/${session.session_id}`)
-      pollSessionStatus(session.session_id, harness.harness_id)
     } finally {
       setLaunching(null)
     }
   }
-
-  function pollSessionStatus(sessionId: string, harnessId: string) {
-    const timer = setInterval(async () => {
-      try {
-        const updated = await getSession(sessionId)
-        if (updated.status !== "creating") {
-          clearInterval(timer)
-        }
-        setHarnesses(prev => prev.map(h =>
-          h.harness_id === harnessId
-            ? { ...h, sessions: h.sessions.map(s => s.session_id === sessionId ? updated : s) }
-            : h
-        ))
-      } catch {
-        clearInterval(timer)
-      }
-    }, 1500)
-  }
-
-  // 持续轮询所有未到终态的 harness sandbox，直到 ready / failed。
-  // 不只盯 starting 是因为：harness 刚创建时 DB 还是 idle，要等后端 goroutine
-  // 写 starting；这段窗口前端如果只看 starting 就永远不会刷新。依赖 pollingKey
-  // (id 串) 而不是整个 harnesses 数组，避免每次状态变更都重建定时器。
-  const pollingKey = harnesses
-    .filter(h => h.sandbox_status !== "ready" && h.sandbox_status !== "failed")
-    .map(h => h.harness_id)
-    .sort()
-    .join(",")
-  useEffect(() => {
-    if (!pollingKey) return
-    const ids = pollingKey.split(",")
-    const timer = setInterval(async () => {
-      const updates = await Promise.all(ids.map(id => getHarness(id).catch(() => null)))
-      setHarnesses(prev => prev.map(h => {
-        const u = updates.find(x => x?.harness_id === h.harness_id)
-        return u && u.sandbox_status !== h.sandbox_status
-          ? { ...h, sandbox_status: u.sandbox_status }
-          : h
-      }))
-    }, 1500)
-    return () => clearInterval(timer)
-  }, [pollingKey])
 
   async function confirmDelete() {
     if (!deleteTarget) return
     setDeleting(true)
     try {
       if (deleteTarget.kind === "harness") {
-        const removed = harnesses.find(h => h.harness_id === deleteTarget.id)
-        await deleteHarness(deleteTarget.id)
-        setHarnesses(prev => prev.filter(h => h.harness_id !== deleteTarget.id))
+        const removed = await deleteHarness(deleteTarget.id)
         if (removed?.sessions.some(s => s.session_id === selectedSessionId)) {
           router.push("/")
         }
       } else {
-        await deleteSession(deleteTarget.id)
-        setHarnesses(prev => prev.map(h =>
-          h.harness_id === deleteTarget.harnessId
-            ? { ...h, sessions: h.sessions.filter(s => s.session_id !== deleteTarget.id) }
-            : h
-        ))
+        await deleteSession(deleteTarget.id, deleteTarget.harnessId)
         if (selectedSessionId === deleteTarget.id) {
           router.push("/")
         }
@@ -328,9 +225,7 @@ export function Sidebar() {
           <div className="flex items-center gap-1">
             <ThemeToggle />
             <CreateHarnessDialog
-              onCreated={harness =>
-                setHarnesses(prev => [{ ...harness, sessions: [], expanded: true }, ...prev])
-              }
+              onCreated={addHarness}
             />
           </div>
         </header>

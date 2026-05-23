@@ -24,6 +24,7 @@ import { Markdown } from "@/components/markdown"
 import { FileViewer } from "@/components/file-viewer"
 import { cn } from "@/lib/utils"
 import { getHistory, abortSession, answerSession, type Session, type Harness, type QuestionAnswer } from "@/lib/api"
+import { useWorkspaceStore } from "@/lib/workspace-store"
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080"
 
@@ -103,16 +104,18 @@ export function ChatPanel({ session, harness }: Props) {
   const [bubbles, setBubbles] = useState<Bubble[]>([])
   const [input, setInput] = useState("")
   const [sending, setSending] = useState(false)
-  const [title, setTitle] = useState<string | null>(session.title)
   const bottomRef = useRef<HTMLDivElement>(null)
   const sessionIdRef = useRef(session.session_id)
   const abortRef = useRef<AbortController | null>(null)
+  const setSessionBusy = useWorkspaceStore(state => state.setSessionBusy)
+  const updateSessionTitle = useWorkspaceStore(state => state.updateSessionTitle)
+  const title = session.title
+  const harnessName = harness.harness_name ?? "Untitled"
 
   useEffect(() => {
-    window.dispatchEvent(new CustomEvent("cattery:session-busy", {
-      detail: { sessionId: session.session_id, busy: sending },
-    }))
-  }, [session.session_id, sending])
+    setSessionBusy(session.session_id, sending)
+    return () => setSessionBusy(session.session_id, false)
+  }, [session.session_id, sending, setSessionBusy])
 
   // Catch-all: whenever bubbles change in any way (new tool card, tool result,
   // delta append, question card, ...) or the bottom loader toggles, pin to
@@ -123,11 +126,16 @@ export function ChatPanel({ session, harness }: Props) {
   }, [bubbles, sending])
 
   useEffect(() => {
+    let cancelled = false
     abortRef.current?.abort()
-    setBubbles([])
-    setInput("")
-    setSending(false)
+    queueMicrotask(() => {
+      if (cancelled) return
+      setBubbles([])
+      setInput("")
+      setSending(false)
+    })
     sessionIdRef.current = session.session_id
+    return () => { cancelled = true }
   }, [session.session_id])
 
   useEffect(() => {
@@ -352,10 +360,7 @@ export function ChatPanel({ session, harness }: Props) {
       case "session.title": {
         const d = ev.data as SessionTitleData
         if (d.title) {
-          setTitle(d.title)
-          window.dispatchEvent(new CustomEvent("cattery:title", {
-            detail: { sessionId: session.session_id, title: d.title },
-          }))
+          updateSessionTitle(session.session_id, d.title)
         }
         break
       }
@@ -477,8 +482,9 @@ export function ChatPanel({ session, harness }: Props) {
         <Bot className="size-4 text-muted-foreground shrink-0" />
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <span className="text-sm font-medium truncate">{title ?? "New Session"}</span>
-          <span className="text-xs text-muted-foreground font-mono shrink-0">
-            {session.session_id.slice(0, 8)}
+          <span className="text-muted-foreground/50 shrink-0">/</span>
+          <span className="text-xs text-muted-foreground truncate min-w-0">
+            {harnessName}
           </span>
         </div>
         <Badge variant={statusVariant(session.status)} className="text-[10px] h-5">

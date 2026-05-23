@@ -84,6 +84,8 @@ export function FileBrowserPanel({ harness }: Props) {
   const [opened, setOpened] = useState<OpenedFile | null>(null)
   const [openLoading, setOpenLoading] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [dragging, setDragging] = useState(false)
+  const dragDepthRef = useRef(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const ready = harness.sandbox_status === "ready"
@@ -103,11 +105,16 @@ export function FileBrowserPanel({ harness }: Props) {
   }, [harness.harness_id])
 
   useEffect(() => {
-    if (!ready) {
-      setEntries(null)
-      return
-    }
-    load(dir)
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
+      if (!ready) {
+        setEntries(null)
+        return
+      }
+      load(dir)
+    })
+    return () => { cancelled = true }
   }, [ready, dir, load])
 
   function goInto(name: string) {
@@ -158,19 +165,54 @@ export function FileBrowserPanel({ harness }: Props) {
     }
   }
 
-  async function onUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    e.target.value = "" // allow re-selecting the same file later
-    if (!file) return
+  async function uploadFiles(files: File[]) {
+    if (!ready || files.length === 0) return
     setUploading(true)
     try {
-      await uploadFile(harness.harness_id, dir, file)
+      for (const file of files) {
+        await uploadFile(harness.harness_id, dir, file)
+      }
       await load(dir)
     } catch (err) {
       setError(err instanceof Error ? err.message : "upload failed")
     } finally {
       setUploading(false)
     }
+  }
+
+  async function onUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? [])
+    e.target.value = "" // allow re-selecting the same file later
+    await uploadFiles(files)
+  }
+
+  function onDragEnter(e: React.DragEvent<HTMLDivElement>) {
+    if (!ready) return
+    e.preventDefault()
+    dragDepthRef.current += 1
+    setDragging(true)
+  }
+
+  function onDragOver(e: React.DragEvent<HTMLDivElement>) {
+    if (!ready) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = "copy"
+  }
+
+  function onDragLeave(e: React.DragEvent<HTMLDivElement>) {
+    if (!ready) return
+    e.preventDefault()
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
+    if (dragDepthRef.current === 0) setDragging(false)
+  }
+
+  async function onDrop(e: React.DragEvent<HTMLDivElement>) {
+    if (!ready) return
+    e.preventDefault()
+    dragDepthRef.current = 0
+    setDragging(false)
+    const files = Array.from(e.dataTransfer.files)
+    await uploadFiles(files)
   }
 
   // Breadcrumb segments — clicking a segment jumps directly there
@@ -240,7 +282,16 @@ export function FileBrowserPanel({ harness }: Props) {
         </Button>
       </header>
 
-      <div className="flex-1 min-h-0 overflow-y-auto">
+      <div
+        className={cn(
+          "relative flex-1 min-h-0 overflow-y-auto border border-transparent transition-colors",
+          dragging && "border-ring bg-muted/30"
+        )}
+        onDragEnter={onDragEnter}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
+      >
         {!ready && (
           <div className="p-4 text-muted-foreground">Sandbox is not ready yet.</div>
         )}
@@ -248,7 +299,10 @@ export function FileBrowserPanel({ harness }: Props) {
           <div className="p-4 text-destructive">{error}</div>
         )}
         {ready && !error && entries && entries.length === 0 && (
-          <div className="p-4 text-muted-foreground italic">(empty)</div>
+          <div className="flex min-h-full flex-col items-center justify-center gap-2 px-4 py-10 text-muted-foreground">
+            <Folder className="size-5 opacity-70" />
+            <span>No files</span>
+          </div>
         )}
         {ready && entries && entries.map(entry => (
           <FileRow

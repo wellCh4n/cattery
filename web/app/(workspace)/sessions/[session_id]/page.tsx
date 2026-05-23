@@ -5,7 +5,7 @@ import { AlertTriangle, Loader2 } from "lucide-react"
 import { ChatPanel } from "@/components/chat-panel"
 import { TerminalView } from "@/components/terminal-view"
 import { RightRail } from "@/components/right-rail"
-import { getSession, listHarnesses, type Harness, type Session } from "@/lib/api"
+import { useWorkspaceStore } from "@/lib/workspace-store"
 
 interface PageParams {
   session_id: string
@@ -13,45 +13,47 @@ interface PageParams {
 
 export default function SessionPage({ params }: { params: Promise<PageParams> }) {
   const { session_id } = use(params)
-  const [data, setData] = useState<{ session: Session; harness: Harness } | null>(null)
+  const session = useWorkspaceStore(state => {
+    for (const harness of state.harnesses) {
+      const session = harness.sessions.find(s => s.session_id === session_id)
+      if (session) return session
+    }
+    return null
+  })
+  const harness = useWorkspaceStore(state =>
+    session ? state.harnesses.find(h => h.harness_id === session.harness_id) ?? null : null
+  )
+  const refreshSession = useWorkspaceStore(state => state.refreshSession)
   const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(session === null || harness === null)
 
   useEffect(() => {
     let cancelled = false
     let timer: ReturnType<typeof setTimeout>
-    setData(null)
-    setError(null)
-
-    async function load() {
-      try {
-        const session = await getSession(session_id)
-        const harnesses = await listHarnesses()
-        const harness = harnesses.find(h => h.harness_id === session.harness_id)
-        if (cancelled) return
-        if (!harness) {
-          setError("Harness not found for this session.")
-          return
-        }
-        setData({ session, harness })
-        if (session.status === "creating") timer = setTimeout(poll, 1500)
-      } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load session")
-      }
-    }
+    queueMicrotask(() => {
+      if (cancelled) return
+      setLoading(session === null || harness === null)
+      setError(null)
+    })
 
     async function poll() {
       if (cancelled) return
       try {
-        const session = await getSession(session_id)
+        const session = await refreshSession(session_id)
         if (cancelled) return
-        setData(prev => (prev ? { ...prev, session } : prev))
-        if (session.status === "creating") timer = setTimeout(poll, 1500)
-      } catch { /* ignore transient errors */ }
+        setLoading(false)
+        if (session?.status === "creating") timer = setTimeout(poll, 1500)
+      } catch (e) {
+        if (!cancelled) {
+          setLoading(false)
+          setError(e instanceof Error ? e.message : "Failed to load session")
+        }
+      }
     }
 
-    load()
+    if (!session || !harness || session.status === "creating") void poll()
     return () => { cancelled = true; clearTimeout(timer) }
-  }, [session_id])
+  }, [harness, refreshSession, session, session_id])
 
   if (error) {
     return (
@@ -65,7 +67,7 @@ export default function SessionPage({ params }: { params: Promise<PageParams> })
     )
   }
 
-  if (!data) {
+  if (loading || !session || !harness) {
     return (
       <div className="flex h-full items-center justify-center text-muted-foreground">
         <Loader2 className="size-5 animate-spin" />
@@ -73,19 +75,19 @@ export default function SessionPage({ params }: { params: Promise<PageParams> })
     )
   }
 
-  const main = data.harness.transport_kind === "terminal" ? (
+  const main = harness.transport_kind === "terminal" ? (
     <TerminalView
-      key={data.session.session_id}
-      session={data.session}
-      harness={data.harness}
+      key={session.session_id}
+      session={session}
+      harness={harness}
     />
   ) : (
     <ChatPanel
-      key={data.session.session_id}
-      session={data.session}
-      harness={data.harness}
+      key={session.session_id}
+      session={session}
+      harness={harness}
     />
   )
 
-  return <RightRail harness={data.harness}>{main}</RightRail>
+  return <RightRail harness={harness} session={session}>{main}</RightRail>
 }

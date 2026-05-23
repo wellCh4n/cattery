@@ -256,6 +256,13 @@ function isResizeFrame(v: unknown): v is ResizeFrame {
   return o.type === 'resize' && typeof o.cols === 'number' && typeof o.rows === 'number'
 }
 
+function normalizeResizeFrame(frame: ResizeFrame): ResizeFrame | null {
+  const cols = Math.floor(frame.cols)
+  const rows = Math.floor(frame.rows)
+  if (!Number.isFinite(cols) || !Number.isFinite(rows) || cols < 2 || rows < 2) return null
+  return { type: 'resize', cols, rows }
+}
+
 wss.on('connection', (ws: WebSocket, sessionId: string) => {
   // Defer `tmux attach-session` until the browser sends its first resize.
   //
@@ -270,9 +277,11 @@ wss.on('connection', (ws: WebSocket, sessionId: string) => {
   // Buffer keystrokes that arrive before attach completes (the < ~100ms
   // window between ws.open and the resize frame). Flushed in startAttach.
   const pendingInput: string[] = []
+  let currentSize: { cols: number; rows: number } | null = null
 
   const startAttach = (cols: number, rows: number): void => {
     if (term) return
+    currentSize = { cols, rows }
     // -d detaches any other clients first, so we don't have multiple writers
     // fighting over the same PTY. Each browser connection becomes the sole
     // attached client for the duration of the WS.
@@ -310,9 +319,14 @@ wss.on('connection', (ws: WebSocket, sessionId: string) => {
       try {
         const parsed = JSON.parse(text) as unknown
         if (isResizeFrame(parsed)) {
+          const nextSize = normalizeResizeFrame(parsed)
+          if (!nextSize) return
           clearTimeout(fallbackTimer)
-          if (!term) startAttach(parsed.cols, parsed.rows)
-          else term.resize(parsed.cols, parsed.rows)
+          if (!term) startAttach(nextSize.cols, nextSize.rows)
+          else if (!currentSize || currentSize.cols !== nextSize.cols || currentSize.rows !== nextSize.rows) {
+            currentSize = { cols: nextSize.cols, rows: nextSize.rows }
+            term.resize(nextSize.cols, nextSize.rows)
+          }
           return
         }
       } catch {

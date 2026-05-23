@@ -26,14 +26,19 @@ interface Props {
 
 // TerminalView 把 sandbox tmux PTY 字节流直接渲染到 xterm.js。
 // 不解析任何内容、不维护消息列表 —— 这是给 codex/hermes 这种 TUI harness 用的视图。
-export function TerminalView({ session }: Props) {
+export function TerminalView({ session, harness }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const stateRef = useRef<{ disposed: boolean; term: Terminal | null }>({ disposed: false, term: null })
+  const isDarkRef = useRef(false)
   const [isDark, setIsDark] = useState(false)
 
   useEffect(() => {
     const root = document.documentElement
-    const sync = () => setIsDark(root.classList.contains("dark"))
+    const sync = () => {
+      const nextIsDark = root.classList.contains("dark")
+      isDarkRef.current = nextIsDark
+      setIsDark(nextIsDark)
+    }
     sync()
     const mo = new MutationObserver(sync)
     mo.observe(root, { attributes: true, attributeFilter: ["class"] })
@@ -73,7 +78,7 @@ export function TerminalView({ session }: Props) {
       // codex 用 truecolor 画输入框背景，主题里改 ANSI black 管不到它；
       // 这里让 xterm 在前景与背景对比度不足时自动调整前景，保证文字可读。
       minimumContrastRatio: 7,
-      theme: themeFor(isDark),
+      theme: themeFor(isDarkRef.current),
     })
     localState.term = term
     const fit = new FitAddon()
@@ -96,6 +101,7 @@ export function TerminalView({ session }: Props) {
     ws.binaryType = "arraybuffer"
 
     let cleanupResize = () => {}
+    let lastSentSize: { cols: number; rows: number } | null = null
 
     ws.addEventListener("open", () => {
       if (localState.disposed) {
@@ -105,6 +111,8 @@ export function TerminalView({ session }: Props) {
       // Tell the bridge our current viewport so tmux can size the PTY.
       const sendResize = () => {
         if (ws.readyState !== ws.OPEN) return
+        if (lastSentSize?.cols === term.cols && lastSentSize.rows === term.rows) return
+        lastSentSize = { cols: term.cols, rows: term.rows }
         ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }))
       }
       sendResize()
@@ -153,6 +161,7 @@ export function TerminalView({ session }: Props) {
   }, [session.session_id, session.status, session.harness_session_id])
 
   const title = session.title ?? "New Session"
+  const harnessName = harness.harness_name ?? "Untitled"
 
   function statusVariant(s: string): "default" | "secondary" | "destructive" {
     if (s === "ready") return "default"
@@ -192,8 +201,9 @@ export function TerminalView({ session }: Props) {
         <Bot className="size-4 text-muted-foreground shrink-0" />
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <span className="text-sm font-medium truncate">{title}</span>
-          <span className="text-xs text-muted-foreground font-mono shrink-0">
-            {session.session_id.slice(0, 8)}
+          <span className="text-muted-foreground/50 shrink-0">/</span>
+          <span className="text-xs text-muted-foreground truncate min-w-0">
+            {harnessName}
           </span>
         </div>
         <span className="hidden sm:inline-flex items-center gap-1 text-[11px] text-muted-foreground/70 select-none shrink-0">
