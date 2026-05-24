@@ -50,6 +50,7 @@ type SandboxSpec struct {
 	Name          string
 	SessionID     string
 	HarnessID     string
+	OwnerUserID   string
 	HarnessImage  string
 	ContainerPort int
 	Env           map[string]string
@@ -125,7 +126,8 @@ func (c *Client) RunTask(ctx context.Context, spec SandboxSpec) error {
 				"name":      spec.Name,
 				"namespace": c.namespace,
 				"labels": map[string]interface{}{
-					"cattery-harness-id": spec.HarnessID,
+					"cattery-harness-id":    spec.HarnessID,
+					"cattery-owner-user-id": spec.OwnerUserID,
 				},
 			},
 			"spec": map[string]interface{}{
