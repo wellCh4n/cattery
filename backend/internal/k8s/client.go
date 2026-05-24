@@ -26,6 +26,11 @@ var podGVR = schema.GroupVersionResource{
 	Resource: "pods",
 }
 
+const (
+	LabelHarnessID   = "cattery.harness.id"
+	LabelOwnerUserID = "cattery.harness.owner"
+)
+
 type Client struct {
 	dynamic   dynamic.Interface
 	namespace string
@@ -118,6 +123,11 @@ func (c *Client) RunTask(ctx context.Context, spec SandboxSpec) error {
 		containers = append(containers, container)
 	}
 
+	labels := map[string]interface{}{
+		LabelHarnessID:   spec.HarnessID,
+		LabelOwnerUserID: spec.OwnerUserID,
+	}
+
 	sandbox := &unstructured.Unstructured{
 		Object: map[string]interface{}{
 			"apiVersion": "agents.x-k8s.io/v1alpha1",
@@ -125,13 +135,13 @@ func (c *Client) RunTask(ctx context.Context, spec SandboxSpec) error {
 			"metadata": map[string]interface{}{
 				"name":      spec.Name,
 				"namespace": c.namespace,
-				"labels": map[string]interface{}{
-					"cattery-harness-id":    spec.HarnessID,
-					"cattery-owner-user-id": spec.OwnerUserID,
-				},
+				"labels":    labels,
 			},
 			"spec": map[string]interface{}{
 				"podTemplate": map[string]interface{}{
+					"metadata": map[string]interface{}{
+						"labels": labels,
+					},
 					"spec": map[string]interface{}{
 						"restartPolicy": "Never",
 						// emptyDir defaults to root:root, but claude-code / codex / hermes
