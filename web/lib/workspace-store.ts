@@ -122,37 +122,58 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   deleteHarness: async (harnessId: string) => {
     const removed = get().harnesses.find(h => h.harness_id === harnessId)
     await apiDeleteHarness(harnessId)
-    set(state => ({
-      harnesses: state.harnesses.filter(h => h.harness_id !== harnessId),
-    }))
+    set(state => {
+      const nextBusy = new Set(state.busySessions)
+      for (const session of removed?.sessions ?? []) {
+        nextBusy.delete(session.session_id)
+      }
+      return {
+        busySessions: nextBusy,
+        harnesses: state.harnesses.filter(h => h.harness_id !== harnessId),
+      }
+    })
     return removed
   },
 
   deleteSession: async (sessionId: string, harnessId: string) => {
     await apiDeleteSession(sessionId)
-    set(state => ({
-      harnesses: state.harnesses.map(h =>
-        h.harness_id === harnessId
-          ? { ...h, sessions: h.sessions.filter(s => s.session_id !== sessionId) }
-          : h
-      ),
-    }))
+    set(state => {
+      const nextBusy = new Set(state.busySessions)
+      nextBusy.delete(sessionId)
+      return {
+        busySessions: nextBusy,
+        harnesses: state.harnesses.map(h =>
+          h.harness_id === harnessId
+            ? { ...h, sessions: h.sessions.filter(s => s.session_id !== sessionId) }
+            : h
+        ),
+      }
+    })
   },
 
   refreshSession: async (sessionId: string) => {
     const session = await getSession(sessionId)
-    set(state => ({
-      harnesses: state.harnesses.map(h =>
-        h.harness_id === session.harness_id
-          ? {
-              ...h,
-              sessions: h.sessions.some(s => s.session_id === sessionId)
-                ? h.sessions.map(s => s.session_id === sessionId ? session : s)
-                : [session, ...h.sessions],
-            }
-          : h
-      ),
-    }))
+    set(state => {
+      const nextBusy = new Set(state.busySessions)
+      if (session.status === "dead") {
+        nextBusy.delete(sessionId)
+      }
+      return {
+        busySessions: nextBusy,
+        harnesses: state.harnesses.map(h =>
+          h.harness_id === session.harness_id
+            ? {
+                ...h,
+                sessions: session.status === "dead"
+                  ? h.sessions.filter(s => s.session_id !== sessionId)
+                  : h.sessions.some(s => s.session_id === sessionId)
+                    ? h.sessions.map(s => s.session_id === sessionId ? session : s)
+                    : [session, ...h.sessions],
+              }
+            : h
+        ),
+      }
+    })
     return session
   },
 
