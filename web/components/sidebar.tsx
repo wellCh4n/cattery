@@ -12,6 +12,10 @@ import {
   MessagesSquare,
   Pencil,
   Check,
+  KeyRound,
+  LogOut,
+  Shield,
+  UserCircle2,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -19,6 +23,7 @@ import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { useResizable } from "@/lib/use-resizable"
 import { CreateHarnessDialog } from "@/components/create-harness-dialog"
+import { ChangePasswordDialog } from "@/components/change-password-dialog"
 import { HarnessIcon } from "@/components/harness-icon"
 import { ThemeToggle } from "@/components/theme-toggle"
 import {
@@ -33,6 +38,7 @@ import {
   type Session,
 } from "@/lib/api"
 import { type HarnessWithSessions, useWorkspaceStore } from "@/lib/workspace-store"
+import { useAuthStore } from "@/lib/auth-store"
 
 type DeleteTarget =
   | { kind: "harness"; id: string; name: string }
@@ -61,6 +67,24 @@ export function Sidebar() {
   const [editing, setEditing] = useState<{ kind: "harness"; id: string; original: string } | { kind: "session"; id: string; original: string } | null>(null)
   const [editValue, setEditValue] = useState("")
   const editInputRef = useRef<HTMLInputElement>(null)
+  const user = useAuthStore(s => s.user)
+  const logout = useAuthStore(s => s.logout)
+  const [userMenuOpen, setUserMenuOpen] = useState(false)
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false)
+  const userMenuRef = useRef<HTMLDivElement>(null)
+
+  // Click-outside closes the user menu. Pointerdown beats click on touch
+  // and avoids losing the menu before nested Dialog triggers fire.
+  useEffect(() => {
+    if (!userMenuOpen) return
+    function onPointerDown(e: PointerEvent) {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setUserMenuOpen(false)
+      }
+    }
+    document.addEventListener("pointerdown", onPointerDown)
+    return () => document.removeEventListener("pointerdown", onPointerDown)
+  }, [userMenuOpen])
   // sidebar resize — same UX as RightRail, handle on the right edge
   const { width: sidebarWidth, onMouseDown: onSidebarMouseDown } = useResizable({
     initial: 256, // matches the old `w-64`
@@ -451,7 +475,58 @@ export function Sidebar() {
             </div>
           ))}
         </div>
+
+        {/* User menu — fixed at sidebar bottom. Click email to open the
+            mini-menu above; click outside closes (see effect above). */}
+        <div ref={userMenuRef} className="relative border-t shrink-0">
+          {userMenuOpen && (
+            <div className="absolute bottom-full left-1.5 right-1.5 mb-1 rounded-md border bg-popover shadow-md text-sm overflow-hidden">
+              <button
+                className="flex w-full items-center gap-2 px-2.5 h-8 text-left hover:bg-muted cursor-pointer"
+                onClick={() => { setUserMenuOpen(false); setChangePasswordOpen(true) }}
+              >
+                <KeyRound className="size-3.5 text-muted-foreground" />
+                Change password
+              </button>
+              {user?.is_admin && (
+                <button
+                  className="flex w-full items-center gap-2 px-2.5 h-8 text-left hover:bg-muted cursor-pointer"
+                  onClick={() => { setUserMenuOpen(false); router.push("/admin/users") }}
+                >
+                  <Shield className="size-3.5 text-muted-foreground" />
+                  User management
+                </button>
+              )}
+              <button
+                className="flex w-full items-center gap-2 px-2.5 h-8 text-left hover:bg-muted text-destructive cursor-pointer"
+                onClick={() => { setUserMenuOpen(false); logout() }}
+              >
+                <LogOut className="size-3.5" />
+                Sign out
+              </button>
+            </div>
+          )}
+          <button
+            className={cn(
+              "flex w-full items-center gap-2 px-2.5 h-10 hover:bg-muted transition-colors cursor-pointer",
+              userMenuOpen && "bg-muted"
+            )}
+            onClick={() => setUserMenuOpen(o => !o)}
+          >
+            <UserCircle2 className="size-4 text-muted-foreground shrink-0" />
+            <span className="truncate text-xs text-foreground/90 flex-1 text-left">
+              {user?.username ?? "—"}
+            </span>
+            {user?.is_admin && (
+              <Badge variant="secondary" className="text-[10px] h-4 px-1.5 font-normal shrink-0">
+                admin
+              </Badge>
+            )}
+          </button>
+        </div>
       </aside>
+
+      <ChangePasswordDialog open={changePasswordOpen} onOpenChange={setChangePasswordOpen} />
 
       <Dialog open={deleteTarget !== null} onOpenChange={open => { if (!open) setDeleteTarget(null) }}>
         <DialogContent showCloseButton={false}>

@@ -25,6 +25,12 @@
 #   `kubectl port-forward` or a tunnel. In that case run the backend on the
 #   host (`make dev-back`) and only start the `postgres` service here.
 
+# Project name sets the prefix Compose uses for networks/volumes (and the
+# label `com.docker.compose.project`). Without this, the prefix defaults to
+# the parent directory name (`docker`), which clashes with anything else
+# you happen to compose-up from a folder called "docker".
+name: cattery
+
 services:
   postgres:
     image: postgres:16-alpine

@@ -14,6 +14,7 @@ const (
 
 type Harness struct {
 	HarnessID     uuid.UUID         `db:"harness_id"     json:"harness_id"`
+	OwnerUserID   uuid.UUID         `db:"owner_user_id"  json:"owner_user_id"`
 	HarnessName   *string           `db:"harness_name"   json:"harness_name"`
 	Model         string            `db:"model"          json:"model"`
 	Type          string            `db:"type"           json:"type"`
@@ -22,6 +23,15 @@ type Harness struct {
 	TaskName      *string           `db:"task_name"      json:"task_name"`
 	SandboxURL    *string           `db:"sandbox_url"    json:"sandbox_url"`
 	CreatedAt     time.Time         `db:"created_at"     json:"created_at"`
+}
+
+type User struct {
+	UserID       uuid.UUID  `db:"user_id"       json:"user_id"`
+	Username     string     `db:"username"      json:"username"`
+	PasswordHash string     `db:"password_hash" json:"-"`
+	IsAdmin      bool       `db:"is_admin"      json:"is_admin"`
+	CreatedAt    time.Time  `db:"created_at"    json:"created_at"`
+	LastLoginAt  *time.Time `db:"last_login_at" json:"last_login_at"`
 }
 
 type Session struct {

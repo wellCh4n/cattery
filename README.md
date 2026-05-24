@@ -108,8 +108,35 @@ Backend env vars (file: `backend/.env`, gitignored):
 | `ANTHROPIC_API_KEY`  | —                                                                | Auth token for Anthropic models                                 |
 | `OPENAI_BASE_URL`    | —                                                                | OpenAI-compatible API base URL, including `/v1`                 |
 | `OPENAI_API_KEY`     | —                                                                | Auth token for OpenAI models                                    |
+| `JWT_SECRET`         | —                                                                | **Required.** Signing key for login tokens. Use `openssl rand -hex 32`. Rotating it invalidates every issued token. |
 
 The backend uses `clientcmd.RecommendedHomeFile` (`~/.kube/config`) when not running in-cluster.
+
+## Authentication
+
+Cattery has username-password login with a JWT session token. Users are admin-managed — there is **no self-signup**.
+
+**First-time setup**: on the very first start (when the `users` table is empty), the server auto-creates an admin account `admin` with a random password and logs it once:
+
+```
+================================================================
+[auth] First-time admin account created:
+[auth]   username: admin
+[auth]   password: WEUUW-WCZXM-M4WNS-6RWAQ
+[auth] Sign in and change the password from the user menu.
+[auth] This message will NOT appear again.
+================================================================
+```
+
+Capture the password from the logs, sign in, and change it. **Lost the password?** Reset it in Postgres (`UPDATE users SET password_hash = '<bcrypt>' WHERE username = 'admin'`) or wipe the `users` table to trigger a fresh bootstrap.
+
+**Adding more users**: log in as admin → user menu → "User management" → "Add user". Users can change their own password from the user menu.
+
+**Token lifetime is 7 days, with no server-side revocation** (no session table). Two practical implications:
+- Logging out only clears the token from the browser. The token itself stays valid until expiry — keep `JWT_SECRET` confidential.
+- Admin role changes propagate immediately for the affected user's *next* HTTP request that depends on `/auth/me`, but `/admin/*` endpoints accept the token's claim until it expires. **Plan up to a 7-day window for full role-change propagation.** To shorten this, lower the TTL in `internal/auth/jwt.go` or rotate `JWT_SECRET` (kicks everyone out).
+
+Deleting a user cascades to their harnesses and sessions, and stops their K8s sandboxes; their existing token also becomes unusable on the next `/auth/me` probe (the frontend re-validates every 60 s).
 
 ## Resource model
 
