@@ -4,7 +4,6 @@ import { use, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import {
   AlertTriangle,
-  Bot,
   CalendarDays,
   ChevronRight,
   Clock,
@@ -187,6 +186,18 @@ export default function HarnessPage({ params }: { params: Promise<PageParams> })
                 <Shield className="size-3.5" />
                 {harness.owner_username}
               </span>
+              <span className="inline-flex items-center gap-1">
+                <CalendarDays className="size-3.5" />
+                {new Date(harness.created_at).toLocaleString()}
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <span className="font-medium">transport</span>
+                {harness.transport_kind}
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <MessagesSquare className="size-3.5" />
+                {sessions.length} sessions
+              </span>
             </div>
           </div>
           {isOwner && !editingName && (
@@ -231,12 +242,6 @@ export default function HarnessPage({ params }: { params: Promise<PageParams> })
             New session
           </Button>
         </header>
-
-        <section className="grid gap-4 md:grid-cols-3">
-          <InfoBlock label="Created" value={new Date(harness.created_at).toLocaleString()} icon={<CalendarDays className="size-4" />} />
-          <InfoBlock label="Transport" value={harness.transport_kind} icon={<Bot className="size-4" />} />
-          <InfoBlock label="Sessions" value={`${sessions.length}`} icon={<MessagesSquare className="size-4" />} />
-        </section>
 
         <section>
           <div className="mb-2 flex items-center justify-between">
@@ -320,18 +325,6 @@ function statusDot(status: string) {
   if (status === "ready") return "bg-emerald-500"
   if (status === "failed") return "bg-destructive"
   return "bg-amber-400"
-}
-
-function InfoBlock({ label, value, icon }: { label: string; value: string; icon: React.ReactNode }) {
-  return (
-    <div className="rounded-md border px-3 py-3">
-      <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
-        {icon}
-        {label}
-      </div>
-      <div className="truncate text-sm font-medium">{value}</div>
-    </div>
-  )
 }
 
 function EnvVars({ vars }: { vars: Record<string, string> }) {
