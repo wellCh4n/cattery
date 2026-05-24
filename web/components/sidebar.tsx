@@ -157,7 +157,7 @@ export function Sidebar() {
         <header className="flex h-12 shrink-0 items-center justify-between border-b px-3">
           <div className="flex items-center gap-1.5">
             <Cat className="size-4 text-foreground" />
-            <span className="font-heading text-sm font-semibold tracking-tight">Cattery</span>
+            <span className="font-heading text-base font-semibold tracking-tight">Cattery</span>
           </div>
           <div className="flex items-center gap-1">
             <ThemeToggle />

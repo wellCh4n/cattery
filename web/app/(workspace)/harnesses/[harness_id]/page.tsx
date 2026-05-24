@@ -7,7 +7,6 @@ import {
   CalendarDays,
   ChevronRight,
   Clock,
-  Check,
   Cable,
   Loader2,
   MessagesSquare,
@@ -60,7 +59,7 @@ export default function HarnessPage({ params }: { params: Promise<PageParams> })
   const deleteHarness = useWorkspaceStore(state => state.deleteHarness)
   const [launching, setLaunching] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [editingName, setEditingName] = useState(false)
+  const [renameOpen, setRenameOpen] = useState(false)
   const [nameValue, setNameValue] = useState("")
   const [renaming, setRenaming] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
@@ -93,14 +92,14 @@ export default function HarnessPage({ params }: { params: Promise<PageParams> })
   async function commitRename() {
     if (!harness) return
     const next = nameValue.trim()
-    if (next === (harness.harness_name ?? "").trim()) {
-      setEditingName(false)
+    if (!next || next === (harness.harness_name ?? "").trim()) {
+      setRenameOpen(false)
       return
     }
     setRenaming(true)
     try {
       await renameHarness(harness.harness_id, next)
-      setEditingName(false)
+      setRenameOpen(false)
     } finally {
       setRenaming(false)
     }
@@ -149,28 +148,7 @@ export default function HarnessPage({ params }: { params: Promise<PageParams> })
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              {editingName ? (
-                <div className="flex min-w-0 flex-1 items-center gap-1.5">
-                  <Input
-                    className="h-8 max-w-sm text-base font-semibold"
-                    value={nameValue}
-                    disabled={renaming}
-                    onChange={e => setNameValue(e.target.value)}
-                    onKeyDown={e => {
-                      if (e.key === "Enter") void commitRename()
-                      if (e.key === "Escape") setEditingName(false)
-                    }}
-                    autoFocus
-                    autoComplete="off"
-                    spellCheck={false}
-                  />
-                  <Button size="icon-sm" disabled={renaming} onClick={commitRename} title="Save">
-                    {renaming ? <Loader2 className="animate-spin" /> : <Check />}
-                  </Button>
-                </div>
-              ) : (
-                <h1 className="truncate text-xl font-semibold">{harness.harness_name ?? "Untitled"}</h1>
-              )}
+              <h1 className="truncate text-xl font-semibold">{harness.harness_name ?? "Untitled"}</h1>
               <Badge variant={harness.access_role === "owner" ? "default" : "secondary"} className="h-5 text-[10px] font-normal">
                 {harness.access_role}
               </Badge>
@@ -203,14 +181,14 @@ export default function HarnessPage({ params }: { params: Promise<PageParams> })
               </span>
             </div>
           </div>
-          {isOwner && !editingName && (
+          {isOwner && (
             <>
               <Button
                 variant="ghost"
                 size="icon-sm"
                 onClick={() => {
                   setNameValue(harness.harness_name ?? "")
-                  setEditingName(true)
+                  setRenameOpen(true)
                 }}
                 title="Rename"
               >
@@ -271,6 +249,37 @@ export default function HarnessPage({ params }: { params: Promise<PageParams> })
         open={shareOpen}
         onOpenChange={setShareOpen}
       />
+
+      <Dialog open={renameOpen} onOpenChange={open => { if (!renaming) setRenameOpen(open) }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Rename harness</DialogTitle>
+            <DialogDescription>Give this harness a new display name.</DialogDescription>
+          </DialogHeader>
+          <Input
+            value={nameValue}
+            disabled={renaming}
+            onChange={e => setNameValue(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") void commitRename() }}
+            autoFocus
+            autoComplete="off"
+            spellCheck={false}
+            placeholder="Harness name"
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRenameOpen(false)} disabled={renaming}>
+              Cancel
+            </Button>
+            <Button
+              onClick={commitRename}
+              disabled={renaming || !nameValue.trim() || nameValue.trim() === (harness.harness_name ?? "").trim()}
+            >
+              {renaming ? <Loader2 className="size-3.5 animate-spin" /> : null}
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <DialogContent showCloseButton={false}>
@@ -334,7 +343,7 @@ function SessionsList({
         >
           <span className={cn("size-2 rounded-full", statusDot(session.status))} />
           <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-medium">{session.title ?? "New Session"}</div>
+            <div className="truncate text-xs">{session.title ?? "New Session"}</div>
             <div className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground">
               <Clock className="size-3" />
               {new Date(session.last_seen_at ?? session.created_at).toLocaleString()}

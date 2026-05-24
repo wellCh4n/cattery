@@ -83,7 +83,7 @@ export default function AdminUsersPage() {
           >
             <ArrowLeft className="size-4" />
           </button>
-          <h1 className="text-lg font-semibold flex-1">Users</h1>
+          <h1 className="text-xl font-semibold flex-1">Users</h1>
           <Button size="sm" onClick={() => setCreateOpen(true)}>
             <Plus className="size-3.5 mr-1" />
             Add user
