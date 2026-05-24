@@ -6,7 +6,7 @@
 // be open at a time. The panel is horizontally resizable by dragging its left
 // edge; width persists in localStorage so it survives navigation.
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { FolderOpen, Info } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useResizable } from "@/lib/use-resizable"
@@ -26,7 +26,6 @@ const MIN_WIDTH = 240
 const MAX_WIDTH = 720
 const DEFAULT_WIDTH = 360
 const WIDTH_KEY = "cattery:rightrail:width"
-const ACTIVE_KEY = "cattery:rightrail:active"
 
 export function RightRail({ harness, session, children }: Props) {
   const [active, setActive] = useState<PanelId | null>(null)
@@ -38,26 +37,8 @@ export function RightRail({ harness, session, children }: Props) {
     side: "left",
   })
 
-  // Hydrate the open panel choice. (Width hydration lives in useResizable.)
-  useEffect(() => {
-    let cancelled = false
-    queueMicrotask(() => {
-      if (cancelled) return
-      const savedActive = localStorage.getItem(ACTIVE_KEY)
-      if (savedActive === "info" || savedActive === "files") {
-        setActive(savedActive)
-      }
-    })
-    return () => { cancelled = true }
-  }, [])
-
   function toggle(id: PanelId) {
-    setActive(prev => {
-      const next = prev === id ? null : id
-      if (next) localStorage.setItem(ACTIVE_KEY, next)
-      else localStorage.removeItem(ACTIVE_KEY)
-      return next
-    })
+    setActive(prev => prev === id ? null : id)
   }
 
   return (
