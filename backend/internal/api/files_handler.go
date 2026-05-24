@@ -12,7 +12,6 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/wellch4n/cattery/internal/db"
 	"github.com/wellch4n/cattery/internal/sandbox"
@@ -26,17 +25,13 @@ func NewFilesHandler(store *db.HarnessStore) *FilesHandler {
 	return &FilesHandler{store: store}
 }
 
-// resolveFileMgrURL looks up the harness, makes sure its sandbox is ready, and
-// derives the filemgr base URL by swapping the harness port for FileMgrPort.
-// Both containers share the same pod IP so we only need a port substitution.
+// resolveFileMgrURL verifies the caller owns :harness_id and derives the
+// filemgr base URL from the harness's sandbox URL (same pod IP, different
+// port). Non-owned and missing harnesses both return 404.
 func (h *FilesHandler) resolveFileMgrURL(c echo.Context) (string, error) {
-	id, err := uuid.Parse(c.Param("harness_id"))
+	inst, err := resolveOwnedHarness(c, h.store)
 	if err != nil {
-		return "", echo.NewHTTPError(http.StatusBadRequest, "invalid harness_id")
-	}
-	inst, err := h.store.GetByID(c.Request().Context(), id)
-	if err != nil {
-		return "", echo.NewHTTPError(http.StatusNotFound, "harness not found")
+		return "", err
 	}
 	if inst.SandboxURL == nil || inst.SandboxStatus != "ready" {
 		return "", echo.NewHTTPError(http.StatusServiceUnavailable, "sandbox not ready")

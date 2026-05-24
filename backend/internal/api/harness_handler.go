@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/google/uuid"
@@ -39,6 +40,10 @@ type createHarnessRequest struct {
 }
 
 func (h *HarnessHandler) Create(c echo.Context) error {
+	userID, ok := UserIDFromContext(c)
+	if !ok {
+		return echo.ErrUnauthorized
+	}
 	var req createHarnessRequest
 	if err := c.Bind(&req); err != nil {
 		return echo.ErrBadRequest
@@ -55,6 +60,7 @@ func (h *HarnessHandler) Create(c echo.Context) error {
 
 	inst := &model.Harness{
 		HarnessID:   uuid.New(),
+		OwnerUserID: userID,
 		HarnessName: req.HarnessName,
 		Model:       req.Model,
 		Type:        req.Type,
@@ -75,7 +81,11 @@ func (h *HarnessHandler) Create(c echo.Context) error {
 }
 
 func (h *HarnessHandler) List(c echo.Context) error {
-	harnesses, err := h.store.List(c.Request().Context())
+	userID, ok := UserIDFromContext(c)
+	if !ok {
+		return echo.ErrUnauthorized
+	}
+	harnesses, err := h.store.ListForOwner(c.Request().Context(), userID)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
@@ -87,11 +97,15 @@ func (h *HarnessHandler) List(c echo.Context) error {
 }
 
 func (h *HarnessHandler) Get(c echo.Context) error {
+	userID, ok := UserIDFromContext(c)
+	if !ok {
+		return echo.ErrUnauthorized
+	}
 	id, err := uuid.Parse(c.Param("harness_id"))
 	if err != nil {
 		return echo.ErrBadRequest
 	}
-	inst, err := h.store.GetByID(c.Request().Context(), id)
+	inst, err := h.store.GetForOwner(c.Request().Context(), id, userID)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusNotFound, "harness not found")
 	}
@@ -103,6 +117,10 @@ type updateHarnessRequest struct {
 }
 
 func (h *HarnessHandler) Update(c echo.Context) error {
+	userID, ok := UserIDFromContext(c)
+	if !ok {
+		return echo.ErrUnauthorized
+	}
 	id, err := uuid.Parse(c.Param("harness_id"))
 	if err != nil {
 		return echo.ErrBadRequest
@@ -111,10 +129,13 @@ func (h *HarnessHandler) Update(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return echo.ErrBadRequest
 	}
-	if err := h.store.UpdateName(c.Request().Context(), id, *req.HarnessName); err != nil {
+	if err := h.store.UpdateNameForOwner(c.Request().Context(), id, userID, *req.HarnessName); err != nil {
+		if errors.Is(err, db.ErrHarnessNotFound) {
+			return echo.NewHTTPError(http.StatusNotFound, "harness not found")
+		}
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
-	inst, err := h.store.GetByID(c.Request().Context(), id)
+	inst, err := h.store.GetForOwner(c.Request().Context(), id, userID)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusNotFound, "harness not found")
 	}
@@ -122,16 +143,23 @@ func (h *HarnessHandler) Update(c echo.Context) error {
 }
 
 func (h *HarnessHandler) Delete(c echo.Context) error {
+	userID, ok := UserIDFromContext(c)
+	if !ok {
+		return echo.ErrUnauthorized
+	}
 	id, err := uuid.Parse(c.Param("harness_id"))
 	if err != nil {
 		return echo.ErrBadRequest
 	}
-	inst, err := h.store.GetByID(c.Request().Context(), id)
+	inst, err := h.store.GetForOwner(c.Request().Context(), id, userID)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusNotFound, "harness not found")
 	}
 	h.sandbox.Stop(c.Request().Context(), inst)
-	if err := h.store.Delete(c.Request().Context(), id); err != nil {
+	if err := h.store.DeleteForOwner(c.Request().Context(), id, userID); err != nil {
+		if errors.Is(err, db.ErrHarnessNotFound) {
+			return echo.NewHTTPError(http.StatusNotFound, "harness not found")
+		}
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	return c.NoContent(http.StatusNoContent)

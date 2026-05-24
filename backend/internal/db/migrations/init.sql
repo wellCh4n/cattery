@@ -1,7 +1,17 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
+CREATE TABLE users (
+    user_id       UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    username      TEXT        NOT NULL UNIQUE,
+    password_hash TEXT        NOT NULL,
+    is_admin      BOOLEAN     NOT NULL DEFAULT FALSE,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_login_at TIMESTAMPTZ
+);
+
 CREATE TABLE harnesses (
     harness_id      UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    owner_user_id   UUID        NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     harness_name    TEXT,
     model           TEXT        NOT NULL,
     type            TEXT        NOT NULL DEFAULT 'opencode',
@@ -11,6 +21,7 @@ CREATE TABLE harnesses (
     sandbox_url     TEXT,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+CREATE INDEX idx_harnesses_owner ON harnesses(owner_user_id);
 
 CREATE TABLE sessions (
     session_id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

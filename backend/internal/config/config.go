@@ -14,6 +14,9 @@ type Config struct {
 	AnthropicAPIKey  string
 	OpenAIBaseURL    string
 	OpenAIAPIKey     string
+
+	// JWTSecret signs auth tokens. Required; server refuses to start without it.
+	JWTSecret string
 }
 
 func Load() *Config {
@@ -27,6 +30,7 @@ func Load() *Config {
 		AnthropicAPIKey:  getEnv("ANTHROPIC_API_KEY", ""),
 		OpenAIBaseURL:    getEnv("OPENAI_BASE_URL", ""),
 		OpenAIAPIKey:     getEnv("OPENAI_API_KEY", ""),
+		JWTSecret:        getEnv("JWT_SECRET", ""),
 	}
 }
 

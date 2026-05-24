@@ -31,10 +31,13 @@ export function useResizable({ initial, min, max, storageKey, side }: Options) {
   const dragStart = useRef({ x: 0, width: 0 })
 
   // Hydrate persisted width on mount. Server render uses `initial` to keep
-  // SSR markup stable; we adjust client-side after mount.
+  // SSR markup stable; we adjust client-side after mount. Lazy initial
+  // state would mismatch hydration (server has no localStorage), so the
+  // setState-in-effect lint rule is suppressed here intentionally.
   useEffect(() => {
     const saved = Number(localStorage.getItem(storageKey))
     if (Number.isFinite(saved) && saved >= min && saved <= max) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setWidth(saved)
     }
   }, [storageKey, min, max])

@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/wellch4n/cattery/internal/harness"
 )
@@ -20,17 +19,9 @@ import (
 // 双向透传字节；文本帧（控制 JSON，如 resize）也原样转发。
 // 这个 endpoint 只对 terminal kind 的 harness 有效。
 func (h *SessionHandler) Term(c echo.Context) error {
-	sessionID, err := uuid.Parse(c.Param("session_id"))
+	sess, inst, err := resolveOwnedSession(c, h.sessionStore, h.harnessStore)
 	if err != nil {
-		return echo.ErrBadRequest
-	}
-	sess, err := h.sessionStore.GetByID(c.Request().Context(), sessionID)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusNotFound, "session not found")
-	}
-	inst, err := h.harnessStore.GetByID(c.Request().Context(), sess.HarnessID)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusNotFound, "harness not found")
+		return err
 	}
 	if harness.KindFor(inst.Type) != harness.KindTerminal {
 		return echo.NewHTTPError(http.StatusBadRequest, "harness type is not terminal kind")

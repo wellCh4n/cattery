@@ -25,7 +25,13 @@ export function ThemeToggle() {
   const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
+    // Read theme from localStorage on mount. We can't use lazy initial
+    // state because that would force the SSR render to read window/
+    // localStorage (mismatch). The pre-hydration script in app/layout.tsx
+    // already applied the right class to <html>, so this setState only
+    // syncs React's idea of the theme — no visual flicker.
     const initial = readInitialTheme()
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setTheme(initial)
     applyTheme(initial)
     setMounted(true)
