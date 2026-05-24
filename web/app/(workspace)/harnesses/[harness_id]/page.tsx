@@ -140,8 +140,8 @@ export default function HarnessPage({ params }: { params: Promise<PageParams> })
 
   return (
     <div className="h-full overflow-y-auto bg-background">
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-6 py-6">
-        <header className="flex items-start gap-3 border-b pb-5">
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-6 py-6">
+        <header className="flex items-start gap-3 border-b pb-3">
           <div className="flex size-10 shrink-0 items-center justify-center rounded-md border bg-muted/30">
             <HarnessIcon id={harness.type} className="size-5 text-muted-foreground" />
           </div>
