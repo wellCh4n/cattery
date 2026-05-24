@@ -38,11 +38,12 @@ func main() {
 	}
 
 	harnessStore := db.NewHarnessStore(database)
+	shareStore := db.NewShareStore(database)
 	sessionStore := db.NewSessionStore(database)
 	harnessClient := harness.NewClient()
 	sandboxMgr := sandbox.NewManager(harnessStore, k8s, harnessClient, cfg)
 
-	harnessH := api.NewHarnessHandler(harnessStore, sandboxMgr)
+	harnessH := api.NewHarnessHandler(harnessStore, shareStore, userStore, sandboxMgr)
 	sessionH := api.NewSessionHandler(sessionStore, harnessStore, harnessClient, sandboxMgr)
 	filesH := api.NewFilesHandler(harnessStore)
 	authH := api.NewAuthHandler(userStore, signer)

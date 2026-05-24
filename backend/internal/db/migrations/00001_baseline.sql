@@ -1,6 +1,7 @@
+-- +goose Up
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
     user_id       UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     username      TEXT        NOT NULL UNIQUE,
     password_hash TEXT        NOT NULL,
@@ -9,7 +10,7 @@ CREATE TABLE users (
     last_login_at TIMESTAMPTZ
 );
 
-CREATE TABLE harnesses (
+CREATE TABLE IF NOT EXISTS harnesses (
     harness_id      UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     owner_user_id   UUID        NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     harness_name    TEXT,
@@ -21,9 +22,9 @@ CREATE TABLE harnesses (
     sandbox_url     TEXT,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-CREATE INDEX idx_harnesses_owner ON harnesses(owner_user_id);
+CREATE INDEX IF NOT EXISTS idx_harnesses_owner ON harnesses(owner_user_id);
 
-CREATE TABLE sessions (
+CREATE TABLE IF NOT EXISTS sessions (
     session_id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     harness_id          UUID        NOT NULL REFERENCES harnesses(harness_id) ON DELETE CASCADE,
     status              TEXT        NOT NULL DEFAULT 'creating',
@@ -35,5 +36,11 @@ CREATE TABLE sessions (
     stopped_at          TIMESTAMPTZ
 );
 
-CREATE INDEX idx_sessions_harness_id ON sessions(harness_id);
-CREATE INDEX idx_sessions_status     ON sessions(status);
+CREATE INDEX IF NOT EXISTS idx_sessions_harness_id ON sessions(harness_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_status     ON sessions(status);
+
+-- +goose Down
+DROP TABLE IF EXISTS sessions;
+DROP TABLE IF EXISTS harnesses;
+DROP TABLE IF EXISTS users;
+DROP EXTENSION IF EXISTS "uuid-ossp";

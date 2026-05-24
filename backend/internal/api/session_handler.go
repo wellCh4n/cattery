@@ -37,10 +37,11 @@ func NewSessionHandler(
 }
 
 func (h *SessionHandler) Create(c echo.Context) error {
-	inst, err := resolveOwnedHarness(c, h.harnessStore)
+	access, err := requireWritableHarness(c, h.harnessStore)
 	if err != nil {
 		return err
 	}
+	inst := access.Harness
 	if inst.SandboxStatus != "ready" {
 		return echo.NewHTTPError(http.StatusConflict, "sandbox is not ready")
 	}
@@ -93,11 +94,11 @@ func (h *SessionHandler) bringUp(sessionID uuid.UUID, inst *model.Harness, theme
 }
 
 func (h *SessionHandler) ListByHarness(c echo.Context) error {
-	inst, err := resolveOwnedHarness(c, h.harnessStore)
+	access, err := requireReadableHarness(c, h.harnessStore)
 	if err != nil {
 		return err
 	}
-	sessions, err := h.sessionStore.ListByHarness(c.Request().Context(), inst.HarnessID)
+	sessions, err := h.sessionStore.ListByHarness(c.Request().Context(), access.Harness.HarnessID)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
@@ -108,7 +109,7 @@ func (h *SessionHandler) ListByHarness(c echo.Context) error {
 }
 
 func (h *SessionHandler) Get(c echo.Context) error {
-	sess, _, err := resolveOwnedSession(c, h.sessionStore, h.harnessStore)
+	sess, _, err := requireReadableSession(c, h.sessionStore, h.harnessStore)
 	if err != nil {
 		return err
 	}
@@ -116,10 +117,11 @@ func (h *SessionHandler) Get(c echo.Context) error {
 }
 
 func (h *SessionHandler) SendMessage(c echo.Context) error {
-	sess, inst, err := resolveOwnedSession(c, h.sessionStore, h.harnessStore)
+	sess, access, err := requireWritableSession(c, h.sessionStore, h.harnessStore)
 	if err != nil {
 		return err
 	}
+	inst := access.Harness
 	if sess.Status != "ready" {
 		return echo.NewHTTPError(http.StatusBadRequest, "session not ready")
 	}
@@ -174,7 +176,7 @@ type updateSessionRequest struct {
 }
 
 func (h *SessionHandler) UpdateTitle(c echo.Context) error {
-	sess, _, err := resolveOwnedSession(c, h.sessionStore, h.harnessStore)
+	sess, _, err := requireWritableSession(c, h.sessionStore, h.harnessStore)
 	if err != nil {
 		return err
 	}
@@ -193,10 +195,11 @@ func (h *SessionHandler) UpdateTitle(c echo.Context) error {
 }
 
 func (h *SessionHandler) Delete(c echo.Context) error {
-	sess, inst, err := resolveOwnedSession(c, h.sessionStore, h.harnessStore)
+	sess, access, err := requireWritableSession(c, h.sessionStore, h.harnessStore)
 	if err != nil {
 		return err
 	}
+	inst := access.Harness
 	if inst.SandboxURL != nil && sess.HarnessSessionID != nil {
 		_ = h.harnessClient.Abort(c.Request().Context(), *inst.SandboxURL, *sess.HarnessSessionID)
 	}
@@ -206,10 +209,11 @@ func (h *SessionHandler) Delete(c echo.Context) error {
 
 // Abort 中止当前 session 的进行中对话
 func (h *SessionHandler) Abort(c echo.Context) error {
-	sess, inst, err := resolveOwnedSession(c, h.sessionStore, h.harnessStore)
+	sess, access, err := requireWritableSession(c, h.sessionStore, h.harnessStore)
 	if err != nil {
 		return err
 	}
+	inst := access.Harness
 	if inst.SandboxURL == nil || sess.HarnessSessionID == nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "session not active")
 	}
@@ -222,10 +226,11 @@ func (h *SessionHandler) Abort(c echo.Context) error {
 // Answer 把用户对 AskUserQuestion 的回答透传到 harness。
 // 请求体由前端构造，后端不做 schema 检查 —— 不同 harness 的应答结构未必一致。
 func (h *SessionHandler) Answer(c echo.Context) error {
-	sess, inst, err := resolveOwnedSession(c, h.sessionStore, h.harnessStore)
+	sess, access, err := requireWritableSession(c, h.sessionStore, h.harnessStore)
 	if err != nil {
 		return err
 	}
+	inst := access.Harness
 	if inst.SandboxURL == nil || sess.HarnessSessionID == nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "session not active")
 	}
@@ -241,10 +246,11 @@ func (h *SessionHandler) Answer(c echo.Context) error {
 
 // History 拉取 session 的历史消息（统一平台格式）
 func (h *SessionHandler) History(c echo.Context) error {
-	sess, inst, err := resolveOwnedSession(c, h.sessionStore, h.harnessStore)
+	sess, access, err := requireReadableSession(c, h.sessionStore, h.harnessStore)
 	if err != nil {
 		return err
 	}
+	inst := access.Harness
 	if inst.SandboxURL == nil || sess.HarnessSessionID == nil {
 		return c.JSON(http.StatusOK, []harness.PlatformHistoryItem{})
 	}
@@ -264,10 +270,10 @@ func (h *SessionHandler) History(c echo.Context) error {
 
 // StopSandbox 停止 harness 的 sandbox（harness 级操作）
 func (h *SessionHandler) StopSandbox(c echo.Context) error {
-	inst, err := resolveOwnedHarness(c, h.harnessStore)
+	access, err := requireManageableHarness(c, h.harnessStore)
 	if err != nil {
 		return err
 	}
-	h.sandbox.Stop(c.Request().Context(), inst)
+	h.sandbox.Stop(c.Request().Context(), access.Harness)
 	return c.NoContent(http.StatusNoContent)
 }

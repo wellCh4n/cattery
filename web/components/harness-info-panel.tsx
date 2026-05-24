@@ -25,6 +25,7 @@ export function HarnessInfoPanel({ harness, session }: { harness: Harness; sessi
   const envEntries = Object.entries(harness.env_vars ?? {})
   const harnessName = harness.harness_name ?? "Untitled"
   const sessionTitle = session.title ?? "New Session"
+  const isOwner = harness.access_role === "owner"
   return (
     <div className="flex h-full flex-col">
       <header className="flex items-center gap-2 px-3 h-12 border-b shrink-0">
@@ -55,6 +56,14 @@ export function HarnessInfoPanel({ harness, session }: { harness: Harness; sessi
           </Field>
           <Field label="Name">
             <span className="truncate">{harnessName}</span>
+          </Field>
+          <Field label="Owner">
+            <span className="truncate">{harness.owner_username || "—"}</span>
+          </Field>
+          <Field label="Access">
+            <Badge variant={isOwner ? "default" : "secondary"} className="text-[10px] font-normal">
+              {harness.access_role}
+            </Badge>
           </Field>
           <Field label="Session ID">
             <code className="text-[10px] text-muted-foreground break-all">{session.session_id}</code>

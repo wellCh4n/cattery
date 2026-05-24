@@ -59,6 +59,34 @@ func (s *UserStore) List(ctx context.Context) ([]*model.User, error) {
 	return out, nil
 }
 
+func (s *UserStore) Search(ctx context.Context, query string, limit int) ([]*model.User, error) {
+	query = normalizeUsername(query)
+	if limit <= 0 || limit > 50 {
+		limit = 20
+	}
+	rows, err := s.db.QueryxContext(ctx,
+		`SELECT `+userColumns+`
+		 FROM users
+		 WHERE username ILIKE '%' || $1 || '%'
+		 ORDER BY username ASC
+		 LIMIT $2`,
+		query, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*model.User
+	for rows.Next() {
+		u, err := scanUser(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, u)
+	}
+	return out, nil
+}
+
 func (s *UserStore) UpdatePassword(ctx context.Context, id uuid.UUID, hash string) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE users SET password_hash=$1 WHERE user_id=$2`, hash, id)
 	return err

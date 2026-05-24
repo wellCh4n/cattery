@@ -26,10 +26,13 @@ export type TransportKind = "http" | "terminal"
 
 export interface Harness {
   harness_id: string
+  owner_user_id: string
   harness_name: string | null
   model: string
   type: string
   transport_kind: TransportKind
+  access_role: "owner" | "viewer" | "editor"
+  owner_username: string
   env_vars: Record<string, string>
   sandbox_status: string
   created_at: string
@@ -54,7 +57,9 @@ export async function listHarnesses(): Promise<Harness[]> {
   return res.json()
 }
 
-export async function createHarness(data: Omit<Harness, "harness_id" | "created_at" | "transport_kind" | "sandbox_status">): Promise<Harness> {
+export type CreateHarnessRequest = Pick<Harness, "harness_name" | "model" | "type" | "env_vars">
+
+export async function createHarness(data: CreateHarnessRequest): Promise<Harness> {
   const res = await authedFetch(`${API_BASE}/api/v1/harnesses`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -82,6 +87,66 @@ export async function updateHarness(harnessId: string, data: { harness_name: str
 
 export async function deleteHarness(harnessId: string): Promise<void> {
   await authedFetch(`${API_BASE}/api/v1/harnesses/${harnessId}`, { method: "DELETE" })
+}
+
+export interface HarnessShare {
+  harness_id: string
+  user_id: string
+  username: string
+  role: "viewer" | "editor"
+  created_at: string
+}
+
+export interface ShareCandidate {
+  user_id: string
+  username: string
+}
+
+export async function listHarnessShares(harnessId: string): Promise<HarnessShare[]> {
+  const res = await authedFetch(`${API_BASE}/api/v1/harnesses/${harnessId}/shares`, { cache: "no-store" })
+  if (!res.ok) throw new Error("failed to list shares")
+  return res.json()
+}
+
+export async function searchShareCandidates(harnessId: string, query: string): Promise<ShareCandidate[]> {
+  const url = `${API_BASE}/api/v1/harnesses/${harnessId}/share-candidates?q=${encodeURIComponent(query)}`
+  const res = await authedFetch(url, { cache: "no-store" })
+  if (!res.ok) throw new Error("failed to search users")
+  return res.json()
+}
+
+export async function createHarnessShare(
+  harnessId: string,
+  data: { username: string; role: "viewer" | "editor" },
+): Promise<HarnessShare> {
+  const res = await authedFetch(`${API_BASE}/api/v1/harnesses/${harnessId}/shares`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) throw new Error(await readErrorMessage(res, `create share failed (${res.status})`))
+  return res.json()
+}
+
+export async function updateHarnessShare(
+  harnessId: string,
+  userId: string,
+  data: { role: "viewer" | "editor" },
+): Promise<HarnessShare> {
+  const res = await authedFetch(`${API_BASE}/api/v1/harnesses/${harnessId}/shares/${userId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) throw new Error(await readErrorMessage(res, `update share failed (${res.status})`))
+  return res.json()
+}
+
+export async function deleteHarnessShare(harnessId: string, userId: string): Promise<void> {
+  const res = await authedFetch(`${API_BASE}/api/v1/harnesses/${harnessId}/shares/${userId}`, { method: "DELETE" })
+  if (!res.ok && res.status !== 204) {
+    throw new Error(await readErrorMessage(res, `delete share failed (${res.status})`))
+  }
 }
 
 export async function listSessions(harnessId: string): Promise<Session[]> {

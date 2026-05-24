@@ -11,6 +11,7 @@ import {
   Cat,
   MessagesSquare,
   Pencil,
+  Share2,
   Check,
   KeyRound,
   LogOut,
@@ -24,6 +25,7 @@ import { cn } from "@/lib/utils"
 import { useResizable } from "@/lib/use-resizable"
 import { CreateHarnessDialog } from "@/components/create-harness-dialog"
 import { ChangePasswordDialog } from "@/components/change-password-dialog"
+import { ShareHarnessDialog } from "@/components/share-harness-dialog"
 import { HarnessIcon } from "@/components/harness-icon"
 import { ThemeToggle } from "@/components/theme-toggle"
 import {
@@ -34,9 +36,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog"
-import {
-  type Session,
-} from "@/lib/api"
+import { type Harness, type Session } from "@/lib/api"
 import { type HarnessWithSessions, useWorkspaceStore } from "@/lib/workspace-store"
 import { useAuthStore } from "@/lib/auth-store"
 
@@ -63,6 +63,7 @@ export function Sidebar() {
   const deleteSession = useWorkspaceStore(state => state.deleteSession)
   const [launching, setLaunching] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null)
+  const [shareTarget, setShareTarget] = useState<Harness | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [editing, setEditing] = useState<{ kind: "harness"; id: string; original: string } | { kind: "session"; id: string; original: string } | null>(null)
   const [editValue, setEditValue] = useState("")
@@ -203,10 +204,11 @@ export function Sidebar() {
   }
 
   function canCreateSession(harness: HarnessWithSessions): boolean {
-    return harness.sandbox_status === "ready"
+    return harness.sandbox_status === "ready" && harness.access_role !== "viewer"
   }
 
   function newSessionTitle(harness: HarnessWithSessions): string {
+    if (harness.access_role === "viewer") return "Viewer access"
     return canCreateSession(harness) ? "New session" : "Sandbox is not ready"
   }
 
@@ -229,6 +231,9 @@ export function Sidebar() {
       return tb - ta
     })
     .slice(0, 3)
+
+  const ownHarnesses = harnesses.filter(h => h.access_role === "owner")
+  const sharedHarnesses = harnesses.filter(h => h.access_role !== "owner")
 
   return (
     <>
@@ -299,181 +304,57 @@ export function Sidebar() {
               </p>
             </div>
           )}
-          {harnesses.map(harness => (
-            <div key={harness.harness_id} className="px-1.5 mb-1">
-              <div className="group flex items-center gap-0.5 rounded-md pl-1 pr-0.5 h-8 hover:bg-muted transition-colors">
-                <button
-                  className="flex-1 flex cursor-pointer items-center gap-1.5 min-w-0 h-full text-left text-sm font-medium outline-none"
-                  onClick={() => toggleExpand(harness.harness_id)}
-                >
-                  <ChevronRight
-                    className={cn(
-                      "size-3.5 text-muted-foreground transition-transform shrink-0",
-                      harness.expanded && "rotate-90"
-                    )}
-                  />
-                  {sandboxDot(harness.sandbox_status) && (
-                    <span
-                      title={`sandbox: ${harness.sandbox_status}`}
-                      className={cn("size-1.5 rounded-full shrink-0", sandboxDot(harness.sandbox_status))}
-                    />
-                  )}
-                  <HarnessIcon id={harness.type} className="size-3.5 text-muted-foreground shrink-0" />
-                  {editing?.kind === "harness" && editing.id === harness.harness_id ? (
-                    <Input
-                      ref={editInputRef}
-                      className="flex-1 h-6 pl-2 pr-2 py-0 text-sm font-medium min-w-0"
-                      value={editValue}
-                      onChange={e => setEditValue(e.target.value)}
-                      onKeyDown={e => { if (e.key === "Enter") commitEdit(); if (e.key === "Escape") cancelEdit() }}
-                      onBlur={e => handleEditBlur(e.relatedTarget)}
-                      onClick={e => e.stopPropagation()}
-                      autoComplete="off"
-                      autoCorrect="off"
-                      autoCapitalize="off"
-                      spellCheck={false}
-                    />
-                  ) : (
-                    <>
-                      <span className="truncate min-w-0 flex-1">
-                        {harness.harness_name ?? "Untitled"}
-                      </span>
-                      <Badge
-                        variant="secondary"
-                        className="text-[10px] h-4 px-1.5 font-normal shrink-0 group-hover:hidden"
-                      >
-                        {TYPE_LABELS[harness.type] ?? harness.type}
-                      </Badge>
-                    </>
-                  )}
-                </button>
-                <button
-                  className={cn(
-                    "hidden group-hover:inline-flex focus-visible:inline-flex items-center justify-center size-6 rounded transition-colors disabled:cursor-not-allowed disabled:opacity-40",
-                    "disabled:text-muted-foreground disabled:hover:bg-transparent disabled:hover:text-muted-foreground",
-                    canCreateSession(harness)
-                      ? "cursor-pointer text-muted-foreground hover:bg-foreground/10 hover:text-foreground"
-                      : "cursor-not-allowed text-muted-foreground/40 hover:bg-transparent hover:text-muted-foreground/40"
-                  )}
-                  title={newSessionTitle(harness)}
-                  disabled={launching === harness.harness_id || !canCreateSession(harness)}
-                  onClick={() => handleNewSession(harness)}
-                >
-                  {launching === harness.harness_id
-                    ? <Loader2 className="size-3.5 animate-spin" />
-                    : <Plus className="size-3.5" />}
-                </button>
-                {editing?.kind === "harness" && editing.id === harness.harness_id ? (
-                  <button
-                    data-edit-save
-                    className="inline-flex cursor-pointer items-center justify-center size-6 rounded text-primary hover:bg-primary/10 transition-colors"
-                    title="Save"
-                    onClick={commitEdit}
-                  >
-                    <Check className="size-3.5" />
-                  </button>
-                ) : (
-                  <button
-                    className="hidden group-hover:inline-flex focus-visible:inline-flex cursor-pointer items-center justify-center size-6 rounded text-muted-foreground hover:bg-foreground/10 hover:text-foreground transition-colors"
-                    title="Rename"
-                    onClick={() => startEdit("harness", harness.harness_id, harness.harness_name ?? "")}
-                  >
-                    <Pencil className="size-3.5" />
-                  </button>
-                )}
-                <button
-                  className="hidden group-hover:inline-flex focus-visible:inline-flex cursor-pointer items-center justify-center size-6 rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
-                  title="Delete harness"
-                  onClick={() => setDeleteTarget({ kind: "harness", id: harness.harness_id, name: harness.harness_name ?? "Untitled" })}
-                >
-                  <Trash2 className="size-3.5" />
-                </button>
-              </div>
+          <HarnessListSection
+            title={sharedHarnesses.length > 0 ? "My Harnesses" : null}
+            harnesses={ownHarnesses}
+            selectedSessionId={selectedSessionId}
+            launching={launching}
+            busySessions={busySessions}
+            editing={editing}
+            editValue={editValue}
+            editInputRef={editInputRef}
+            typeLabels={TYPE_LABELS}
+            onToggleExpand={toggleExpand}
+            onNewSession={handleNewSession}
+            onStartEdit={startEdit}
+            onSetDeleteTarget={setDeleteTarget}
+            onSetShareTarget={setShareTarget}
+            onCommitEdit={commitEdit}
+            onCancelEdit={cancelEdit}
+            onHandleEditBlur={handleEditBlur}
+            onSetEditValue={setEditValue}
+            onRouteSession={id => router.push(`/sessions/${id}`)}
+            canCreateSession={canCreateSession}
+            newSessionTitle={newSessionTitle}
+            statusDot={statusDot}
+            sandboxDot={sandboxDot}
+          />
 
-              {harness.expanded && (
-                <div className="ml-3.5 mt-1 border-l border-border/60 pl-1.5 space-y-0.5">
-                  {harness.sessions.length === 0 ? (
-                    <div className="flex items-center gap-1.5 px-2 py-1 text-[11px] text-muted-foreground">
-                      <MessagesSquare className="size-3" />
-                      <span>No sessions</span>
-                    </div>
-                  ) : (
-                    harness.sessions.map(sess => (
-                      <div
-                        key={sess.session_id}
-                        className={cn(
-                          "group/sess w-full flex items-center gap-2 text-xs px-2 h-7 rounded-md transition-colors cursor-pointer",
-                          "hover:bg-muted text-muted-foreground hover:text-foreground",
-                          selectedSessionId === sess.session_id &&
-                            "bg-muted text-foreground font-medium"
-                        )}
-                        onClick={() => router.push(`/sessions/${sess.session_id}`)}
-                      >
-                        {busySessions.has(sess.session_id) ? (
-                          <Loader2 className="size-3 text-amber-500 animate-spin shrink-0" />
-                        ) : (
-                          <span className={cn("size-1.5 rounded-full shrink-0", statusDot(sess.status))} />
-                        )}
-                        {editing?.kind === "session" && editing.id === sess.session_id ? (
-                          <Input
-                            ref={editInputRef}
-                            className="flex-1 h-5 pl-2 pr-2 py-0 text-xs min-w-0"
-                            value={editValue}
-                            onChange={e => setEditValue(e.target.value)}
-                            onKeyDown={e => { if (e.key === "Enter") commitEdit(); if (e.key === "Escape") cancelEdit() }}
-                            onBlur={e => handleEditBlur(e.relatedTarget)}
-                            onClick={e => e.stopPropagation()}
-                            autoComplete="off"
-                            autoCorrect="off"
-                            autoCapitalize="off"
-                            spellCheck={false}
-                          />
-                        ) : (
-                          <span className="truncate flex-1">
-                            {sess.title ?? "New Session"}
-                          </span>
-                        )}
-                        <span className="text-[10px] text-muted-foreground/70 shrink-0 group-hover/sess:hidden">
-                          {new Date(sess.created_at).toLocaleDateString(undefined, {
-                            month: "short",
-                            day: "numeric",
-                          })}
-                        </span>
-                        {editing?.kind === "session" && editing.id === sess.session_id ? (
-                          <button
-                            data-edit-save
-                            className="hidden group-hover/sess:inline-flex cursor-pointer items-center justify-center size-4 rounded text-primary hover:bg-primary/10 transition-colors shrink-0"
-                            title="Save"
-                            onClick={e => { e.stopPropagation(); commitEdit() }}
-                          >
-                            <Check className="size-3" />
-                          </button>
-                        ) : (
-                          <button
-                            className="hidden group-hover/sess:inline-flex cursor-pointer items-center justify-center size-4 rounded text-muted-foreground hover:text-foreground transition-colors shrink-0"
-                            title="Rename"
-                            onClick={e => { e.stopPropagation(); startEdit("session", sess.session_id, sess.title ?? "") }}
-                          >
-                            <Pencil className="size-3" />
-                          </button>
-                        )}
-                        <button
-                          className="hidden group-hover/sess:inline-flex cursor-pointer items-center justify-center size-4 rounded text-muted-foreground hover:text-destructive transition-colors shrink-0"
-                          title="Delete session"
-                          onClick={e => {
-                            e.stopPropagation()
-                            setDeleteTarget({ kind: "session", id: sess.session_id, harnessId: harness.harness_id })
-                          }}
-                        >
-                          <Trash2 className="size-3" />
-                        </button>
-                      </div>
-                    ))
-                  )}
-                </div>
-              )}
-            </div>
-          ))}
+          <HarnessListSection
+            title={sharedHarnesses.length > 0 ? "Shared With Me" : null}
+            harnesses={sharedHarnesses}
+            selectedSessionId={selectedSessionId}
+            launching={launching}
+            busySessions={busySessions}
+            editing={editing}
+            editValue={editValue}
+            editInputRef={editInputRef}
+            typeLabels={TYPE_LABELS}
+            onToggleExpand={toggleExpand}
+            onNewSession={handleNewSession}
+            onStartEdit={startEdit}
+            onSetDeleteTarget={setDeleteTarget}
+            onSetShareTarget={setShareTarget}
+            onCommitEdit={commitEdit}
+            onCancelEdit={cancelEdit}
+            onHandleEditBlur={handleEditBlur}
+            onSetEditValue={setEditValue}
+            onRouteSession={id => router.push(`/sessions/${id}`)}
+            canCreateSession={canCreateSession}
+            newSessionTitle={newSessionTitle}
+            statusDot={statusDot}
+            sandboxDot={sandboxDot}
+          />
         </div>
 
         {/* User menu — fixed at sidebar bottom. Click email to open the
@@ -527,6 +408,11 @@ export function Sidebar() {
       </aside>
 
       <ChangePasswordDialog open={changePasswordOpen} onOpenChange={setChangePasswordOpen} />
+      <ShareHarnessDialog
+        harness={shareTarget}
+        open={shareTarget !== null}
+        onOpenChange={open => { if (!open) setShareTarget(null) }}
+      />
 
       <Dialog open={deleteTarget !== null} onOpenChange={open => { if (!open) setDeleteTarget(null) }}>
         <DialogContent showCloseButton={false}>
@@ -552,5 +438,262 @@ export function Sidebar() {
         </DialogContent>
       </Dialog>
     </>
+  )
+}
+
+function HarnessListSection({
+  title,
+  harnesses,
+  selectedSessionId,
+  launching,
+  busySessions,
+  editing,
+  editValue,
+  editInputRef,
+  typeLabels,
+  onToggleExpand,
+  onNewSession,
+  onStartEdit,
+  onSetDeleteTarget,
+  onSetShareTarget,
+  onCommitEdit,
+  onCancelEdit,
+  onHandleEditBlur,
+  onSetEditValue,
+  onRouteSession,
+  canCreateSession,
+  newSessionTitle,
+  statusDot,
+  sandboxDot,
+}: {
+  title: string | null
+  harnesses: HarnessWithSessions[]
+  selectedSessionId: string | null
+  launching: string | null
+  busySessions: Set<string>
+  editing: { kind: "harness"; id: string; original: string } | { kind: "session"; id: string; original: string } | null
+  editValue: string
+  editInputRef: React.RefObject<HTMLInputElement | null>
+  typeLabels: Record<string, string>
+  onToggleExpand: (harnessId: string) => void
+  onNewSession: (harness: HarnessWithSessions) => void
+  onStartEdit: (kind: "harness" | "session", id: string, current: string) => void
+  onSetDeleteTarget: (target: DeleteTarget) => void
+  onSetShareTarget: (harness: Harness) => void
+  onCommitEdit: () => void
+  onCancelEdit: () => void
+  onHandleEditBlur: (related: EventTarget | null) => void
+  onSetEditValue: (value: string) => void
+  onRouteSession: (sessionId: string) => void
+  canCreateSession: (harness: HarnessWithSessions) => boolean
+  newSessionTitle: (harness: HarnessWithSessions) => string
+  statusDot: (status: string) => string
+  sandboxDot: (status: string) => string | null
+}) {
+  if (harnesses.length === 0) return null
+  return (
+    <div className="mb-2">
+      {title && (
+        <div className="px-3 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          {title}
+        </div>
+      )}
+      {harnesses.map(harness => (
+        <div key={harness.harness_id} className="px-1.5 mb-1">
+          <div className="group flex items-center gap-0.5 rounded-md pl-1 pr-0.5 h-8 hover:bg-muted transition-colors">
+            <button
+              className="flex-1 flex cursor-pointer items-center gap-1.5 min-w-0 h-full text-left text-sm font-medium outline-none"
+              onClick={() => onToggleExpand(harness.harness_id)}
+            >
+              <ChevronRight
+                className={cn(
+                  "size-3.5 text-muted-foreground transition-transform shrink-0",
+                  harness.expanded && "rotate-90"
+                )}
+              />
+              {sandboxDot(harness.sandbox_status) && (
+                <span
+                  title={`sandbox: ${harness.sandbox_status}`}
+                  className={cn("size-1.5 rounded-full shrink-0", sandboxDot(harness.sandbox_status))}
+                />
+              )}
+              <HarnessIcon id={harness.type} className="size-3.5 text-muted-foreground shrink-0" />
+              {editing?.kind === "harness" && editing.id === harness.harness_id ? (
+                <Input
+                  ref={editInputRef}
+                  className="flex-1 h-6 pl-2 pr-2 py-0 text-sm font-medium min-w-0"
+                  value={editValue}
+                  onChange={e => onSetEditValue(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") onCommitEdit(); if (e.key === "Escape") onCancelEdit() }}
+                  onBlur={e => onHandleEditBlur(e.relatedTarget)}
+                  onClick={e => e.stopPropagation()}
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
+                />
+              ) : (
+                <>
+                  <span className="truncate min-w-0 flex-1">
+                    {harness.harness_name ?? "Untitled"}
+                  </span>
+                  <Badge
+                    variant="secondary"
+                    className="text-[10px] h-4 px-1.5 font-normal shrink-0 group-hover:hidden"
+                  >
+                    {harness.access_role === "owner" ? typeLabels[harness.type] ?? harness.type : harness.access_role}
+                  </Badge>
+                </>
+              )}
+            </button>
+            <button
+              className={cn(
+                "hidden group-hover:inline-flex focus-visible:inline-flex items-center justify-center size-6 rounded transition-colors disabled:cursor-not-allowed disabled:opacity-40",
+                "disabled:text-muted-foreground disabled:hover:bg-transparent disabled:hover:text-muted-foreground",
+                canCreateSession(harness)
+                  ? "cursor-pointer text-muted-foreground hover:bg-foreground/10 hover:text-foreground"
+                  : "cursor-not-allowed text-muted-foreground/40 hover:bg-transparent hover:text-muted-foreground/40"
+              )}
+              title={newSessionTitle(harness)}
+              disabled={launching === harness.harness_id || !canCreateSession(harness)}
+              onClick={() => onNewSession(harness)}
+            >
+              {launching === harness.harness_id
+                ? <Loader2 className="size-3.5 animate-spin" />
+                : <Plus className="size-3.5" />}
+            </button>
+            {harness.access_role === "owner" && (
+              <>
+                {editing?.kind === "harness" && editing.id === harness.harness_id ? (
+                  <button
+                    data-edit-save
+                    className="inline-flex cursor-pointer items-center justify-center size-6 rounded text-primary hover:bg-primary/10 transition-colors"
+                    title="Save"
+                    onClick={onCommitEdit}
+                  >
+                    <Check className="size-3.5" />
+                  </button>
+                ) : (
+                  <button
+                    className="hidden group-hover:inline-flex focus-visible:inline-flex cursor-pointer items-center justify-center size-6 rounded text-muted-foreground hover:bg-foreground/10 hover:text-foreground transition-colors"
+                    title="Rename"
+                    onClick={() => onStartEdit("harness", harness.harness_id, harness.harness_name ?? "")}
+                  >
+                    <Pencil className="size-3.5" />
+                  </button>
+                )}
+                <button
+                  className="hidden group-hover:inline-flex focus-visible:inline-flex cursor-pointer items-center justify-center size-6 rounded text-muted-foreground hover:bg-foreground/10 hover:text-foreground transition-colors"
+                  title="Share"
+                  onClick={() => onSetShareTarget(harness)}
+                >
+                  <Share2 className="size-3.5" />
+                </button>
+                <button
+                  className="hidden group-hover:inline-flex focus-visible:inline-flex cursor-pointer items-center justify-center size-6 rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+                  title="Delete harness"
+                  onClick={() => onSetDeleteTarget({ kind: "harness", id: harness.harness_id, name: harness.harness_name ?? "Untitled" })}
+                >
+                  <Trash2 className="size-3.5" />
+                </button>
+              </>
+            )}
+          </div>
+
+          {harness.access_role !== "owner" && (
+            <div className="ml-8 -mt-0.5 mb-1 truncate text-[10px] text-muted-foreground/70">
+              {harness.owner_username} · {harness.access_role}
+            </div>
+          )}
+
+          {harness.expanded && (
+            <div className="ml-3.5 mt-1 border-l border-border/60 pl-1.5 space-y-0.5">
+              {harness.sessions.length === 0 ? (
+                <div className="flex items-center gap-1.5 px-2 py-1 text-[11px] text-muted-foreground">
+                  <MessagesSquare className="size-3" />
+                  <span>No sessions</span>
+                </div>
+              ) : (
+                harness.sessions.map(sess => (
+                  <div
+                    key={sess.session_id}
+                    className={cn(
+                      "group/sess w-full flex items-center gap-2 text-xs px-2 h-7 rounded-md transition-colors cursor-pointer",
+                      "hover:bg-muted text-muted-foreground hover:text-foreground",
+                      selectedSessionId === sess.session_id &&
+                        "bg-muted text-foreground font-medium"
+                    )}
+                    onClick={() => onRouteSession(sess.session_id)}
+                  >
+                    {busySessions.has(sess.session_id) ? (
+                      <Loader2 className="size-3 text-amber-500 animate-spin shrink-0" />
+                    ) : (
+                      <span className={cn("size-1.5 rounded-full shrink-0", statusDot(sess.status))} />
+                    )}
+                    {editing?.kind === "session" && editing.id === sess.session_id ? (
+                      <Input
+                        ref={editInputRef}
+                        className="flex-1 h-5 pl-2 pr-2 py-0 text-xs min-w-0"
+                        value={editValue}
+                        onChange={e => onSetEditValue(e.target.value)}
+                        onKeyDown={e => { if (e.key === "Enter") onCommitEdit(); if (e.key === "Escape") onCancelEdit() }}
+                        onBlur={e => onHandleEditBlur(e.relatedTarget)}
+                        onClick={e => e.stopPropagation()}
+                        autoComplete="off"
+                        autoCorrect="off"
+                        autoCapitalize="off"
+                        spellCheck={false}
+                      />
+                    ) : (
+                      <span className="truncate flex-1">
+                        {sess.title ?? "New Session"}
+                      </span>
+                    )}
+                    <span className="text-[10px] text-muted-foreground/70 shrink-0 group-hover/sess:hidden">
+                      {new Date(sess.created_at).toLocaleDateString(undefined, {
+                        month: "short",
+                        day: "numeric",
+                      })}
+                    </span>
+                    {harness.access_role !== "viewer" && (
+                      <>
+                        {editing?.kind === "session" && editing.id === sess.session_id ? (
+                          <button
+                            data-edit-save
+                            className="hidden group-hover/sess:inline-flex cursor-pointer items-center justify-center size-4 rounded text-primary hover:bg-primary/10 transition-colors shrink-0"
+                            title="Save"
+                            onClick={e => { e.stopPropagation(); onCommitEdit() }}
+                          >
+                            <Check className="size-3" />
+                          </button>
+                        ) : (
+                          <button
+                            className="hidden group-hover/sess:inline-flex cursor-pointer items-center justify-center size-4 rounded text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                            title="Rename"
+                            onClick={e => { e.stopPropagation(); onStartEdit("session", sess.session_id, sess.title ?? "") }}
+                          >
+                            <Pencil className="size-3" />
+                          </button>
+                        )}
+                        <button
+                          className="hidden group-hover/sess:inline-flex cursor-pointer items-center justify-center size-4 rounded text-muted-foreground hover:text-destructive transition-colors shrink-0"
+                          title="Delete session"
+                          onClick={e => {
+                            e.stopPropagation()
+                            onSetDeleteTarget({ kind: "session", id: sess.session_id, harnessId: harness.harness_id })
+                          }}
+                        >
+                          <Trash2 className="size-3" />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
   )
 }

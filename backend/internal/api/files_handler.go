@@ -14,6 +14,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/wellch4n/cattery/internal/db"
+	"github.com/wellch4n/cattery/internal/model"
 	"github.com/wellch4n/cattery/internal/sandbox"
 )
 
@@ -25,14 +26,23 @@ func NewFilesHandler(store *db.HarnessStore) *FilesHandler {
 	return &FilesHandler{store: store}
 }
 
-// resolveFileMgrURL verifies the caller owns :harness_id and derives the
-// filemgr base URL from the harness's sandbox URL (same pod IP, different
-// port). Non-owned and missing harnesses both return 404.
-func (h *FilesHandler) resolveFileMgrURL(c echo.Context) (string, error) {
-	inst, err := resolveOwnedHarness(c, h.store)
+// requireFileMgrURL verifies the caller has the requested access to
+// :harness_id and derives the filemgr base URL from the harness's sandbox URL
+// (same pod IP, different port). Missing or inaccessible harnesses return 404.
+func (h *FilesHandler) requireFileMgrURL(c echo.Context, write bool) (string, error) {
+	var (
+		access *model.HarnessAccess
+		err    error
+	)
+	if write {
+		access, err = requireWritableHarness(c, h.store)
+	} else {
+		access, err = requireReadableHarness(c, h.store)
+	}
 	if err != nil {
 		return "", err
 	}
+	inst := access.Harness
 	if inst.SandboxURL == nil || inst.SandboxStatus != "ready" {
 		return "", echo.NewHTTPError(http.StatusServiceUnavailable, "sandbox not ready")
 	}
@@ -97,7 +107,7 @@ func (h *FilesHandler) RawPath(c echo.Context) error {
 // multipart body. We forward Content-Type so the sidecar can parse the
 // multipart boundary the client picked.
 func (h *FilesHandler) Upload(c echo.Context) error {
-	base, err := h.resolveFileMgrURL(c)
+	base, err := h.requireFileMgrURL(c, true)
 	if err != nil {
 		return err
 	}
@@ -121,7 +131,7 @@ func (h *FilesHandler) proxyGET(c echo.Context, sidecarPath string) error {
 }
 
 func (h *FilesHandler) proxyGETRawQuery(c echo.Context, sidecarPath string, rawQuery string) error {
-	base, err := h.resolveFileMgrURL(c)
+	base, err := h.requireFileMgrURL(c, false)
 	if err != nil {
 		return err
 	}
