@@ -50,6 +50,9 @@ export function Sidebar() {
   const selectedSessionId = pathname.startsWith("/sessions/")
     ? pathname.slice("/sessions/".length)
     : null
+  const selectedHarnessId = pathname.startsWith("/harnesses/")
+    ? pathname.slice("/harnesses/".length)
+    : null
   const harnesses = useWorkspaceStore(state => state.harnesses)
   const busySessions = useWorkspaceStore(state => state.busySessions)
   const loadHarnesses = useWorkspaceStore(state => state.loadHarnesses)
@@ -308,6 +311,7 @@ export function Sidebar() {
             title={sharedHarnesses.length > 0 ? "My Harnesses" : null}
             harnesses={ownHarnesses}
             selectedSessionId={selectedSessionId}
+            selectedHarnessId={selectedHarnessId}
             launching={launching}
             busySessions={busySessions}
             editing={editing}
@@ -324,6 +328,7 @@ export function Sidebar() {
             onHandleEditBlur={handleEditBlur}
             onSetEditValue={setEditValue}
             onRouteSession={id => router.push(`/sessions/${id}`)}
+            onRouteHarness={id => router.push(`/harnesses/${id}`)}
             canCreateSession={canCreateSession}
             newSessionTitle={newSessionTitle}
             statusDot={statusDot}
@@ -334,6 +339,7 @@ export function Sidebar() {
             title={sharedHarnesses.length > 0 ? "Shared With Me" : null}
             harnesses={sharedHarnesses}
             selectedSessionId={selectedSessionId}
+            selectedHarnessId={selectedHarnessId}
             launching={launching}
             busySessions={busySessions}
             editing={editing}
@@ -350,6 +356,7 @@ export function Sidebar() {
             onHandleEditBlur={handleEditBlur}
             onSetEditValue={setEditValue}
             onRouteSession={id => router.push(`/sessions/${id}`)}
+            onRouteHarness={id => router.push(`/harnesses/${id}`)}
             canCreateSession={canCreateSession}
             newSessionTitle={newSessionTitle}
             statusDot={statusDot}
@@ -445,6 +452,7 @@ function HarnessListSection({
   title,
   harnesses,
   selectedSessionId,
+  selectedHarnessId,
   launching,
   busySessions,
   editing,
@@ -461,6 +469,7 @@ function HarnessListSection({
   onHandleEditBlur,
   onSetEditValue,
   onRouteSession,
+  onRouteHarness,
   canCreateSession,
   newSessionTitle,
   statusDot,
@@ -469,6 +478,7 @@ function HarnessListSection({
   title: string | null
   harnesses: HarnessWithSessions[]
   selectedSessionId: string | null
+  selectedHarnessId: string | null
   launching: string | null
   busySessions: Set<string>
   editing: { kind: "harness"; id: string; original: string } | { kind: "session"; id: string; original: string } | null
@@ -485,6 +495,7 @@ function HarnessListSection({
   onHandleEditBlur: (related: EventTarget | null) => void
   onSetEditValue: (value: string) => void
   onRouteSession: (sessionId: string) => void
+  onRouteHarness: (harnessId: string) => void
   canCreateSession: (harness: HarnessWithSessions) => boolean
   newSessionTitle: (harness: HarnessWithSessions) => string
   statusDot: (status: string) => string
@@ -500,10 +511,16 @@ function HarnessListSection({
       )}
       {harnesses.map(harness => (
         <div key={harness.harness_id} className="px-1.5 mb-1">
-          <div className="group flex items-center gap-0.5 rounded-md pl-1 pr-0.5 h-8 hover:bg-muted transition-colors">
+          <div className={cn(
+            "group flex items-center gap-0.5 rounded-md pl-1 pr-0.5 h-8 transition-colors",
+            selectedHarnessId === harness.harness_id
+              ? "bg-muted text-foreground"
+              : "hover:bg-muted"
+          )}>
             <button
-              className="flex-1 flex cursor-pointer items-center gap-1.5 min-w-0 h-full text-left text-sm font-medium outline-none"
+              className="flex cursor-pointer items-center justify-center size-6 rounded text-muted-foreground hover:text-foreground outline-none"
               onClick={() => onToggleExpand(harness.harness_id)}
+              title={harness.expanded ? "Collapse" : "Expand"}
             >
               <ChevronRight
                 className={cn(
@@ -511,6 +528,11 @@ function HarnessListSection({
                   harness.expanded && "rotate-90"
                 )}
               />
+            </button>
+            <button
+              className="flex-1 flex cursor-pointer items-center gap-1.5 min-w-0 h-full text-left text-sm font-medium outline-none"
+              onClick={() => onRouteHarness(harness.harness_id)}
+            >
               {sandboxDot(harness.sandbox_status) && (
                 <span
                   title={`sandbox: ${harness.sandbox_status}`}
