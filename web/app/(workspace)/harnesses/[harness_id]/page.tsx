@@ -8,6 +8,7 @@ import {
   ChevronRight,
   Clock,
   Check,
+  Cable,
   Loader2,
   MessagesSquare,
   Pencil,
@@ -191,7 +192,7 @@ export default function HarnessPage({ params }: { params: Promise<PageParams> })
                 {new Date(harness.created_at).toLocaleString()}
               </span>
               <span className="inline-flex items-center gap-1">
-                <span className="font-medium">transport</span>
+                <Cable className="size-3.5" />
                 {harness.transport_kind}
               </span>
               <span className="inline-flex items-center gap-1">
