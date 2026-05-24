@@ -27,6 +27,7 @@ func NewRouter(
 	filesH *FilesHandler,
 	authH *AuthHandler,
 	adminH *AdminHandler,
+	usersH *UsersHandler,
 	signer *auth.Signer,
 ) *echo.Echo {
 	e := echo.New()
@@ -86,6 +87,8 @@ func NewRouter(
 	protected.GET("/auth/me", authH.Me)
 	protected.POST("/auth/change-password", authH.ChangePassword)
 
+	protected.GET("/users/search", usersH.Search)
+
 	harnesses := protected.Group("/harnesses")
 	harnesses.POST("", harnessH.Create)
 	harnesses.GET("", harnessH.List)
@@ -93,7 +96,6 @@ func NewRouter(
 	harnesses.PATCH("/:harness_id", harnessH.Update)
 	harnesses.DELETE("/:harness_id", harnessH.Delete)
 	harnesses.GET("/:harness_id/shares", harnessH.ListShares)
-	harnesses.GET("/:harness_id/share-candidates", harnessH.SearchShareCandidates)
 	harnesses.POST("/:harness_id/shares", harnessH.CreateShare)
 	harnesses.PATCH("/:harness_id/shares/:user_id", harnessH.UpdateShare)
 	harnesses.DELETE("/:harness_id/shares/:user_id", harnessH.DeleteShare)

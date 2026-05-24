@@ -175,11 +175,6 @@ type updateShareRequest struct {
 	Role string `json:"role"`
 }
 
-type shareCandidateDTO struct {
-	UserID   uuid.UUID `json:"user_id"`
-	Username string    `json:"username"`
-}
-
 func validShareRole(role string) bool {
 	return role == model.AccessViewer || role == model.AccessEditor
 }
@@ -197,34 +192,6 @@ func (h *HarnessHandler) ListShares(c echo.Context) error {
 		shares = []*model.HarnessShare{}
 	}
 	return c.JSON(http.StatusOK, shares)
-}
-
-func (h *HarnessHandler) SearchShareCandidates(c echo.Context) error {
-	access, err := requireManageableHarness(c, h.store)
-	if err != nil {
-		return err
-	}
-	query := c.QueryParam("q")
-	users, err := h.users.Search(c.Request().Context(), query, 20)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-	shares, err := h.shares.ListByHarness(c.Request().Context(), access.Harness.HarnessID)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-	shared := map[uuid.UUID]bool{}
-	for _, share := range shares {
-		shared[share.UserID] = true
-	}
-	out := make([]shareCandidateDTO, 0, len(users))
-	for _, user := range users {
-		if user.UserID == access.Harness.OwnerUserID || shared[user.UserID] {
-			continue
-		}
-		out = append(out, shareCandidateDTO{UserID: user.UserID, Username: user.Username})
-	}
-	return c.JSON(http.StatusOK, out)
 }
 
 func (h *HarnessHandler) CreateShare(c echo.Context) error {

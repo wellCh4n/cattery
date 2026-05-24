@@ -97,7 +97,7 @@ export interface HarnessShare {
   created_at: string
 }
 
-export interface ShareCandidate {
+export interface UserSummary {
   user_id: string
   username: string
 }
@@ -108,8 +108,8 @@ export async function listHarnessShares(harnessId: string): Promise<HarnessShare
   return res.json()
 }
 
-export async function searchShareCandidates(harnessId: string, query: string): Promise<ShareCandidate[]> {
-  const url = `${API_BASE}/api/v1/harnesses/${harnessId}/share-candidates?q=${encodeURIComponent(query)}`
+export async function searchUsers(query: string): Promise<UserSummary[]> {
+  const url = `${API_BASE}/api/v1/users/search?q=${encodeURIComponent(query)}`
   const res = await authedFetch(url, { cache: "no-store" })
   if (!res.ok) throw new Error("failed to search users")
   return res.json()

@@ -15,11 +15,11 @@ import {
   createHarnessShare,
   deleteHarnessShare,
   listHarnessShares,
-  searchShareCandidates,
+  searchUsers,
   updateHarnessShare,
   type Harness,
   type HarnessShare,
-  type ShareCandidate,
+  type UserSummary,
 } from "@/lib/api"
 
 interface Props {
@@ -33,8 +33,8 @@ export function ShareHarnessDialog({ harness, open, onOpenChange }: Props) {
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   const [query, setQuery] = useState("")
-  const [candidates, setCandidates] = useState<ShareCandidate[]>([])
-  const [selectedUser, setSelectedUser] = useState<ShareCandidate | null>(null)
+  const [candidates, setCandidates] = useState<UserSummary[]>([])
+  const [selectedUser, setSelectedUser] = useState<UserSummary | null>(null)
   const [searching, setSearching] = useState(false)
   const [role, setRole] = useState<"viewer" | "editor">("editor")
   const [error, setError] = useState<string | null>(null)
@@ -70,8 +70,12 @@ export function ShareHarnessDialog({ harness, open, onOpenChange }: Props) {
     const timer = setTimeout(() => {
       if (cancelled) return
       setSearching(true)
-      searchShareCandidates(harness.harness_id, query)
-        .then(list => { if (!cancelled) setCandidates(list) })
+      searchUsers(query)
+        .then(list => {
+          if (cancelled) return
+          const excluded = new Set<string>([harness.owner_user_id, ...shares.map(s => s.user_id)])
+          setCandidates(list.filter(u => !excluded.has(u.user_id)))
+        })
         .catch(() => { if (!cancelled) setCandidates([]) })
         .finally(() => { if (!cancelled) setSearching(false) })
     }, 150)
@@ -79,7 +83,7 @@ export function ShareHarnessDialog({ harness, open, onOpenChange }: Props) {
       cancelled = true
       clearTimeout(timer)
     }
-  }, [harness, open, query, selectedUser])
+  }, [harness, open, query, selectedUser, shares])
 
   async function addShare() {
     if (!harness) return
@@ -150,7 +154,7 @@ export function ShareHarnessDialog({ harness, open, onOpenChange }: Props) {
           <div className="flex gap-2">
             <div className="relative flex-1">
               <Input
-                className="h-9 text-sm"
+                className="h-9"
                 placeholder="Search users"
                 value={query}
                 disabled={busy !== null}

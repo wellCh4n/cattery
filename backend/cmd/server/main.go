@@ -48,8 +48,9 @@ func main() {
 	filesH := api.NewFilesHandler(harnessStore)
 	authH := api.NewAuthHandler(userStore, signer)
 	adminH := api.NewAdminHandler(userStore, harnessStore, sandboxMgr)
+	usersH := api.NewUsersHandler(userStore)
 
-	router := api.NewRouter(harnessH, sessionH, filesH, authH, adminH, signer)
+	router := api.NewRouter(harnessH, sessionH, filesH, authH, adminH, usersH, signer)
 	log.Printf("starting server on :%s", cfg.Port)
 	log.Fatal(router.Start(":" + cfg.Port))
 }
