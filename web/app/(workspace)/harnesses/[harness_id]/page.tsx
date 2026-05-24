@@ -28,6 +28,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { FileBrowserPanel } from "@/components/file-browser-panel"
 import { HarnessIcon } from "@/components/harness-icon"
 import { ModelIcon } from "@/components/model-icon"
 import { ShareHarnessDialog } from "@/components/share-harness-dialog"
@@ -244,45 +246,24 @@ export default function HarnessPage({ params }: { params: Promise<PageParams> })
           </Button>
         </header>
 
-        <section>
-          <div className="mb-2 flex items-center justify-between">
-            <h2 className="text-sm font-semibold">Sessions</h2>
-          </div>
-          {sessions.length === 0 ? (
-            <div className="flex min-h-32 flex-col items-center justify-center rounded-md border text-muted-foreground">
-              <MessagesSquare className="mb-2 size-5" />
-              <p className="text-sm">No sessions</p>
+        <Tabs defaultValue="sessions">
+          <TabsList>
+            <TabsTrigger value="sessions">Sessions</TabsTrigger>
+            <TabsTrigger value="files">Files</TabsTrigger>
+            <TabsTrigger value="env">Environment Variables</TabsTrigger>
+          </TabsList>
+          <TabsContent value="sessions">
+            <SessionsList sessions={sessions} onOpenSession={id => router.push(`/sessions/${id}`)} />
+          </TabsContent>
+          <TabsContent value="files">
+            <div className="h-[520px] overflow-hidden rounded-md border">
+              <FileBrowserPanel harness={harness} />
             </div>
-          ) : (
-            <div className="overflow-hidden rounded-md border">
-              {sessions.map(session => (
-                <button
-                  key={session.session_id}
-                  className="flex h-12 w-full cursor-pointer items-center gap-3 border-b px-3 text-left last:border-b-0 hover:bg-muted/50"
-                  onClick={() => router.push(`/sessions/${session.session_id}`)}
-                >
-                  <span className={cn("size-2 rounded-full", statusDot(session.status))} />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-medium">{session.title ?? "New Session"}</div>
-                    <div className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground">
-                      <Clock className="size-3" />
-                      {new Date(session.last_seen_at ?? session.created_at).toLocaleString()}
-                    </div>
-                  </div>
-                  <Badge variant={session.status === "ready" ? "default" : session.status === "failed" ? "destructive" : "secondary"} className="h-5 text-[10px]">
-                    {session.status}
-                  </Badge>
-                  <ChevronRight className="size-4 text-muted-foreground" />
-                </button>
-              ))}
-            </div>
-          )}
-        </section>
-
-        <section>
-          <h2 className="mb-2 text-sm font-semibold">Environment Variables</h2>
-          <EnvVars vars={harness.env_vars ?? {}} />
-        </section>
+          </TabsContent>
+          <TabsContent value="env">
+            <EnvVars vars={harness.env_vars ?? {}} />
+          </TabsContent>
+        </Tabs>
       </div>
 
       <ShareHarnessDialog
@@ -326,6 +307,47 @@ function statusDot(status: string) {
   if (status === "ready") return "bg-emerald-500"
   if (status === "failed") return "bg-destructive"
   return "bg-amber-400"
+}
+
+function SessionsList({
+  sessions,
+  onOpenSession,
+}: {
+  sessions: HarnessWithSessions["sessions"]
+  onOpenSession: (sessionId: string) => void
+}) {
+  if (sessions.length === 0) {
+    return (
+      <div className="flex min-h-32 flex-col items-center justify-center rounded-md border text-muted-foreground">
+        <MessagesSquare className="mb-2 size-5" />
+        <p className="text-sm">No sessions</p>
+      </div>
+    )
+  }
+  return (
+    <div className="overflow-hidden rounded-md border">
+      {sessions.map(session => (
+        <button
+          key={session.session_id}
+          className="flex h-12 w-full cursor-pointer items-center gap-3 border-b px-3 text-left last:border-b-0 hover:bg-muted/50"
+          onClick={() => onOpenSession(session.session_id)}
+        >
+          <span className={cn("size-2 rounded-full", statusDot(session.status))} />
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm font-medium">{session.title ?? "New Session"}</div>
+            <div className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground">
+              <Clock className="size-3" />
+              {new Date(session.last_seen_at ?? session.created_at).toLocaleString()}
+            </div>
+          </div>
+          <Badge variant={session.status === "ready" ? "default" : session.status === "failed" ? "destructive" : "secondary"} className="h-5 text-[10px]">
+            {session.status}
+          </Badge>
+          <ChevronRight className="size-4 text-muted-foreground" />
+        </button>
+      ))}
+    </div>
+  )
 }
 
 function EnvVars({ vars }: { vars: Record<string, string> }) {
