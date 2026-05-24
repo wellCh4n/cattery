@@ -89,6 +89,7 @@ export function FileBrowserPanel({ harness }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const ready = harness.sandbox_status === "ready"
+  const canWrite = harness.access_role !== "viewer"
 
   const load = useCallback(async (path: string) => {
     setLoading(true)
@@ -166,7 +167,7 @@ export function FileBrowserPanel({ harness }: Props) {
   }
 
   async function uploadFiles(files: File[]) {
-    if (!ready || files.length === 0) return
+    if (!ready || !canWrite || files.length === 0) return
     setUploading(true)
     try {
       for (const file of files) {
@@ -187,27 +188,27 @@ export function FileBrowserPanel({ harness }: Props) {
   }
 
   function onDragEnter(e: React.DragEvent<HTMLDivElement>) {
-    if (!ready) return
+    if (!ready || !canWrite) return
     e.preventDefault()
     dragDepthRef.current += 1
     setDragging(true)
   }
 
   function onDragOver(e: React.DragEvent<HTMLDivElement>) {
-    if (!ready) return
+    if (!ready || !canWrite) return
     e.preventDefault()
     e.dataTransfer.dropEffect = "copy"
   }
 
   function onDragLeave(e: React.DragEvent<HTMLDivElement>) {
-    if (!ready) return
+    if (!ready || !canWrite) return
     e.preventDefault()
     dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
     if (dragDepthRef.current === 0) setDragging(false)
   }
 
   async function onDrop(e: React.DragEvent<HTMLDivElement>) {
-    if (!ready) return
+    if (!ready || !canWrite) return
     e.preventDefault()
     dragDepthRef.current = 0
     setDragging(false)
@@ -275,7 +276,7 @@ export function FileBrowserPanel({ harness }: Props) {
           size="icon"
           className="size-7 shrink-0"
           onClick={() => fileInputRef.current?.click()}
-          disabled={!ready || uploading}
+          disabled={!ready || uploading || !canWrite}
           title="Upload to this folder"
         >
           {uploading ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />}

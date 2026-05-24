@@ -10,6 +10,10 @@ import (
 const (
 	ProviderAnthropic = "anthropic"
 	ProviderOpenAI    = "openai"
+
+	AccessOwner  = "owner"
+	AccessViewer = "viewer"
+	AccessEditor = "editor"
 )
 
 type Harness struct {
@@ -23,6 +27,20 @@ type Harness struct {
 	TaskName      *string           `db:"task_name"      json:"task_name"`
 	SandboxURL    *string           `db:"sandbox_url"    json:"sandbox_url"`
 	CreatedAt     time.Time         `db:"created_at"     json:"created_at"`
+}
+
+type HarnessAccess struct {
+	Harness       *Harness `json:"harness"`
+	AccessRole    string   `json:"access_role"`
+	OwnerUsername string   `json:"owner_username"`
+}
+
+type HarnessShare struct {
+	HarnessID uuid.UUID `db:"harness_id" json:"harness_id"`
+	UserID    uuid.UUID `db:"user_id"    json:"user_id"`
+	Username  string    `db:"username"   json:"username"`
+	Role      string    `db:"role"       json:"role"`
+	CreatedAt time.Time `db:"created_at" json:"created_at"`
 }
 
 type User struct {

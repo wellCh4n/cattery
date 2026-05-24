@@ -80,9 +80,9 @@ DATABASE_URL='postgres://user:pw@host.docker.internal:5432/cattery?sslmode=disab
 
 Open <http://localhost:3000> and click `+` in the sidebar to create your first agent.
 
-> The first time `postgres` starts, the compose mount auto-applies
-> [`backend/internal/db/migrations/init.sql`](backend/internal/db/migrations/init.sql).
-> Bringing the volume down (`docker compose down -v`) re-runs it on next start.
+Database schema changes are versioned under
+[`backend/internal/db/migrations`](backend/internal/db/migrations) and applied
+automatically by the backend on startup using `goose`.
 
 ## Make targets
 

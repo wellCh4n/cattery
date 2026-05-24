@@ -27,6 +27,7 @@ func NewRouter(
 	filesH *FilesHandler,
 	authH *AuthHandler,
 	adminH *AdminHandler,
+	usersH *UsersHandler,
 	signer *auth.Signer,
 ) *echo.Echo {
 	e := echo.New()
@@ -34,11 +35,11 @@ func NewRouter(
 	// middleware.Logger() was deprecated in favor of RequestLogger; same
 	// fields, just opt-in instead of the legacy fixed format.
 	e.Use(middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
-		LogMethod:  true,
-		LogURI:     true,
-		LogStatus:  true,
-		LogLatency: true,
-		LogError:   true,
+		LogMethod:   true,
+		LogURI:      true,
+		LogStatus:   true,
+		LogLatency:  true,
+		LogError:    true,
 		HandleError: true,
 		LogValuesFunc: func(_ echo.Context, v middleware.RequestLoggerValues) error {
 			uri := redactURI(v.URI)
@@ -86,12 +87,18 @@ func NewRouter(
 	protected.GET("/auth/me", authH.Me)
 	protected.POST("/auth/change-password", authH.ChangePassword)
 
+	protected.GET("/users/search", usersH.Search)
+
 	harnesses := protected.Group("/harnesses")
 	harnesses.POST("", harnessH.Create)
 	harnesses.GET("", harnessH.List)
 	harnesses.GET("/:harness_id", harnessH.Get)
 	harnesses.PATCH("/:harness_id", harnessH.Update)
 	harnesses.DELETE("/:harness_id", harnessH.Delete)
+	harnesses.GET("/:harness_id/shares", harnessH.ListShares)
+	harnesses.POST("/:harness_id/shares", harnessH.CreateShare)
+	harnesses.PATCH("/:harness_id/shares/:user_id", harnessH.UpdateShare)
+	harnesses.DELETE("/:harness_id/shares/:user_id", harnessH.DeleteShare)
 	harnesses.POST("/:harness_id/sessions", sessionH.Create)
 	harnesses.GET("/:harness_id/sessions", sessionH.ListByHarness)
 	harnesses.DELETE("/:harness_id/sandbox", sessionH.StopSandbox)

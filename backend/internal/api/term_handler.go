@@ -19,10 +19,11 @@ import (
 // 双向透传字节；文本帧（控制 JSON，如 resize）也原样转发。
 // 这个 endpoint 只对 terminal kind 的 harness 有效。
 func (h *SessionHandler) Term(c echo.Context) error {
-	sess, inst, err := resolveOwnedSession(c, h.sessionStore, h.harnessStore)
+	sess, access, err := requireWritableSession(c, h.sessionStore, h.harnessStore)
 	if err != nil {
 		return err
 	}
+	inst := access.Harness
 	if harness.KindFor(inst.Type) != harness.KindTerminal {
 		return echo.NewHTTPError(http.StatusBadRequest, "harness type is not terminal kind")
 	}

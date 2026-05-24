@@ -48,6 +48,20 @@ func (s *HarnessStore) GetForOwner(ctx context.Context, id, ownerID uuid.UUID) (
 	return scanHarness(row)
 }
 
+func (s *HarnessStore) GetAccessible(ctx context.Context, id, userID uuid.UUID) (*model.HarnessAccess, error) {
+	row := s.db.QueryRowxContext(ctx, `
+		SELECT `+prefixedHarnessColumns("h")+`,
+		       CASE WHEN h.owner_user_id=$2 THEN $3 ELSE hs.role END AS access_role,
+		       u.username AS owner_username
+		FROM harnesses h
+		JOIN users u ON u.user_id = h.owner_user_id
+		LEFT JOIN harness_shares hs ON hs.harness_id = h.harness_id AND hs.user_id = $2
+		WHERE h.harness_id=$1 AND (h.owner_user_id=$2 OR hs.user_id IS NOT NULL)`,
+		id, userID, model.AccessOwner,
+	)
+	return scanHarnessAccess(row)
+}
+
 func (s *HarnessStore) ListForOwner(ctx context.Context, ownerID uuid.UUID) ([]*model.Harness, error) {
 	rows, err := s.db.QueryxContext(ctx,
 		`SELECT `+harnessColumns+` FROM harnesses WHERE owner_user_id=$1 ORDER BY created_at DESC`,
@@ -66,6 +80,35 @@ func (s *HarnessStore) ListForOwner(ctx context.Context, ownerID uuid.UUID) ([]*
 		harnesses = append(harnesses, h)
 	}
 	return harnesses, nil
+}
+
+func (s *HarnessStore) ListAccessible(ctx context.Context, userID uuid.UUID) ([]*model.HarnessAccess, error) {
+	rows, err := s.db.QueryxContext(ctx, `
+		SELECT `+prefixedHarnessColumns("h")+`,
+		       CASE WHEN h.owner_user_id=$1 THEN $2 ELSE hs.role END AS access_role,
+		       u.username AS owner_username
+		FROM harnesses h
+		JOIN users u ON u.user_id = h.owner_user_id
+		LEFT JOIN harness_shares hs ON hs.harness_id = h.harness_id AND hs.user_id = $1
+		WHERE h.owner_user_id=$1 OR hs.user_id IS NOT NULL
+		ORDER BY
+			CASE WHEN h.owner_user_id=$1 THEN 0 ELSE 1 END,
+			h.created_at DESC`,
+		userID, model.AccessOwner,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*model.HarnessAccess
+	for rows.Next() {
+		access, err := scanHarnessAccess(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, access)
+	}
+	return out, nil
 }
 
 // UpdateNameForOwner returns ErrHarnessNotFound if no row matches both
@@ -128,6 +171,21 @@ type scanner interface {
 	Scan(dest ...any) error
 }
 
+func prefixedHarnessColumns(alias string) string {
+	cols := []string{
+		"harness_id", "owner_user_id", "harness_name", "model", "type",
+		"env_vars", "sandbox_status", "task_name", "sandbox_url", "created_at",
+	}
+	out := ""
+	for i, col := range cols {
+		if i > 0 {
+			out += ", "
+		}
+		out += alias + "." + col
+	}
+	return out
+}
+
 func scanHarness(row scanner) (*model.Harness, error) {
 	var h model.Harness
 	var envRaw []byte
@@ -144,4 +202,25 @@ func scanHarness(row scanner) (*model.Harness, error) {
 	}
 	_ = json.Unmarshal(envRaw, &h.EnvVars)
 	return &h, nil
+}
+
+func scanHarnessAccess(row scanner) (*model.HarnessAccess, error) {
+	var h model.Harness
+	var envRaw []byte
+	var role string
+	var ownerUsername string
+	err := row.Scan(
+		&h.HarnessID, &h.OwnerUserID, &h.HarnessName, &h.Model, &h.Type,
+		&envRaw,
+		&h.SandboxStatus, &h.TaskName, &h.SandboxURL, &h.CreatedAt,
+		&role, &ownerUsername,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrHarnessNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	_ = json.Unmarshal(envRaw, &h.EnvVars)
+	return &model.HarnessAccess{Harness: &h, AccessRole: role, OwnerUsername: ownerUsername}, nil
 }

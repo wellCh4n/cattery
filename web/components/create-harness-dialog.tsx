@@ -89,13 +89,11 @@ export function CreateHarnessDialog({ onCreated }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger
-        render={
-          <Button variant="ghost" size="icon-sm" title="New harness">
-            <Plus />
-          </Button>
-        }
-      />
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="icon-sm" title="New harness">
+          <Plus />
+        </Button>
+      </DialogTrigger>
       <DialogContent className="sm:max-w-[620px]">
         <DialogHeader>
           <DialogTitle>Create Harness</DialogTitle>
@@ -215,7 +213,9 @@ export function CreateHarnessDialog({ onCreated }: Props) {
         </form>
 
         <DialogFooter>
-          <DialogClose render={<Button variant="outline" disabled={loading}>Cancel</Button>} />
+          <DialogClose asChild>
+            <Button variant="outline" disabled={loading}>Cancel</Button>
+          </DialogClose>
           <Button
             type="submit"
             form="create-harness-form"

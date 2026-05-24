@@ -31,6 +31,7 @@ export function TerminalView({ session, harness }: Props) {
   const stateRef = useRef<{ disposed: boolean; term: Terminal | null }>({ disposed: false, term: null })
   const isDarkRef = useRef(false)
   const [isDark, setIsDark] = useState(false)
+  const canWrite = harness.access_role !== "viewer"
 
   useEffect(() => {
     const root = document.documentElement
@@ -57,7 +58,7 @@ export function TerminalView({ session, harness }: Props) {
     const localState = stateRef.current
     localState.disposed = false
 
-    if (session.status !== "ready" || !session.harness_session_id) return
+    if (!canWrite || session.status !== "ready" || !session.harness_session_id) return
 
     const term = new Terminal({
       // The unicode-range-pinned families ("Cattery Braille Mono",
@@ -159,7 +160,7 @@ export function TerminalView({ session, harness }: Props) {
       try { ws.close() } catch { /* already closed */ }
       term.dispose()
     }
-  }, [session.session_id, session.status, session.harness_session_id, isDark])
+  }, [canWrite, session.session_id, session.status, session.harness_session_id, isDark])
 
   const title = session.title ?? "New Session"
   const harnessName = harness.harness_name ?? "Untitled"
@@ -186,6 +187,16 @@ export function TerminalView({ session, harness }: Props) {
       <div className="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground">
         <Loader2 className="size-5 animate-spin" />
         <p className="text-xs">{session.phase ?? "starting sandbox…"}</p>
+      </div>
+    )
+  } else if (!canWrite) {
+    body = (
+      <div className="flex h-full flex-col items-center justify-center text-center px-6">
+        <div className="rounded-full bg-muted p-4 mb-4">
+          <Bot className="size-7 text-muted-foreground" />
+        </div>
+        <p className="text-sm font-medium">Viewer access</p>
+        <p className="text-xs text-muted-foreground mt-1">Terminal sessions require editor access.</p>
       </div>
     )
   } else {
