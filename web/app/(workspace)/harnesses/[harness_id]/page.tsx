@@ -8,15 +8,29 @@ import {
   CalendarDays,
   ChevronRight,
   Clock,
+  Check,
   Loader2,
   MessagesSquare,
+  Pencil,
   Play,
+  Share2,
   Shield,
+  Trash2,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { HarnessIcon } from "@/components/harness-icon"
 import { ModelIcon } from "@/components/model-icon"
+import { ShareHarnessDialog } from "@/components/share-harness-dialog"
 import { cn } from "@/lib/utils"
 import { type HarnessWithSessions, useWorkspaceStore } from "@/lib/workspace-store"
 
@@ -40,8 +54,16 @@ export default function HarnessPage({ params }: { params: Promise<PageParams> })
   const loaded = useWorkspaceStore(state => state.loaded)
   const loadHarnesses = useWorkspaceStore(state => state.loadHarnesses)
   const createSession = useWorkspaceStore(state => state.createSession)
+  const renameHarness = useWorkspaceStore(state => state.renameHarness)
+  const deleteHarness = useWorkspaceStore(state => state.deleteHarness)
   const [launching, setLaunching] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [editingName, setEditingName] = useState(false)
+  const [nameValue, setNameValue] = useState("")
+  const [renaming, setRenaming] = useState(false)
+  const [shareOpen, setShareOpen] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
     if (loaded && harness) return
@@ -66,6 +88,33 @@ export default function HarnessPage({ params }: { params: Promise<PageParams> })
     }
   }
 
+  async function commitRename() {
+    if (!harness) return
+    const next = nameValue.trim()
+    if (next === (harness.harness_name ?? "").trim()) {
+      setEditingName(false)
+      return
+    }
+    setRenaming(true)
+    try {
+      await renameHarness(harness.harness_id, next)
+      setEditingName(false)
+    } finally {
+      setRenaming(false)
+    }
+  }
+
+  async function confirmDelete() {
+    if (!harness) return
+    setDeleting(true)
+    try {
+      await deleteHarness(harness.harness_id)
+      router.push("/")
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   if (error) {
     return (
       <div className="flex h-full flex-col items-center justify-center text-center px-6">
@@ -87,6 +136,7 @@ export default function HarnessPage({ params }: { params: Promise<PageParams> })
 
   const sessions = harness.sessions.filter(s => s.status !== "dead")
   const canCreate = harness.sandbox_status === "ready" && harness.access_role !== "viewer"
+  const isOwner = harness.access_role === "owner"
 
   return (
     <div className="h-full overflow-y-auto bg-background">
@@ -97,7 +147,28 @@ export default function HarnessPage({ params }: { params: Promise<PageParams> })
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="truncate text-xl font-semibold">{harness.harness_name ?? "Untitled"}</h1>
+              {editingName ? (
+                <div className="flex min-w-0 flex-1 items-center gap-1.5">
+                  <Input
+                    className="h-8 max-w-sm text-base font-semibold"
+                    value={nameValue}
+                    disabled={renaming}
+                    onChange={e => setNameValue(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === "Enter") void commitRename()
+                      if (e.key === "Escape") setEditingName(false)
+                    }}
+                    autoFocus
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                  <Button size="icon-sm" disabled={renaming} onClick={commitRename} title="Save">
+                    {renaming ? <Loader2 className="animate-spin" /> : <Check />}
+                  </Button>
+                </div>
+              ) : (
+                <h1 className="truncate text-xl font-semibold">{harness.harness_name ?? "Untitled"}</h1>
+              )}
               <Badge variant={harness.access_role === "owner" ? "default" : "secondary"} className="h-5 text-[10px] font-normal">
                 {harness.access_role}
               </Badge>
@@ -118,6 +189,38 @@ export default function HarnessPage({ params }: { params: Promise<PageParams> })
               </span>
             </div>
           </div>
+          {isOwner && !editingName && (
+            <>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => {
+                  setNameValue(harness.harness_name ?? "")
+                  setEditingName(true)
+                }}
+                title="Rename"
+              >
+                <Pencil />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => setShareOpen(true)}
+                title="Share"
+              >
+                <Share2 />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => setDeleteOpen(true)}
+                title="Delete harness"
+                className="text-muted-foreground hover:text-destructive"
+              >
+                <Trash2 />
+              </Button>
+            </>
+          )}
           <Button
             size="sm"
             disabled={!canCreate || launching}
@@ -175,6 +278,32 @@ export default function HarnessPage({ params }: { params: Promise<PageParams> })
           <EnvVars vars={harness.env_vars ?? {}} />
         </section>
       </div>
+
+      <ShareHarnessDialog
+        harness={harness}
+        open={shareOpen}
+        onOpenChange={setShareOpen}
+      />
+
+      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogContent showCloseButton={false}>
+          <DialogHeader>
+            <DialogTitle>Delete harness</DialogTitle>
+            <DialogDescription>
+              Delete <strong>{harness.harness_name ?? "Untitled"}</strong> and all its sessions? This will also stop the sandbox.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteOpen(false)} disabled={deleting}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmDelete} disabled={deleting}>
+              {deleting ? <Loader2 className="size-3.5 animate-spin" /> : null}
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
