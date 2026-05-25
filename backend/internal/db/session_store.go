@@ -76,3 +76,37 @@ func (s *SessionStore) MarkStopped(ctx context.Context, id uuid.UUID) error {
 	)
 	return err
 }
+
+// HardDelete removes the row entirely. Caller is responsible for first aborting
+// the harness-side session so we don't leave it running.
+func (s *SessionStore) HardDelete(ctx context.Context, id uuid.UUID) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE session_id=$1`, id)
+	return err
+}
+
+// PurgeDeadByHarness removes all dead sessions under a single harness and
+// returns the number of rows deleted. Used by the per-harness "clean up" UI.
+func (s *SessionStore) PurgeDeadByHarness(ctx context.Context, harnessID uuid.UUID) (int64, error) {
+	res, err := s.db.ExecContext(ctx,
+		`DELETE FROM sessions WHERE harness_id=$1 AND status='dead'`, harnessID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
+// PurgeDeadByOwner removes every dead session that belongs (transitively) to a
+// user's owned harnesses. Sessions inside *shared* harnesses are left alone —
+// that's the harness owner's call to make, not the share recipient's.
+func (s *SessionStore) PurgeDeadByOwner(ctx context.Context, ownerUserID uuid.UUID) (int64, error) {
+	res, err := s.db.ExecContext(ctx, `
+		DELETE FROM sessions
+		WHERE status='dead'
+		  AND harness_id IN (SELECT harness_id FROM harnesses WHERE owner_user_id=$1)
+	`, ownerUserID)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}

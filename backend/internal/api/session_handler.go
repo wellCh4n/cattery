@@ -203,8 +203,38 @@ func (h *SessionHandler) Delete(c echo.Context) error {
 	if inst.SandboxURL != nil && sess.HarnessSessionID != nil {
 		_ = h.harnessClient.Abort(c.Request().Context(), *inst.SandboxURL, *sess.HarnessSessionID)
 	}
-	_ = h.sessionStore.MarkStopped(c.Request().Context(), sess.SessionID)
+	if err := h.sessionStore.HardDelete(c.Request().Context(), sess.SessionID); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
 	return c.NoContent(http.StatusNoContent)
+}
+
+// PurgeDeadByHarness 删除单个 harness 下所有 status='dead' 的 session 行。
+// 仅 owner 可调用 — share 用户没必要替 owner 清理。
+func (h *SessionHandler) PurgeDeadByHarness(c echo.Context) error {
+	access, err := requireManageableHarness(c, h.harnessStore)
+	if err != nil {
+		return err
+	}
+	n, err := h.sessionStore.PurgeDeadByHarness(c.Request().Context(), access.Harness.HarnessID)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	return c.JSON(http.StatusOK, echo.Map{"deleted": n})
+}
+
+// PurgeDeadAll 删除当前用户所拥有的所有 harness 下的 dead session。
+// 共享 harness 内的 dead session 不归这里管 — 让 harness owner 自己决定。
+func (h *SessionHandler) PurgeDeadAll(c echo.Context) error {
+	userID, ok := UserIDFromContext(c)
+	if !ok {
+		return echo.ErrUnauthorized
+	}
+	n, err := h.sessionStore.PurgeDeadByOwner(c.Request().Context(), userID)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	return c.JSON(http.StatusOK, echo.Map{"deleted": n})
 }
 
 // Abort 中止当前 session 的进行中对话

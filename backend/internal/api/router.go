@@ -126,6 +126,7 @@ func NewRouter(
 	harnesses.DELETE("/:harness_id/shares/:user_id", harnessH.DeleteShare)
 	harnesses.POST("/:harness_id/sessions", sessionH.Create)
 	harnesses.GET("/:harness_id/sessions", sessionH.ListByHarness)
+	harnesses.POST("/:harness_id/sessions/purge", sessionH.PurgeDeadByHarness)
 	harnesses.DELETE("/:harness_id/sandbox", sessionH.StopSandbox)
 	harnesses.GET("/:harness_id/files/list", filesH.List)
 	harnesses.GET("/:harness_id/files/read", filesH.Read)
@@ -137,6 +138,7 @@ func NewRouter(
 	harnesses.POST("/:harness_id/files/rename", filesH.Rename)
 
 	sessions := protected.Group("/sessions")
+	sessions.POST("/purge", sessionH.PurgeDeadAll)
 	sessions.GET("/:session_id", sessionH.Get)
 	sessions.POST("/:session_id/message", sessionH.SendMessage)
 	sessions.POST("/:session_id/abort", sessionH.Abort)

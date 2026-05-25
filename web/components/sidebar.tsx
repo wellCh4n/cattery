@@ -6,6 +6,7 @@ import {
   Bot,
   Cat,
   ChevronRight,
+  Eraser,
   Info,
   KeyRound,
   Loader2,
@@ -13,10 +14,12 @@ import {
   MessagesSquare,
   Plus,
   Shield,
+  Trash2,
   UserCircle2,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { ChangePasswordDialog } from "@/components/change-password-dialog"
+import { ConfirmDialog } from "@/components/confirm-dialog"
 import { CreateHarnessDialog } from "@/components/create-harness-dialog"
 import { HarnessIcon } from "@/components/harness-icon"
 import { ThemeToggle } from "@/components/theme-toggle"
@@ -42,7 +45,11 @@ export function Sidebar() {
   const toggleExpand = useWorkspaceStore(state => state.toggleExpand)
   const addHarness = useWorkspaceStore(state => state.addHarness)
   const createSession = useWorkspaceStore(state => state.createSession)
+  const deleteSession = useWorkspaceStore(state => state.deleteSession)
+  const purgeDeadSessions = useWorkspaceStore(state => state.purgeDeadSessions)
   const [launching, setLaunching] = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<{ session_id: string; harness_id: string; title: string } | null>(null)
+  const [purgeAllOpen, setPurgeAllOpen] = useState(false)
   const user = useAuthStore(s => s.user)
   const logout = useAuthStore(s => s.logout)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
@@ -189,9 +196,25 @@ export function Sidebar() {
                       <span className={cn("size-1.5 shrink-0 rounded-full", statusDot(sess.status))} />
                     )}
                     <span className="flex-1 truncate text-left">{sess.title ?? "New Session"}</span>
-                    <span className="max-w-[60px] shrink-0 truncate text-[10px] text-muted-foreground/60">
+                    <span className="max-w-[60px] shrink-0 truncate text-[10px] text-muted-foreground/60 group-hover/recent:hidden">
                       {sess.harness_name ?? "Untitled"}
                     </span>
+                    <button
+                      type="button"
+                      title="Delete session"
+                      aria-label="Delete session"
+                      onClick={e => {
+                        e.stopPropagation()
+                        setDeleteTarget({
+                          session_id: sess.session_id,
+                          harness_id: sess.harness_id,
+                          title: sess.title ?? "New Session",
+                        })
+                      }}
+                      className="hidden size-5 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/15 hover:text-destructive group-hover/recent:inline-flex"
+                    >
+                      <Trash2 className="size-3" />
+                    </button>
                   </div>
                 ))}
               </div>
@@ -219,6 +242,11 @@ export function Sidebar() {
             onNewSession={handleNewSession}
             onRouteSession={id => router.push(`/sessions/${id}`)}
             onRouteHarness={id => router.push(`/harnesses/${id}`)}
+            onRequestDeleteSession={(sess, harnessId) => setDeleteTarget({
+              session_id: sess.session_id,
+              harness_id: harnessId,
+              title: sess.title ?? "New Session",
+            })}
             canCreateSession={canCreateSession}
             newSessionTitle={newSessionTitle}
             statusDot={statusDot}
@@ -237,6 +265,11 @@ export function Sidebar() {
             onNewSession={handleNewSession}
             onRouteSession={id => router.push(`/sessions/${id}`)}
             onRouteHarness={id => router.push(`/harnesses/${id}`)}
+            onRequestDeleteSession={(sess, harnessId) => setDeleteTarget({
+              session_id: sess.session_id,
+              harness_id: harnessId,
+              title: sess.title ?? "New Session",
+            })}
             canCreateSession={canCreateSession}
             newSessionTitle={newSessionTitle}
             statusDot={statusDot}
@@ -264,6 +297,13 @@ export function Sidebar() {
                 </button>
               )}
               <button
+                className="flex h-8 w-full cursor-pointer items-center gap-2 px-2.5 text-left hover:bg-muted"
+                onClick={() => { setUserMenuOpen(false); setPurgeAllOpen(true) }}
+              >
+                <Eraser className="size-3.5 text-muted-foreground" />
+                Purge dead sessions
+              </button>
+              <button
                 className="flex h-8 w-full cursor-pointer items-center gap-2 px-2.5 text-left text-destructive hover:bg-muted"
                 onClick={() => { setUserMenuOpen(false); logout() }}
               >
@@ -289,6 +329,41 @@ export function Sidebar() {
       </aside>
 
       <ChangePasswordDialog open={changePasswordOpen} onOpenChange={setChangePasswordOpen} />
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onOpenChange={open => { if (!open) setDeleteTarget(null) }}
+        title="Delete session?"
+        description={
+          <>
+            <span className="font-medium text-foreground">{deleteTarget?.title}</span>
+            {" "}will be permanently deleted along with its transcript. This cannot be undone.
+          </>
+        }
+        confirmLabel="Delete"
+        destructive
+        onConfirm={async () => {
+          if (!deleteTarget) return
+          const target = deleteTarget
+          await deleteSession(target.session_id, target.harness_id)
+          if (selectedSessionId === target.session_id) {
+            router.push(`/harnesses/${target.harness_id}`)
+          }
+        }}
+      />
+
+      <ConfirmDialog
+        open={purgeAllOpen}
+        onOpenChange={setPurgeAllOpen}
+        title="Purge dead sessions?"
+        description="Permanently delete all sessions whose sandbox has died, across every harness you own. Shared harnesses are untouched."
+        confirmLabel="Purge"
+        destructive
+        onConfirm={async () => {
+          await purgeDeadSessions()
+          await loadHarnesses()
+        }}
+      />
     </>
   )
 }
@@ -305,6 +380,7 @@ function HarnessListSection({
   onNewSession,
   onRouteSession,
   onRouteHarness,
+  onRequestDeleteSession,
   canCreateSession,
   newSessionTitle,
   statusDot,
@@ -321,6 +397,7 @@ function HarnessListSection({
   onNewSession: (harness: HarnessWithSessions) => void
   onRouteSession: (sessionId: string) => void
   onRouteHarness: (harnessId: string) => void
+  onRequestDeleteSession: (sess: Session, harnessId: string) => void
   canCreateSession: (harness: HarnessWithSessions) => boolean
   newSessionTitle: (harness: HarnessWithSessions) => string
   statusDot: (status: string) => string
@@ -335,104 +412,213 @@ function HarnessListSection({
         </div>
       )}
       {harnesses.map(harness => (
-        <div key={harness.harness_id} className="mb-1 px-1.5">
-          <div className={cn(
-            "group flex h-8 items-center gap-0.5 rounded-md pl-1 pr-0.5 transition-colors",
-            selectedHarnessId === harness.harness_id ? "bg-muted text-foreground" : "hover:bg-muted"
-          )}>
-            <button
-              className="flex h-full min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-left text-sm font-medium outline-none"
-              onClick={() => onToggleExpand(harness.harness_id)}
-              title={harness.expanded ? "Collapse" : "Expand"}
-            >
-              <ChevronRight
-                className={cn(
-                  "size-3.5 shrink-0 text-muted-foreground transition-transform",
-                  harness.expanded && "rotate-90"
-                )}
-              />
-              {sandboxDot(harness.sandbox_status) && (
-                <span
-                  title={`sandbox: ${harness.sandbox_status}`}
-                  className={cn("size-1.5 shrink-0 rounded-full", sandboxDot(harness.sandbox_status))}
-                />
-              )}
-              <HarnessIcon id={harness.type} className="size-3.5 shrink-0 text-muted-foreground" />
-              <span className="min-w-0 flex-1 truncate">{harness.harness_name ?? "Untitled"}</span>
-              <Badge
-                variant="secondary"
-                className="h-4 shrink-0 px-1.5 text-[10px] font-normal group-hover:hidden"
-              >
-                {harness.access_role === "owner" ? typeLabels[harness.type] ?? harness.type : harness.access_role}
-              </Badge>
-            </button>
-            <button
-              className={cn(
-                "hidden size-6 items-center justify-center rounded transition-colors focus-visible:inline-flex group-hover:inline-flex disabled:cursor-not-allowed disabled:opacity-40",
-                canCreateSession(harness)
-                  ? "cursor-pointer text-muted-foreground hover:bg-foreground/10 hover:text-foreground"
-                  : "cursor-not-allowed text-muted-foreground/40 hover:bg-transparent hover:text-muted-foreground/40"
-              )}
-              title={newSessionTitle(harness)}
-              disabled={launching === harness.harness_id || !canCreateSession(harness)}
-              onClick={() => onNewSession(harness)}
-            >
-              {launching === harness.harness_id
-                ? <Loader2 className="size-3.5 animate-spin" />
-                : <Plus className="size-3.5" />}
-            </button>
-            <button
-              className="hidden size-6 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus-visible:inline-flex group-hover:inline-flex"
-              title="Harness info"
-              onClick={() => onRouteHarness(harness.harness_id)}
-            >
-              <Info className="size-3.5" />
-            </button>
-          </div>
+        <HarnessRow
+          key={harness.harness_id}
+          harness={harness}
+          selected={selectedHarnessId === harness.harness_id}
+          selectedSessionId={selectedSessionId}
+          launching={launching}
+          busySessions={busySessions}
+          typeLabels={typeLabels}
+          onToggleExpand={onToggleExpand}
+          onNewSession={onNewSession}
+          onRouteSession={onRouteSession}
+          onRouteHarness={onRouteHarness}
+          onRequestDeleteSession={onRequestDeleteSession}
+          canCreateSession={canCreateSession}
+          newSessionTitle={newSessionTitle}
+          statusDot={statusDot}
+          sandboxDot={sandboxDot}
+        />
+      ))}
+    </div>
+  )
+}
 
-          {harness.access_role !== "owner" && (
-            <div className="mb-1 -mt-0.5 ml-8 truncate text-[10px] text-muted-foreground/70">
-              {harness.owner_username} · {harness.access_role}
-            </div>
+function HarnessRow({
+  harness,
+  selected,
+  selectedSessionId,
+  launching,
+  busySessions,
+  typeLabels,
+  onToggleExpand,
+  onNewSession,
+  onRouteSession,
+  onRouteHarness,
+  onRequestDeleteSession,
+  canCreateSession,
+  newSessionTitle,
+  statusDot,
+  sandboxDot,
+}: {
+  harness: HarnessWithSessions
+  selected: boolean
+  selectedSessionId: string | null
+  launching: string | null
+  busySessions: Set<string>
+  typeLabels: Record<string, string>
+  onToggleExpand: (harnessId: string) => void
+  onNewSession: (harness: HarnessWithSessions) => void
+  onRouteSession: (sessionId: string) => void
+  onRouteHarness: (harnessId: string) => void
+  onRequestDeleteSession: (sess: Session, harnessId: string) => void
+  canCreateSession: (harness: HarnessWithSessions) => boolean
+  newSessionTitle: (harness: HarnessWithSessions) => string
+  statusDot: (status: string) => string
+  sandboxDot: (status: string) => string | null
+}) {
+  const clickTimerRef = useRef<number | null>(null)
+
+  useEffect(() => () => {
+    if (clickTimerRef.current != null) window.clearTimeout(clickTimerRef.current)
+  }, [])
+
+  function cancelPendingClick() {
+    if (clickTimerRef.current != null) {
+      window.clearTimeout(clickTimerRef.current)
+      clickTimerRef.current = null
+    }
+  }
+
+  function handleRowClick() {
+    cancelPendingClick()
+    clickTimerRef.current = window.setTimeout(() => {
+      clickTimerRef.current = null
+      onRouteHarness(harness.harness_id)
+    }, 220)
+  }
+
+  function handleRowDoubleClick() {
+    cancelPendingClick()
+    onToggleExpand(harness.harness_id)
+  }
+
+  function handleChevronClick(e: React.MouseEvent) {
+    e.stopPropagation()
+    cancelPendingClick()
+    onToggleExpand(harness.harness_id)
+  }
+
+  return (
+    <div className="mb-1 px-1.5">
+      <div
+        role="button"
+        className={cn(
+          "group flex h-8 cursor-pointer items-center gap-0.5 rounded-md pl-1 pr-0.5 transition-colors select-none",
+          selected ? "bg-muted text-foreground" : "hover:bg-muted"
+        )}
+        onClick={handleRowClick}
+        onDoubleClick={handleRowDoubleClick}
+        title="Click to open · double-click to expand"
+      >
+        <button
+          type="button"
+          className="flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
+          onClick={handleChevronClick}
+          title={harness.expanded ? "Collapse" : "Expand"}
+          aria-label={harness.expanded ? "Collapse" : "Expand"}
+        >
+          <ChevronRight
+            className={cn(
+              "size-3.5 transition-transform",
+              harness.expanded && "rotate-90"
+            )}
+          />
+        </button>
+        <div className="flex h-full min-w-0 flex-1 items-center gap-1.5 text-sm font-medium">
+          {sandboxDot(harness.sandbox_status) && (
+            <span
+              title={`sandbox: ${harness.sandbox_status}`}
+              className={cn("size-1.5 shrink-0 rounded-full", sandboxDot(harness.sandbox_status))}
+            />
           )}
+          <HarnessIcon id={harness.type} className="size-3.5 shrink-0 text-muted-foreground" />
+          <span className="min-w-0 flex-1 truncate">{harness.harness_name ?? "Untitled"}</span>
+          <Badge
+            variant="secondary"
+            className="h-4 shrink-0 px-1.5 text-[10px] font-normal group-hover:hidden"
+          >
+            {harness.access_role === "owner" ? typeLabels[harness.type] ?? harness.type : harness.access_role}
+          </Badge>
+        </div>
+        <button
+          className={cn(
+            "hidden size-6 items-center justify-center rounded transition-colors focus-visible:inline-flex group-hover:inline-flex disabled:cursor-not-allowed disabled:opacity-40",
+            canCreateSession(harness)
+              ? "cursor-pointer text-muted-foreground hover:bg-foreground/10 hover:text-foreground"
+              : "cursor-not-allowed text-muted-foreground/40 hover:bg-transparent hover:text-muted-foreground/40"
+          )}
+          title={newSessionTitle(harness)}
+          disabled={launching === harness.harness_id || !canCreateSession(harness)}
+          onClick={e => { e.stopPropagation(); cancelPendingClick(); onNewSession(harness) }}
+        >
+          {launching === harness.harness_id
+            ? <Loader2 className="size-3.5 animate-spin" />
+            : <Plus className="size-3.5" />}
+        </button>
+        <button
+          className="hidden size-6 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus-visible:inline-flex group-hover:inline-flex"
+          title="Harness info"
+          onClick={e => { e.stopPropagation(); cancelPendingClick(); onRouteHarness(harness.harness_id) }}
+        >
+          <Info className="size-3.5" />
+        </button>
+      </div>
 
-          {harness.expanded && (
-            <div className="ml-3.5 mt-1 space-y-0.5 border-l border-border/60 pl-1.5">
-              {harness.sessions.length === 0 ? (
-                <div className="flex items-center gap-1.5 px-2 py-1 text-[11px] text-muted-foreground">
-                  <MessagesSquare className="size-3" />
-                  <span>No sessions</span>
-                </div>
-              ) : (
-                harness.sessions.map(sess => (
-                  <div
-                    key={sess.session_id}
-                    className={cn(
-                      "group/sess flex h-7 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-xs transition-colors",
-                      "text-muted-foreground hover:bg-muted hover:text-foreground",
-                      selectedSessionId === sess.session_id && "bg-muted font-medium text-foreground"
-                    )}
-                    onClick={() => onRouteSession(sess.session_id)}
-                  >
-                    {busySessions.has(sess.session_id) ? (
-                      <Loader2 className="size-3 shrink-0 animate-spin text-amber-500" />
-                    ) : (
-                      <span className={cn("size-1.5 shrink-0 rounded-full", statusDot(sess.status))} />
-                    )}
-                    <span className="flex-1 truncate">{sess.title ?? "New Session"}</span>
-                    <span className="shrink-0 text-[10px] text-muted-foreground/70">
-                      {new Date(sess.created_at).toLocaleDateString(undefined, {
-                        month: "short",
-                        day: "numeric",
-                      })}
-                    </span>
-                  </div>
-                ))
-              )}
+      {harness.access_role !== "owner" && (
+        <div className="mb-1 -mt-0.5 ml-8 truncate text-[10px] text-muted-foreground/70">
+          {harness.owner_username} · {harness.access_role}
+        </div>
+      )}
+
+      {harness.expanded && (
+        <div className="ml-3.5 mt-1 space-y-0.5 border-l border-border/60 pl-1.5">
+          {harness.sessions.length === 0 ? (
+            <div className="flex items-center gap-1.5 px-2 py-1 text-[11px] text-muted-foreground">
+              <MessagesSquare className="size-3" />
+              <span>No sessions</span>
             </div>
+          ) : (
+            harness.sessions.map(sess => (
+              <div
+                key={sess.session_id}
+                className={cn(
+                  "group/sess flex h-7 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-xs transition-colors",
+                  "text-muted-foreground hover:bg-muted hover:text-foreground",
+                  selectedSessionId === sess.session_id && "bg-muted font-medium text-foreground"
+                )}
+                onClick={() => onRouteSession(sess.session_id)}
+              >
+                {busySessions.has(sess.session_id) ? (
+                  <Loader2 className="size-3 shrink-0 animate-spin text-amber-500" />
+                ) : (
+                  <span className={cn("size-1.5 shrink-0 rounded-full", statusDot(sess.status))} />
+                )}
+                <span className="flex-1 truncate">{sess.title ?? "New Session"}</span>
+                <span className="shrink-0 text-[10px] text-muted-foreground/70 group-hover/sess:hidden">
+                  {new Date(sess.created_at).toLocaleDateString(undefined, {
+                    month: "short",
+                    day: "numeric",
+                  })}
+                </span>
+                <button
+                  type="button"
+                  title="Delete session"
+                  aria-label="Delete session"
+                  onClick={e => {
+                    e.stopPropagation()
+                    onRequestDeleteSession(sess, harness.harness_id)
+                  }}
+                  className="hidden size-5 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/15 hover:text-destructive group-hover/sess:inline-flex"
+                >
+                  <Trash2 className="size-3" />
+                </button>
+              </div>
+            ))
           )}
         </div>
-      ))}
+      )}
     </div>
   )
 }
