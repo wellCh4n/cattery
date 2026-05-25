@@ -20,12 +20,42 @@ export interface HarnessWithSessions extends Harness {
   expanded: boolean
 }
 
+const EXPANDED_HARNESSES_KEY = "cattery:expanded-harnesses"
+
+function readExpandedHarnessIds(): Set<string> {
+  if (typeof window === "undefined") return new Set()
+  try {
+    const raw = window.localStorage.getItem(EXPANDED_HARNESSES_KEY)
+    const ids = raw ? JSON.parse(raw) : []
+    return new Set(Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : [])
+  } catch {
+    return new Set()
+  }
+}
+
+function writeExpandedHarnessIds(ids: Set<string>) {
+  if (typeof window === "undefined") return
+  try {
+    window.localStorage.setItem(EXPANDED_HARNESSES_KEY, JSON.stringify([...ids]))
+  } catch {
+    // Ignore browser storage failures; the in-memory state is still correct.
+  }
+}
+
+function setStoredHarnessExpanded(harnessId: string, expanded: boolean) {
+  const ids = readExpandedHarnessIds()
+  if (expanded) ids.add(harnessId)
+  else ids.delete(harnessId)
+  writeExpandedHarnessIds(ids)
+}
+
 interface WorkspaceStore {
   harnesses: HarnessWithSessions[]
   busySessions: Set<string>
   loaded: boolean
   loadHarnesses: () => Promise<void>
   toggleExpand: (harnessId: string) => void
+  setHarnessesExpanded: (harnessIds: string[], expanded: boolean) => void
   updateSessionTitle: (sessionId: string, title: string) => void
   renameHarness: (harnessId: string, name: string) => Promise<Harness>
   renameSession: (sessionId: string, title: string) => Promise<Session>
@@ -45,14 +75,16 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
 
   loadHarnesses: async () => {
     const list = await listHarnesses()
+    const storedExpanded = readExpandedHarnessIds()
     const withSessions = await Promise.all(
       list.map(async h => ({ harness: h, sessions: await listSessions(h.harness_id).catch(() => []) }))
     )
+    writeExpandedHarnessIds(new Set([...storedExpanded].filter(id => list.some(h => h.harness_id === id))))
     set(state => ({
       loaded: true,
       harnesses: withSessions.map(({ harness, sessions }) => {
         const existing = state.harnesses.find(p => p.harness_id === harness.harness_id)
-        return { ...harness, sessions, expanded: existing?.expanded ?? true }
+        return { ...harness, sessions, expanded: existing?.expanded ?? storedExpanded.has(harness.harness_id) }
       }),
     }))
   },
@@ -63,14 +95,30 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       void listSessions(harnessId).then(sessions => {
         set(state => ({
           harnesses: state.harnesses.map(h =>
-            h.harness_id === harnessId ? { ...h, sessions, expanded: true } : h
+            h.harness_id === harnessId ? { ...h, sessions } : h
           ),
         }))
       })
     }
+    if (harness) setStoredHarnessExpanded(harnessId, !harness.expanded)
     set(state => ({
       harnesses: state.harnesses.map(h =>
         h.harness_id === harnessId ? { ...h, expanded: !h.expanded } : h
+      ),
+    }))
+  },
+
+  setHarnessesExpanded: (harnessIds: string[], expanded: boolean) => {
+    const ids = new Set(harnessIds)
+    const storedExpanded = readExpandedHarnessIds()
+    for (const id of ids) {
+      if (expanded) storedExpanded.add(id)
+      else storedExpanded.delete(id)
+    }
+    writeExpandedHarnessIds(storedExpanded)
+    set(state => ({
+      harnesses: state.harnesses.map(h =>
+        ids.has(h.harness_id) ? { ...h, expanded } : h
       ),
     }))
   },
@@ -102,12 +150,13 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
 
   addHarness: (harness: Harness) => {
     set(state => ({
-      harnesses: [{ ...harness, sessions: [], expanded: true }, ...state.harnesses],
+      harnesses: [{ ...harness, sessions: [], expanded: false }, ...state.harnesses],
     }))
   },
 
   createSession: async (harness: HarnessWithSessions, theme: "light" | "dark") => {
     const session = await apiCreateSession(harness.harness_id, theme)
+    setStoredHarnessExpanded(harness.harness_id, true)
     set(state => ({
       harnesses: state.harnesses.map(h =>
         h.harness_id === harness.harness_id
@@ -122,6 +171,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   deleteHarness: async (harnessId: string) => {
     const removed = get().harnesses.find(h => h.harness_id === harnessId)
     await apiDeleteHarness(harnessId)
+    setStoredHarnessExpanded(harnessId, false)
     set(state => {
       const nextBusy = new Set(state.busySessions)
       for (const session of removed?.sessions ?? []) {
@@ -150,7 +200,6 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       }
     })
   },
-
 
   refreshSession: async (sessionId: string) => {
     const session = await getSession(sessionId)

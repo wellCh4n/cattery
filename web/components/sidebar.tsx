@@ -42,6 +42,7 @@ export function Sidebar() {
   const loadHarnesses = useWorkspaceStore(state => state.loadHarnesses)
   const pollHarnesses = useWorkspaceStore(state => state.pollHarnesses)
   const toggleExpand = useWorkspaceStore(state => state.toggleExpand)
+  const setHarnessesExpanded = useWorkspaceStore(state => state.setHarnessesExpanded)
   const addHarness = useWorkspaceStore(state => state.addHarness)
   const createSession = useWorkspaceStore(state => state.createSession)
   const deleteSession = useWorkspaceStore(state => state.deleteSession)
@@ -228,8 +229,15 @@ export function Sidebar() {
           )}
 
           <HarnessListSection
-            title={sharedHarnesses.length > 0 ? "My Harnesses" : null}
+            title="My Harness"
             harnesses={ownHarnesses}
+            actionLabel={ownHarnesses.length > 0 ? (ownHarnesses.every(h => h.expanded) ? "Collapse all" : "Expand all") : undefined}
+            onAction={ownHarnesses.length > 0
+              ? () => {
+                  const shouldExpand = ownHarnesses.some(h => !h.expanded)
+                  setHarnessesExpanded(ownHarnesses.map(h => h.harness_id), shouldExpand)
+                }
+              : undefined}
             selectedSessionId={selectedSessionId}
             selectedHarnessId={selectedHarnessId}
             launching={launching}
@@ -348,6 +356,8 @@ export function Sidebar() {
 
 function HarnessListSection({
   title,
+  actionLabel,
+  onAction,
   harnesses,
   selectedSessionId,
   selectedHarnessId,
@@ -365,6 +375,8 @@ function HarnessListSection({
   sandboxDot,
 }: {
   title: string | null
+  actionLabel?: string
+  onAction?: () => void
   harnesses: HarnessWithSessions[]
   selectedSessionId: string | null
   selectedHarnessId: string | null
@@ -381,12 +393,23 @@ function HarnessListSection({
   statusDot: (status: string) => string
   sandboxDot: (status: string) => string | null
 }) {
-  if (harnesses.length === 0) return null
+  if (!title && harnesses.length === 0) return null
   return (
     <div className="mb-2">
       {title && (
-        <div className="px-3 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-          {title}
+        <div className="flex items-center justify-between px-3 py-1">
+          <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            {title}
+          </div>
+          {actionLabel && onAction && (
+            <button
+              type="button"
+              onClick={onAction}
+              className="cursor-pointer rounded px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            >
+              {actionLabel}
+            </button>
+          )}
         </div>
       )}
       {harnesses.map(harness => (
@@ -446,35 +469,12 @@ function HarnessRow({
   statusDot: (status: string) => string
   sandboxDot: (status: string) => string | null
 }) {
-  const clickTimerRef = useRef<number | null>(null)
-
-  useEffect(() => () => {
-    if (clickTimerRef.current != null) window.clearTimeout(clickTimerRef.current)
-  }, [])
-
-  function cancelPendingClick() {
-    if (clickTimerRef.current != null) {
-      window.clearTimeout(clickTimerRef.current)
-      clickTimerRef.current = null
-    }
-  }
-
   function handleRowClick() {
-    cancelPendingClick()
-    clickTimerRef.current = window.setTimeout(() => {
-      clickTimerRef.current = null
-      onRouteHarness(harness.harness_id)
-    }, 220)
-  }
-
-  function handleRowDoubleClick() {
-    cancelPendingClick()
     onToggleExpand(harness.harness_id)
   }
 
   function handleChevronClick(e: React.MouseEvent) {
     e.stopPropagation()
-    cancelPendingClick()
     onToggleExpand(harness.harness_id)
   }
 
@@ -487,8 +487,7 @@ function HarnessRow({
           selected ? "bg-muted text-foreground" : "hover:bg-muted"
         )}
         onClick={handleRowClick}
-        onDoubleClick={handleRowDoubleClick}
-        title="Click to open · double-click to expand"
+        title={harness.expanded ? "Collapse" : "Expand"}
       >
         <button
           type="button"
@@ -529,7 +528,7 @@ function HarnessRow({
           )}
           title={newSessionTitle(harness)}
           disabled={launching === harness.harness_id || !canCreateSession(harness)}
-          onClick={e => { e.stopPropagation(); cancelPendingClick(); onNewSession(harness) }}
+          onClick={e => { e.stopPropagation(); onNewSession(harness) }}
         >
           {launching === harness.harness_id
             ? <Loader2 className="size-3.5 animate-spin" />
@@ -538,7 +537,7 @@ function HarnessRow({
         <button
           className="hidden size-6 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus-visible:inline-flex group-hover:inline-flex"
           title="Harness info"
-          onClick={e => { e.stopPropagation(); cancelPendingClick(); onRouteHarness(harness.harness_id) }}
+          onClick={e => { e.stopPropagation(); onRouteHarness(harness.harness_id) }}
         >
           <Info className="size-3.5" />
         </button>
