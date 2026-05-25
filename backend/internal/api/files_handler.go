@@ -126,6 +126,36 @@ func (h *FilesHandler) Upload(c echo.Context) error {
 	return forward(c, req)
 }
 
+// Delete proxies DELETE /harnesses/:id/files/delete?path=... — hard delete,
+// no trash. Recursive for directories. Writers only.
+func (h *FilesHandler) Delete(c echo.Context) error {
+	base, err := h.requireFileMgrURL(c, true)
+	if err != nil {
+		return err
+	}
+	target := base + "/delete?" + c.Request().URL.RawQuery
+	req, err := http.NewRequestWithContext(c.Request().Context(), http.MethodDelete, target, nil)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	return forward(c, req)
+}
+
+// Rename proxies POST /harnesses/:id/files/rename?from=...&to=... where `to`
+// is a base name in the same parent directory. Writers only.
+func (h *FilesHandler) Rename(c echo.Context) error {
+	base, err := h.requireFileMgrURL(c, true)
+	if err != nil {
+		return err
+	}
+	target := base + "/rename?" + c.Request().URL.RawQuery
+	req, err := http.NewRequestWithContext(c.Request().Context(), http.MethodPost, target, nil)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	return forward(c, req)
+}
+
 func (h *FilesHandler) proxyGET(c echo.Context, sidecarPath string) error {
 	return h.proxyGETRawQuery(c, sidecarPath, c.Request().URL.RawQuery)
 }

@@ -302,6 +302,23 @@ export async function uploadFile(harnessId: string, dir: string, file: File): Pr
   if (!res.ok) throw new Error(`upload failed: ${res.status}`)
 }
 
+export async function deleteFile(harnessId: string, path: string): Promise<void> {
+  const url = `${API_BASE}/api/v1/harnesses/${harnessId}/files/delete?path=${encodeURIComponent(path)}`
+  const res = await authedFetch(url, { method: "DELETE" })
+  if (!res.ok && res.status !== 204) {
+    throw new Error(await readErrorMessage(res, `delete failed (${res.status})`))
+  }
+}
+
+export async function renameFile(harnessId: string, from: string, toName: string): Promise<{ path: string; name: string }> {
+  const url = `${API_BASE}/api/v1/harnesses/${harnessId}/files/rename?from=${encodeURIComponent(from)}&to=${encodeURIComponent(toName)}`
+  const res = await authedFetch(url, { method: "POST" })
+  if (!res.ok) {
+    throw new Error(await readErrorMessage(res, `rename failed (${res.status})`))
+  }
+  return res.json()
+}
+
 // ---- Auth ----
 
 export interface CurrentUser {

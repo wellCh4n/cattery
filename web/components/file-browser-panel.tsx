@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import {
   ArrowLeft,
+  Check,
   ChevronRight,
   Download,
   File as FileIcon,
@@ -17,20 +18,26 @@ import {
   Loader2,
   Maximize2,
   Minimize2,
+  Pencil,
   RefreshCw,
+  Trash2,
   Upload,
+  X,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { ConfirmDialog } from "@/components/confirm-dialog"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { FileViewer } from "@/components/file-viewer"
 import { Markdown } from "@/components/markdown"
 import { cn } from "@/lib/utils"
 import {
+  deleteFile,
   downloadFileURL,
   rawFilePathURL,
   listFiles,
   rawFileURL,
   readFile,
+  renameFile,
   uploadFile,
   type FileEntry,
   type FileReadResponse,
@@ -85,6 +92,7 @@ export function FileBrowserPanel({ harness }: Props) {
   const [openLoading, setOpenLoading] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [dragging, setDragging] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<FileEntry | null>(null)
   const dragDepthRef = useRef(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -179,6 +187,26 @@ export function FileBrowserPanel({ harness }: Props) {
     } finally {
       setUploading(false)
     }
+  }
+
+  async function commitRename(entry: FileEntry, nextName: string): Promise<boolean> {
+    const trimmed = nextName.trim()
+    if (!trimmed || trimmed === entry.name) return false
+    const from = dir === "/" ? `/${entry.name}` : `${dir}/${entry.name}`
+    try {
+      await renameFile(harness.harness_id, from, trimmed)
+      await load(dir)
+      return true
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "rename failed")
+      return false
+    }
+  }
+
+  async function confirmDelete(entry: FileEntry) {
+    const target = dir === "/" ? `/${entry.name}` : `${dir}/${entry.name}`
+    await deleteFile(harness.harness_id, target)
+    await load(dir)
   }
 
   async function onUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -311,8 +339,11 @@ export function FileBrowserPanel({ harness }: Props) {
             entry={entry}
             dir={dir}
             harnessId={harness.harness_id}
+            canWrite={canWrite}
             onOpenFile={openFile}
             onEnterDir={goInto}
+            onRename={nextName => commitRename(entry, nextName)}
+            onRequestDelete={() => setDeleteTarget(entry)}
           />
         ))}
       </div>
@@ -322,6 +353,26 @@ export function FileBrowserPanel({ harness }: Props) {
         opened={opened}
         loading={openLoading}
         onClose={() => setOpened(null)}
+      />
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onOpenChange={open => { if (!open) setDeleteTarget(null) }}
+        title={deleteTarget?.type === "dir" ? "Delete folder?" : "Delete file?"}
+        description={
+          <>
+            {deleteTarget?.type === "dir"
+              ? "Recursively delete "
+              : "Delete "}
+            <span className="font-mono text-foreground">{deleteTarget?.name}</span>
+            ? This cannot be undone.
+          </>
+        }
+        confirmLabel="Delete"
+        destructive
+        onConfirm={async () => {
+          if (deleteTarget) await confirmDelete(deleteTarget)
+        }}
       />
     </div>
   )
@@ -474,17 +525,101 @@ function FileRow({
   entry,
   dir,
   harnessId,
+  canWrite,
   onOpenFile,
   onEnterDir,
+  onRename,
+  onRequestDelete,
 }: {
   entry: FileEntry
   dir: string
   harnessId: string
+  canWrite: boolean
   onOpenFile: (name: string) => void
   onEnterDir: (name: string) => void
+  onRename: (nextName: string) => Promise<boolean>
+  onRequestDelete: () => void
 }) {
   const isDir = entry.type === "dir"
   const fullPath = dir === "/" ? `/${entry.name}` : `${dir}/${entry.name}`
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(entry.name)
+  const [busy, setBusy] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (!editing) return
+    inputRef.current?.focus()
+    inputRef.current?.select()
+  }, [editing])
+
+  function startEdit(e: React.MouseEvent) {
+    e.stopPropagation()
+    setDraft(entry.name)
+    setEditing(true)
+  }
+
+  async function commit() {
+    if (busy) return
+    setBusy(true)
+    try {
+      const ok = await onRename(draft)
+      // On success the parent reloads the list and this row unmounts; either
+      // way close the editor.
+      setEditing(false)
+      return ok
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function cancel() {
+    setDraft(entry.name)
+    setEditing(false)
+  }
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-1.5 px-2 h-6 bg-muted/40">
+        {isDir
+          ? <Folder className="size-3.5 text-muted-foreground shrink-0" />
+          : <FileIcon className="size-3.5 text-muted-foreground/70 shrink-0" />}
+        <input
+          ref={inputRef}
+          value={draft}
+          disabled={busy}
+          onChange={e => setDraft(e.target.value)}
+          onClick={e => e.stopPropagation()}
+          onKeyDown={e => {
+            if (e.key === "Enter") { e.preventDefault(); void commit() }
+            else if (e.key === "Escape") { e.preventDefault(); cancel() }
+          }}
+          className="flex-1 min-w-0 h-5 rounded border bg-background px-1 text-xs outline-none focus:ring-1 focus:ring-ring"
+        />
+        <button
+          type="button"
+          onClick={e => { e.stopPropagation(); void commit() }}
+          disabled={busy}
+          className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+          title="Save"
+          aria-label="Save rename"
+        >
+          {busy ? <Loader2 className="size-3 animate-spin" /> : <Check className="size-3" />}
+        </button>
+        <button
+          type="button"
+          onClick={e => { e.stopPropagation(); cancel() }}
+          disabled={busy}
+          className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+          title="Cancel"
+          aria-label="Cancel rename"
+        >
+          <X className="size-3" />
+        </button>
+      </div>
+    )
+  }
+
   return (
     <div
       onClick={() => isDir ? onEnterDir(entry.name) : onOpenFile(entry.name)}
@@ -495,18 +630,40 @@ function FileRow({
         : <FileIcon className="size-3.5 text-muted-foreground/70 shrink-0" />}
       <span className="truncate flex-1">{entry.name}</span>
       {!isDir && (
+        <span className="hidden sm:inline text-[10px] text-muted-foreground/60 shrink-0 group-hover:hidden">
+          {formatSize(entry.size)}
+        </span>
+      )}
+      {!isDir && (
+        <a
+          href={downloadFileURL(harnessId, fullPath)}
+          onClick={e => e.stopPropagation()}
+          className="hidden group-hover:inline-flex text-muted-foreground hover:text-foreground shrink-0"
+          title="Download"
+        >
+          <Download className="size-3" />
+        </a>
+      )}
+      {canWrite && (
         <>
-          <span className="hidden sm:inline text-[10px] text-muted-foreground/60 shrink-0 group-hover:hidden">
-            {formatSize(entry.size)}
-          </span>
-          <a
-            href={downloadFileURL(harnessId, fullPath)}
-            onClick={e => e.stopPropagation()}
+          <button
+            type="button"
+            onClick={startEdit}
             className="hidden group-hover:inline-flex text-muted-foreground hover:text-foreground shrink-0"
-            title="Download"
+            title="Rename"
+            aria-label="Rename"
           >
-            <Download className="size-3" />
-          </a>
+            <Pencil className="size-3" />
+          </button>
+          <button
+            type="button"
+            onClick={e => { e.stopPropagation(); onRequestDelete() }}
+            className="hidden group-hover:inline-flex text-muted-foreground hover:text-destructive shrink-0"
+            title="Delete"
+            aria-label="Delete"
+          >
+            <Trash2 className="size-3" />
+          </button>
         </>
       )}
     </div>

@@ -57,6 +57,8 @@ func main() {
 	mux.HandleFunc("/raw", handleRaw)
 	mux.HandleFunc("/download", handleDownload)
 	mux.HandleFunc("/upload", handleUpload)
+	mux.HandleFunc("/delete", handleDelete)
+	mux.HandleFunc("/rename", handleRename)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
@@ -343,6 +345,113 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 		"path": filepath.ToSlash(filepath.Join("/", relReq, name)),
 		"name": name,
 		"size": header.Size,
+	})
+}
+
+// handleDelete removes the file or directory at ?path=. Directories are
+// removed recursively (rm -rf semantics) — the user explicitly asked for hard
+// delete, no .trash. Refuses to delete the root itself.
+func handleDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete && r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	abs, err := resolve(r.URL.Query().Get("path"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if abs == rootAbs {
+		http.Error(w, "cannot delete root", http.StatusBadRequest)
+		return
+	}
+	if _, err := os.Lstat(abs); err != nil {
+		if os.IsNotExist(err) {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := os.RemoveAll(abs); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleRename moves ?from= to a sibling at ?to= (a base name, not a path).
+// Both must resolve under root, and "to" must stay in the same parent dir as
+// "from" — this endpoint is for renaming, not moving across directories.
+// Refuses to overwrite an existing entry.
+func handleRename(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	from, err := resolve(r.URL.Query().Get("from"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if from == rootAbs {
+		http.Error(w, "cannot rename root", http.StatusBadRequest)
+		return
+	}
+	toName := r.URL.Query().Get("to")
+	if toName == "" {
+		http.Error(w, "missing 'to'", http.StatusBadRequest)
+		return
+	}
+	// Treat "to" as a bare base name — the browser shouldn't be sending paths
+	// here, and accepting a path would let callers move across directories.
+	cleanedTo := filepath.Base(filepath.Clean("/" + toName))
+	if cleanedTo == "" || cleanedTo == "." || cleanedTo == "/" || strings.ContainsAny(cleanedTo, "/\\") {
+		http.Error(w, "invalid 'to'", http.StatusBadRequest)
+		return
+	}
+	parent := filepath.Dir(from)
+	to := filepath.Join(parent, cleanedTo)
+	if to != rootAbs && !strings.HasPrefix(to, rootAbs+string(os.PathSeparator)) {
+		http.Error(w, "path escapes root", http.StatusBadRequest)
+		return
+	}
+	if _, err := os.Lstat(from); err != nil {
+		if os.IsNotExist(err) {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if _, err := os.Lstat(to); err == nil {
+		http.Error(w, "destination already exists", http.StatusConflict)
+		return
+	} else if !os.IsNotExist(err) {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := os.Rename(from, to); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	relParent := strings.TrimPrefix(parent, rootAbs)
+	if relParent == "" {
+		relParent = "/"
+	}
+	writeJSON(w, map[string]interface{}{
+		"path": filepath.ToSlash(filepath.Join(relParent, cleanedTo)),
+		"name": cleanedTo,
 	})
 }
 

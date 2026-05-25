@@ -133,6 +133,8 @@ func NewRouter(
 	harnesses.GET("/:harness_id/files/raw-path/*", filesH.RawPath)
 	harnesses.GET("/:harness_id/files/download", filesH.Download)
 	harnesses.POST("/:harness_id/files/upload", filesH.Upload)
+	harnesses.DELETE("/:harness_id/files/delete", filesH.Delete)
+	harnesses.POST("/:harness_id/files/rename", filesH.Rename)
 
 	sessions := protected.Group("/sessions")
 	sessions.GET("/:session_id", sessionH.Get)
