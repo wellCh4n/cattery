@@ -31,7 +31,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { FileBrowserPanel } from "@/components/file-browser-panel"
 import { HarnessIcon } from "@/components/harness-icon"
 import { ModelIcon } from "@/components/model-icon"
+import { RenameSessionDialog } from "@/components/rename-session-dialog"
 import { ShareHarnessDialog } from "@/components/share-harness-dialog"
+import { type Session } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { type HarnessWithSessions, useWorkspaceStore } from "@/lib/workspace-store"
 
@@ -65,6 +67,8 @@ export default function HarnessPage({ params }: { params: Promise<PageParams> })
   const [shareOpen, setShareOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [renameSessionTarget, setRenameSessionTarget] = useState<Session | null>(null)
+  const [renameSessionOpen, setRenameSessionOpen] = useState(false)
 
   useEffect(() => {
     if (loaded && harness) return
@@ -238,7 +242,14 @@ export default function HarnessPage({ params }: { params: Promise<PageParams> })
             </div>
           </div>
           <div className="max-h-[40vh] overflow-y-auto rounded-md border">
-            <SessionsList sessions={sessions} onOpenSession={id => router.push(`/sessions/${id}`)} />
+            <SessionsList
+              sessions={sessions}
+              onOpenSession={id => router.push(`/sessions/${id}`)}
+              onRenameSession={sess => {
+                setRenameSessionTarget(sess)
+                setRenameSessionOpen(true)
+              }}
+            />
           </div>
         </section>
 
@@ -297,6 +308,12 @@ export default function HarnessPage({ params }: { params: Promise<PageParams> })
         </DialogContent>
       </Dialog>
 
+      <RenameSessionDialog
+        session={renameSessionTarget}
+        open={renameSessionOpen}
+        onOpenChange={setRenameSessionOpen}
+      />
+
       <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <DialogContent showCloseButton={false}>
           <DialogHeader>
@@ -338,9 +355,11 @@ function statusDot(status: string) {
 function SessionsList({
   sessions,
   onOpenSession,
+  onRenameSession,
 }: {
   sessions: HarnessWithSessions["sessions"]
   onOpenSession: (sessionId: string) => void
+  onRenameSession: (session: Session) => void
 }) {
   if (sessions.length === 0) {
     return (
@@ -353,12 +372,15 @@ function SessionsList({
   return (
     <div>
       {sessions.map(session => (
-        <button
+        <div
           key={session.session_id}
-          className="flex h-12 w-full cursor-pointer items-center gap-3 border-b px-3 text-left last:border-b-0 hover:bg-muted/50"
+          role="button"
+          tabIndex={0}
+          className="group flex h-12 w-full cursor-pointer items-center gap-3 border-b px-3 text-left last:border-b-0 hover:bg-muted/50"
           onClick={() => onOpenSession(session.session_id)}
+          onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpenSession(session.session_id) } }}
         >
-          <span className={cn("size-2 rounded-full", statusDot(session.status))} />
+          <span className={cn("size-2 shrink-0 rounded-full", statusDot(session.status))} />
           <div className="min-w-0 flex-1">
             <div className="truncate text-xs">{session.title ?? "New Session"}</div>
             <div className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground">
@@ -366,11 +388,20 @@ function SessionsList({
               {new Date(session.last_seen_at ?? session.created_at).toLocaleString()}
             </div>
           </div>
+          <button
+            type="button"
+            title="Rename session"
+            aria-label="Rename session"
+            onClick={e => { e.stopPropagation(); onRenameSession(session) }}
+            className="hidden size-6 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground group-hover:inline-flex"
+          >
+            <Pencil className="size-3.5" />
+          </button>
           <Badge variant={session.status === "ready" ? "default" : session.status === "failed" ? "destructive" : "secondary"} className="h-5 text-[10px]">
             {session.status}
           </Badge>
           <ChevronRight className="size-4 text-muted-foreground" />
-        </button>
+        </div>
       ))}
     </div>
   )

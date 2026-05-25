@@ -11,6 +11,7 @@ import {
   Loader2,
   LogOut,
   MessagesSquare,
+  Pencil,
   Plus,
   Shield,
   Trash2,
@@ -21,6 +22,7 @@ import { ChangePasswordDialog } from "@/components/change-password-dialog"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { CreateHarnessDialog } from "@/components/create-harness-dialog"
 import { HarnessIcon } from "@/components/harness-icon"
+import { RenameSessionDialog } from "@/components/rename-session-dialog"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { cn } from "@/lib/utils"
 import { useResizable } from "@/lib/use-resizable"
@@ -48,6 +50,8 @@ export function Sidebar() {
   const deleteSession = useWorkspaceStore(state => state.deleteSession)
   const [launching, setLaunching] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<{ session_id: string; harness_id: string; title: string } | null>(null)
+  const [renameTarget, setRenameTarget] = useState<Session | null>(null)
+  const [renameOpen, setRenameOpen] = useState(false)
   const user = useAuthStore(s => s.user)
   const logout = useAuthStore(s => s.logout)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
@@ -200,6 +204,19 @@ export function Sidebar() {
                     </span>
                     <button
                       type="button"
+                      title="Rename session"
+                      aria-label="Rename session"
+                      onClick={e => {
+                        e.stopPropagation()
+                        setRenameTarget(sess)
+                        setRenameOpen(true)
+                      }}
+                      className="hidden size-5 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground group-hover/recent:inline-flex"
+                    >
+                      <Pencil className="size-3" />
+                    </button>
+                    <button
+                      type="button"
                       title="Delete session"
                       aria-label="Delete session"
                       onClick={e => {
@@ -253,6 +270,10 @@ export function Sidebar() {
               harness_id: harnessId,
               title: sess.title ?? "New Session",
             })}
+            onRequestRenameSession={sess => {
+              setRenameTarget(sess)
+              setRenameOpen(true)
+            }}
             canCreateSession={canCreateSession}
             newSessionTitle={newSessionTitle}
             statusDot={statusDot}
@@ -276,6 +297,10 @@ export function Sidebar() {
               harness_id: harnessId,
               title: sess.title ?? "New Session",
             })}
+            onRequestRenameSession={sess => {
+              setRenameTarget(sess)
+              setRenameOpen(true)
+            }}
             canCreateSession={canCreateSession}
             newSessionTitle={newSessionTitle}
             statusDot={statusDot}
@@ -329,6 +354,12 @@ export function Sidebar() {
 
       <ChangePasswordDialog open={changePasswordOpen} onOpenChange={setChangePasswordOpen} />
 
+      <RenameSessionDialog
+        session={renameTarget}
+        open={renameOpen}
+        onOpenChange={setRenameOpen}
+      />
+
       <ConfirmDialog
         open={deleteTarget !== null}
         onOpenChange={open => { if (!open) setDeleteTarget(null) }}
@@ -370,6 +401,7 @@ function HarnessListSection({
   onRouteSession,
   onRouteHarness,
   onRequestDeleteSession,
+  onRequestRenameSession,
   canCreateSession,
   newSessionTitle,
   statusDot,
@@ -389,6 +421,7 @@ function HarnessListSection({
   onRouteSession: (sessionId: string) => void
   onRouteHarness: (harnessId: string) => void
   onRequestDeleteSession: (sess: Session, harnessId: string) => void
+  onRequestRenameSession: (sess: Session) => void
   canCreateSession: (harness: HarnessWithSessions) => boolean
   newSessionTitle: (harness: HarnessWithSessions) => string
   statusDot: (status: string) => string
@@ -427,6 +460,7 @@ function HarnessListSection({
           onRouteSession={onRouteSession}
           onRouteHarness={onRouteHarness}
           onRequestDeleteSession={onRequestDeleteSession}
+          onRequestRenameSession={onRequestRenameSession}
           canCreateSession={canCreateSession}
           newSessionTitle={newSessionTitle}
           statusDot={statusDot}
@@ -449,6 +483,7 @@ function HarnessRow({
   onRouteSession,
   onRouteHarness,
   onRequestDeleteSession,
+  onRequestRenameSession,
   canCreateSession,
   newSessionTitle,
   statusDot,
@@ -465,6 +500,7 @@ function HarnessRow({
   onRouteSession: (sessionId: string) => void
   onRouteHarness: (harnessId: string) => void
   onRequestDeleteSession: (sess: Session, harnessId: string) => void
+  onRequestRenameSession: (sess: Session) => void
   canCreateSession: (harness: HarnessWithSessions) => boolean
   newSessionTitle: (harness: HarnessWithSessions) => string
   statusDot: (status: string) => string
@@ -580,6 +616,18 @@ function HarnessRow({
                     day: "numeric",
                   })}
                 </span>
+                <button
+                  type="button"
+                  title="Rename session"
+                  aria-label="Rename session"
+                  onClick={e => {
+                    e.stopPropagation()
+                    onRequestRenameSession(sess)
+                  }}
+                  className="hidden size-5 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground group-hover/sess:inline-flex"
+                >
+                  <Pencil className="size-3" />
+                </button>
                 <button
                   type="button"
                   title="Delete session"
