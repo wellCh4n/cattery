@@ -301,25 +301,25 @@ function ExportMenu({ sessionId }: { sessionId: string }) {
       {open && (
         <div
           role="menu"
-          className="absolute right-0 top-full z-20 mt-1 w-44 overflow-hidden rounded-md border bg-popover text-sm shadow-md"
+          className="absolute right-0 top-full z-20 mt-1 w-56 overflow-hidden rounded-md border bg-popover text-sm shadow-md"
         >
           <a
             href={exportSessionURL(sessionId, "md")}
             download
             onClick={() => setOpen(false)}
-            className="flex h-8 cursor-pointer items-center gap-2 px-2.5 hover:bg-muted"
+            className="grid h-9 cursor-pointer grid-cols-[3rem_1fr] items-center px-3 hover:bg-muted"
           >
             <span className="text-[10px] font-medium text-muted-foreground">MD</span>
-            Markdown transcript
+            <span className="whitespace-nowrap">Markdown transcript</span>
           </a>
           <a
             href={exportSessionURL(sessionId, "json")}
             download
             onClick={() => setOpen(false)}
-            className="flex h-8 cursor-pointer items-center gap-2 px-2.5 hover:bg-muted"
+            className="grid h-9 cursor-pointer grid-cols-[3rem_1fr] items-center px-3 hover:bg-muted"
           >
             <span className="text-[10px] font-medium text-muted-foreground">JSON</span>
-            Raw history
+            <span className="whitespace-nowrap">Raw history</span>
           </a>
         </div>
       )}
