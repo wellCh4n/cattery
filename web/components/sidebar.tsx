@@ -148,6 +148,7 @@ export function Sidebar() {
 
   const ownHarnesses = harnesses.filter(h => h.access_role === "owner")
   const sharedHarnesses = harnesses.filter(h => h.access_role !== "owner")
+  const hasAnySessions = harnesses.some(h => h.sessions.some(s => s.status !== "dead"))
 
   return (
     <>
@@ -229,7 +230,7 @@ export function Sidebar() {
           )}
 
           <HarnessListSection
-            title="My Harness"
+            title={hasAnySessions ? "My Harness" : null}
             harnesses={ownHarnesses}
             actionLabel={ownHarnesses.length > 0 ? (ownHarnesses.every(h => h.expanded) ? "Collapse all" : "Expand all") : undefined}
             onAction={ownHarnesses.length > 0
