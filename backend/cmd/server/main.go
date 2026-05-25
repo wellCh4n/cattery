@@ -50,7 +50,7 @@ func main() {
 	adminH := api.NewAdminHandler(userStore, harnessStore, sandboxMgr)
 	usersH := api.NewUsersHandler(userStore)
 
-	router := api.NewRouter(harnessH, sessionH, filesH, authH, adminH, usersH, signer)
+	router := api.NewRouter(database, harnessH, sessionH, filesH, authH, adminH, usersH, signer)
 	log.Printf("starting server on :%s", cfg.Port)
 	log.Fatal(router.Start(":" + cfg.Port))
 }

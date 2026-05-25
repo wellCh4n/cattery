@@ -1,10 +1,13 @@
 package api
 
 import (
+	"context"
 	"log"
+	"net/http"
 	"regexp"
 	"time"
 
+	"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/wellch4n/cattery/internal/auth"
@@ -22,6 +25,7 @@ func redactURI(uri string) string {
 }
 
 func NewRouter(
+	database *sqlx.DB,
 	harnessH *HarnessHandler,
 	sessionH *SessionHandler,
 	filesH *FilesHandler,
@@ -41,6 +45,12 @@ func NewRouter(
 		LogLatency:  true,
 		LogError:    true,
 		HandleError: true,
+		// K8s probes hit /healthz and /readyz every couple seconds — drop them
+		// from the access log so real traffic stays readable.
+		Skipper: func(c echo.Context) bool {
+			p := c.Path()
+			return p == "/healthz" || p == "/readyz"
+		},
 		LogValuesFunc: func(_ echo.Context, v middleware.RequestLoggerValues) error {
 			uri := redactURI(v.URI)
 			if v.Error != nil {
@@ -57,6 +67,21 @@ func NewRouter(
 		AllowMethods: []string{"GET", "POST", "PATCH", "DELETE", "OPTIONS"},
 		AllowHeaders: []string{"Content-Type", "Authorization"},
 	}))
+
+	// Liveness — process is up. Deliberately does NOT touch the DB so a
+	// transient DB blip doesn't restart the pod.
+	e.GET("/healthz", func(c echo.Context) error {
+		return c.NoContent(http.StatusOK)
+	})
+	// Readiness — can we actually serve requests? Used by K8s to gate traffic.
+	e.GET("/readyz", func(c echo.Context) error {
+		ctx, cancel := context.WithTimeout(c.Request().Context(), 2*time.Second)
+		defer cancel()
+		if err := database.PingContext(ctx); err != nil {
+			return c.JSON(http.StatusServiceUnavailable, echo.Map{"db": err.Error()})
+		}
+		return c.NoContent(http.StatusOK)
+	})
 
 	v1 := e.Group("/api/v1")
 
