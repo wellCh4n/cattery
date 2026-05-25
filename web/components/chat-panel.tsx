@@ -17,6 +17,7 @@ import {
   ChevronDown,
   Copy,
   Check,
+  Download,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
@@ -24,7 +25,7 @@ import { Badge } from "@/components/ui/badge"
 import { Markdown } from "@/components/markdown"
 import { FileViewer } from "@/components/file-viewer"
 import { cn } from "@/lib/utils"
-import { answerSession, type Session, type Harness, type QuestionAnswer } from "@/lib/api"
+import { answerSession, exportSessionURL, type Session, type Harness, type QuestionAnswer } from "@/lib/api"
 import {
   useChatStreamStore,
   type Bubble,
@@ -130,6 +131,7 @@ export function ChatPanel({ session, harness }: Props) {
             {harnessName}
           </span>
         </div>
+        <ExportMenu sessionId={session.session_id} />
         <Badge variant={statusVariant(session.status)} className="text-[10px] h-5">
           {session.status}
         </Badge>
@@ -261,6 +263,66 @@ export function ChatPanel({ session, harness }: Props) {
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+function ExportMenu({ sessionId }: { sessionId: string }) {
+  const [open, setOpen] = useState(false)
+  const wrapRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    function onPointerDown(e: PointerEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener("pointerdown", onPointerDown)
+    return () => document.removeEventListener("pointerdown", onPointerDown)
+  }, [open])
+
+  return (
+    <div ref={wrapRef} className="relative shrink-0">
+      <button
+        type="button"
+        title="Export transcript"
+        aria-label="Export transcript"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen(o => !o)}
+        className={cn(
+          "flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors cursor-pointer hover:bg-muted hover:text-foreground",
+          open && "bg-muted text-foreground"
+        )}
+      >
+        <Download className="size-3.5" />
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 top-full z-20 mt-1 w-44 overflow-hidden rounded-md border bg-popover text-sm shadow-md"
+        >
+          <a
+            href={exportSessionURL(sessionId, "md")}
+            download
+            onClick={() => setOpen(false)}
+            className="flex h-8 cursor-pointer items-center gap-2 px-2.5 hover:bg-muted"
+          >
+            <span className="text-[10px] font-medium text-muted-foreground">MD</span>
+            Markdown transcript
+          </a>
+          <a
+            href={exportSessionURL(sessionId, "json")}
+            download
+            onClick={() => setOpen(false)}
+            className="flex h-8 cursor-pointer items-center gap-2 px-2.5 hover:bg-muted"
+          >
+            <span className="text-[10px] font-medium text-muted-foreground">JSON</span>
+            Raw history
+          </a>
+        </div>
+      )}
     </div>
   )
 }

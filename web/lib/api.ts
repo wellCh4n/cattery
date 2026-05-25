@@ -241,6 +241,12 @@ export interface PlatformHistoryItem {
   events: Array<{ type: string; data: Record<string, unknown> }>
 }
 
+// exportSessionURL — bare URL with ?token=, suitable for <a download> so the
+// browser does the file save dance natively (preserves Content-Disposition).
+export function exportSessionURL(sessionId: string, format: "md" | "json"): string {
+  return appendToken(`${API_BASE}/api/v1/sessions/${sessionId}/export?format=${format}`)
+}
+
 export async function getHistory(sessionId: string): Promise<PlatformHistoryItem[]> {
   const res = await authedFetch(`${API_BASE}/api/v1/sessions/${sessionId}/history`, { cache: "no-store" })
   if (!res.ok) throw new Error("failed to get history")

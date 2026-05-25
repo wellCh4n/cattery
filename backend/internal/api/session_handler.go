@@ -3,9 +3,11 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -296,6 +298,48 @@ func (h *SessionHandler) History(c echo.Context) error {
 		items = []harness.PlatformHistoryItem{}
 	}
 	return c.JSON(http.StatusOK, items)
+}
+
+// Export 把 session 的完整历史导出为 markdown 或 json 文件。
+// 默认 markdown；?format=json 返回原始 PlatformHistoryItem 数组。
+// Terminal 类 harness 没有可读历史 — 返回只有 header 的空骨架，前端 UI 这层先 gate 一下。
+func (h *SessionHandler) Export(c echo.Context) error {
+	sess, access, err := requireReadableSession(c, h.sessionStore, h.harnessStore)
+	if err != nil {
+		return err
+	}
+	format := strings.ToLower(c.QueryParam("format"))
+	if format == "" {
+		format = "md"
+	}
+	if format != "md" && format != "json" {
+		return echo.NewHTTPError(http.StatusBadRequest, "format must be md or json")
+	}
+
+	inst := access.Harness
+	var items []harness.PlatformHistoryItem
+	if inst.SandboxURL != nil && sess.HarnessSessionID != nil {
+		raw, err := h.harnessClient.History(c.Request().Context(), *inst.SandboxURL, *sess.HarnessSessionID)
+		if err != nil {
+			return echo.NewHTTPError(http.StatusBadGateway, err.Error())
+		}
+		items, err = harness.HistoryTranslatorFor(inst.Type)(raw)
+		if err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+		}
+	}
+	if items == nil {
+		items = []harness.PlatformHistoryItem{}
+	}
+
+	filename := exportFilename(sess, format)
+	c.Response().Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+
+	if format == "json" {
+		return c.JSON(http.StatusOK, items)
+	}
+	body := renderTranscriptMarkdown(sess, inst, items)
+	return c.Blob(http.StatusOK, "text/markdown; charset=utf-8", []byte(body))
 }
 
 // StopSandbox 停止 harness 的 sandbox（harness 级操作）

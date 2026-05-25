@@ -144,6 +144,7 @@ func NewRouter(
 	sessions.POST("/:session_id/abort", sessionH.Abort)
 	sessions.POST("/:session_id/answer", sessionH.Answer)
 	sessions.GET("/:session_id/history", sessionH.History)
+	sessions.GET("/:session_id/export", sessionH.Export)
 	sessions.GET("/:session_id/term", sessionH.Term)
 	sessions.PATCH("/:session_id", sessionH.UpdateTitle)
 	sessions.DELETE("/:session_id", sessionH.Delete)
