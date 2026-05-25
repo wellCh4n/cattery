@@ -6,7 +6,6 @@ import {
   Bot,
   Cat,
   ChevronRight,
-  Eraser,
   Info,
   KeyRound,
   Loader2,
@@ -46,10 +45,8 @@ export function Sidebar() {
   const addHarness = useWorkspaceStore(state => state.addHarness)
   const createSession = useWorkspaceStore(state => state.createSession)
   const deleteSession = useWorkspaceStore(state => state.deleteSession)
-  const purgeDeadSessions = useWorkspaceStore(state => state.purgeDeadSessions)
   const [launching, setLaunching] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<{ session_id: string; harness_id: string; title: string } | null>(null)
-  const [purgeAllOpen, setPurgeAllOpen] = useState(false)
   const user = useAuthStore(s => s.user)
   const logout = useAuthStore(s => s.logout)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
@@ -297,13 +294,6 @@ export function Sidebar() {
                 </button>
               )}
               <button
-                className="flex h-8 w-full cursor-pointer items-center gap-2 px-2.5 text-left hover:bg-muted"
-                onClick={() => { setUserMenuOpen(false); setPurgeAllOpen(true) }}
-              >
-                <Eraser className="size-3.5 text-muted-foreground" />
-                Purge dead sessions
-              </button>
-              <button
                 className="flex h-8 w-full cursor-pointer items-center gap-2 px-2.5 text-left text-destructive hover:bg-muted"
                 onClick={() => { setUserMenuOpen(false); logout() }}
               >
@@ -352,18 +342,6 @@ export function Sidebar() {
         }}
       />
 
-      <ConfirmDialog
-        open={purgeAllOpen}
-        onOpenChange={setPurgeAllOpen}
-        title="Purge dead sessions?"
-        description="Permanently delete all sessions whose sandbox has died, across every harness you own. Shared harnesses are untouched."
-        confirmLabel="Purge"
-        destructive
-        onConfirm={async () => {
-          await purgeDeadSessions()
-          await loadHarnesses()
-        }}
-      />
     </>
   )
 }

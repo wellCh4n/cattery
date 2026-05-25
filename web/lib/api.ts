@@ -185,16 +185,6 @@ export async function deleteSession(sessionId: string): Promise<void> {
   await authedFetch(`${API_BASE}/api/v1/sessions/${sessionId}`, { method: "DELETE" })
 }
 
-export async function purgeDeadSessions(harnessId?: string): Promise<number> {
-  const url = harnessId
-    ? `${API_BASE}/api/v1/harnesses/${harnessId}/sessions/purge`
-    : `${API_BASE}/api/v1/sessions/purge`
-  const res = await authedFetch(url, { method: "POST" })
-  if (!res.ok) throw new Error(`purge failed: ${res.status}`)
-  const data = await res.json()
-  return data.deleted ?? 0
-}
-
 export async function abortSession(sessionId: string): Promise<void> {
   await authedFetch(`${API_BASE}/api/v1/sessions/${sessionId}/abort`, { method: "POST" })
 }

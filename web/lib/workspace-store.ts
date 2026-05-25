@@ -9,7 +9,6 @@ import {
   getSession,
   listHarnesses,
   listSessions,
-  purgeDeadSessions as apiPurgeDeadSessions,
   updateHarness,
   updateSessionTitle,
   type Harness,
@@ -34,11 +33,6 @@ interface WorkspaceStore {
   createSession: (harness: HarnessWithSessions, theme: "light" | "dark") => Promise<Session>
   deleteHarness: (harnessId: string) => Promise<HarnessWithSessions | undefined>
   deleteSession: (sessionId: string, harnessId: string) => Promise<void>
-  // purgeDeadSessions — strip dead rows from DB. With a harness id, owner-only
-  // cleanup of one harness; without, cleanup across every harness you own
-  // (shared harnesses are untouched — that's the harness owner's call).
-  // Returns the number of rows deleted.
-  purgeDeadSessions: (harnessId?: string) => Promise<number>
   refreshSession: (sessionId: string) => Promise<Session>
   pollHarnesses: () => Promise<void>
   setSessionBusy: (sessionId: string, busy: boolean) => void
@@ -157,15 +151,6 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
     })
   },
 
-  purgeDeadSessions: async (harnessId?: string) => {
-    const n = await apiPurgeDeadSessions(harnessId)
-    // The visible session list already filters dead rows out, so the only
-    // observable effect of a purge is in the DB. We don't need to mutate
-    // local state here — but harness lists may show counts that include
-    // dead rows in some places, so we keep the store as the canonical source
-    // of truth and trust the next loadHarnesses to reconcile.
-    return n
-  },
 
   refreshSession: async (sessionId: string) => {
     const session = await getSession(sessionId)

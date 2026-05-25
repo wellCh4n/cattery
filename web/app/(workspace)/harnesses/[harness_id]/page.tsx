@@ -8,7 +8,6 @@ import {
   ChevronRight,
   Clock,
   Cable,
-  Eraser,
   Loader2,
   MessagesSquare,
   Pencil,
@@ -29,7 +28,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ConfirmDialog } from "@/components/confirm-dialog"
 import { FileBrowserPanel } from "@/components/file-browser-panel"
 import { HarnessIcon } from "@/components/harness-icon"
 import { ModelIcon } from "@/components/model-icon"
@@ -59,7 +57,6 @@ export default function HarnessPage({ params }: { params: Promise<PageParams> })
   const createSession = useWorkspaceStore(state => state.createSession)
   const renameHarness = useWorkspaceStore(state => state.renameHarness)
   const deleteHarness = useWorkspaceStore(state => state.deleteHarness)
-  const purgeDeadSessions = useWorkspaceStore(state => state.purgeDeadSessions)
   const [launching, setLaunching] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [renameOpen, setRenameOpen] = useState(false)
@@ -68,7 +65,6 @@ export default function HarnessPage({ params }: { params: Promise<PageParams> })
   const [shareOpen, setShareOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
-  const [purgeOpen, setPurgeOpen] = useState(false)
 
   useEffect(() => {
     if (loaded && harness) return
@@ -148,86 +144,91 @@ export default function HarnessPage({ params }: { params: Promise<PageParams> })
   return (
     <div className="flex h-full flex-col bg-background">
       <div className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col gap-4 px-6 py-6">
-        <header className="flex items-start gap-3 border-b pb-3">
-          <div className="flex size-10 shrink-0 items-center justify-center rounded-md border bg-muted/30">
-            <HarnessIcon id={harness.type} className="size-5 text-muted-foreground" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="truncate text-xl font-semibold">{harness.harness_name ?? "Untitled"}</h1>
-              <Badge variant={harness.access_role === "owner" ? "default" : "secondary"} className="h-5 text-[10px] font-normal">
-                {harness.access_role}
-              </Badge>
-              <SandboxBadge status={harness.sandbox_status} />
+        <header className="flex flex-col gap-4 border-b pb-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="flex min-w-0 flex-1 items-start gap-3 sm:gap-4">
+            <div className="flex size-11 shrink-0 items-center justify-center rounded-lg border bg-muted/30 sm:size-12">
+              <HarnessIcon id={harness.type} className="size-6 text-muted-foreground" />
             </div>
-            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-              <span className="inline-flex items-center gap-1">
-                <HarnessIcon id={harness.type} className="size-3.5" />
-                {TYPE_LABELS[harness.type] ?? harness.type}
-              </span>
-              <span className="inline-flex items-center gap-1">
-                <ModelIcon id={harness.model} className="size-3.5" />
-                {harness.model}
-              </span>
-              <span className="inline-flex items-center gap-1">
-                <Shield className="size-3.5" />
-                {harness.owner_username}
-              </span>
-              <span className="inline-flex items-center gap-1">
-                <CalendarDays className="size-3.5" />
-                {new Date(harness.created_at).toLocaleString()}
-              </span>
-              <span className="inline-flex items-center gap-1">
-                <Cable className="size-3.5" />
-                {harness.transport_kind}
-              </span>
-              <span className="inline-flex items-center gap-1">
-                <MessagesSquare className="size-3.5" />
-                {sessions.length} sessions
-              </span>
+            <div className="min-w-0 flex-1 pt-0.5">
+              <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1.5">
+                <h1 className="min-w-0 truncate text-xl font-semibold">{harness.harness_name ?? "Untitled"}</h1>
+                <Badge variant={harness.access_role === "owner" ? "default" : "secondary"} className="h-5 text-[10px] font-normal">
+                  {harness.access_role}
+                </Badge>
+                <SandboxBadge status={harness.sandbox_status} />
+              </div>
+              <div className="mt-2 grid gap-x-4 gap-y-2 text-xs text-muted-foreground sm:grid-cols-2 lg:flex lg:flex-wrap lg:items-center">
+                <span className="inline-flex min-w-0 items-center gap-1.5">
+                  <HarnessIcon id={harness.type} className="size-3.5" />
+                  <span className="min-w-0 truncate">{TYPE_LABELS[harness.type] ?? harness.type}</span>
+                </span>
+                <span className="inline-flex min-w-0 items-center gap-1.5">
+                  <ModelIcon id={harness.model} className="size-3.5" />
+                  <span className="min-w-0 truncate">{harness.model}</span>
+                </span>
+                <span className="inline-flex min-w-0 items-center gap-1.5">
+                  <Shield className="size-3.5" />
+                  <span className="min-w-0 truncate">{harness.owner_username}</span>
+                </span>
+                <span className="inline-flex min-w-0 items-center gap-1.5">
+                  <CalendarDays className="size-3.5" />
+                  <span className="min-w-0 break-words">{new Date(harness.created_at).toLocaleString()}</span>
+                </span>
+                <span className="inline-flex min-w-0 items-center gap-1.5">
+                  <Cable className="size-3.5" />
+                  <span className="min-w-0 truncate">{harness.transport_kind}</span>
+                </span>
+                <span className="inline-flex min-w-0 items-center gap-1.5">
+                  <MessagesSquare className="size-3.5" />
+                  <span className="min-w-0 truncate">{sessions.length} sessions</span>
+                </span>
+              </div>
             </div>
           </div>
-          {isOwner && (
-            <>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={() => {
-                  setNameValue(harness.harness_name ?? "")
-                  setRenameOpen(true)
-                }}
-                title="Rename"
-              >
-                <Pencil />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={() => setShareOpen(true)}
-                title="Share"
-              >
-                <Share2 />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={() => setDeleteOpen(true)}
-                title="Delete harness"
-                className="text-destructive hover:text-destructive hover:bg-destructive/10"
-              >
-                <Trash2 />
-              </Button>
-            </>
-          )}
-          <Button
-            size="sm"
-            disabled={!canCreate || launching}
-            onClick={() => handleNewSession(harness)}
-            title={harness.access_role === "viewer" ? "Viewer access" : harness.sandbox_status === "ready" ? "New session" : "Sandbox is not ready"}
-          >
-            {launching ? <Loader2 className="size-3.5 animate-spin" /> : <Play className="size-3.5" />}
-            New session
-          </Button>
+          <div className="flex w-full shrink-0 flex-wrap items-center justify-between gap-2 self-start lg:w-auto lg:justify-end lg:pt-0.5">
+            {isOwner && (
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => {
+                    setNameValue(harness.harness_name ?? "")
+                    setRenameOpen(true)
+                  }}
+                  title="Rename"
+                >
+                  <Pencil />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => setShareOpen(true)}
+                  title="Share"
+                >
+                  <Share2 />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => setDeleteOpen(true)}
+                  title="Delete harness"
+                  className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                >
+                  <Trash2 />
+                </Button>
+              </div>
+            )}
+            <Button
+              size="sm"
+              disabled={!canCreate || launching}
+              onClick={() => handleNewSession(harness)}
+              title={harness.access_role === "viewer" ? "Viewer access" : harness.sandbox_status === "ready" ? "New session" : "Sandbox is not ready"}
+              className="max-[420px]:w-full"
+            >
+              {launching ? <Loader2 className="size-3.5 animate-spin" /> : <Play className="size-3.5" />}
+              New session
+            </Button>
+          </div>
         </header>
 
         <section className="shrink-0">
@@ -235,17 +236,6 @@ export default function HarnessPage({ params }: { params: Promise<PageParams> })
             <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
               Sessions{sessions.length > 0 ? ` (${sessions.length})` : ""}
             </div>
-            {isOwner && (
-              <button
-                type="button"
-                onClick={() => setPurgeOpen(true)}
-                className="inline-flex h-5 cursor-pointer items-center gap-1 rounded px-1.5 text-[10px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                title="Permanently remove dead sessions from this harness"
-              >
-                <Eraser className="size-3" />
-                Clean up dead sessions
-              </button>
-            )}
           </div>
           <div className="max-h-[40vh] overflow-y-auto rounded-md border">
             <SessionsList sessions={sessions} onOpenSession={id => router.push(`/sessions/${id}`)} />
@@ -327,24 +317,6 @@ export default function HarnessPage({ params }: { params: Promise<PageParams> })
         </DialogContent>
       </Dialog>
 
-      <ConfirmDialog
-        open={purgeOpen}
-        onOpenChange={setPurgeOpen}
-        title="Clean up dead sessions?"
-        description={
-          <>
-            Permanently delete every session in{" "}
-            <span className="font-medium text-foreground">{harness.harness_name ?? "Untitled"}</span>{" "}
-            whose sandbox has died. This cannot be undone.
-          </>
-        }
-        confirmLabel="Clean up"
-        destructive
-        onConfirm={async () => {
-          await purgeDeadSessions(harness.harness_id)
-          await loadHarnesses()
-        }}
-      />
     </div>
   )
 }
