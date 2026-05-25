@@ -8,6 +8,7 @@ import {
   ChevronRight,
   Clock,
   Cable,
+  Eraser,
   Loader2,
   MessagesSquare,
   Pencil,
@@ -28,6 +29,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { ConfirmDialog } from "@/components/confirm-dialog"
 import { FileBrowserPanel } from "@/components/file-browser-panel"
 import { HarnessIcon } from "@/components/harness-icon"
 import { ModelIcon } from "@/components/model-icon"
@@ -57,6 +59,7 @@ export default function HarnessPage({ params }: { params: Promise<PageParams> })
   const createSession = useWorkspaceStore(state => state.createSession)
   const renameHarness = useWorkspaceStore(state => state.renameHarness)
   const deleteHarness = useWorkspaceStore(state => state.deleteHarness)
+  const purgeDeadSessions = useWorkspaceStore(state => state.purgeDeadSessions)
   const [launching, setLaunching] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [renameOpen, setRenameOpen] = useState(false)
@@ -65,6 +68,7 @@ export default function HarnessPage({ params }: { params: Promise<PageParams> })
   const [shareOpen, setShareOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [purgeOpen, setPurgeOpen] = useState(false)
 
   useEffect(() => {
     if (loaded && harness) return
@@ -139,9 +143,11 @@ export default function HarnessPage({ params }: { params: Promise<PageParams> })
   const canCreate = harness.sandbox_status === "ready" && harness.access_role !== "viewer"
   const isOwner = harness.access_role === "owner"
 
+  const envCount = Object.keys(harness.env_vars ?? {}).length
+
   return (
-    <div className="h-full overflow-y-auto bg-background">
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-6 py-6">
+    <div className="flex h-full flex-col bg-background">
+      <div className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col gap-4 px-6 py-6">
         <header className="flex items-start gap-3 border-b pb-3">
           <div className="flex size-10 shrink-0 items-center justify-center rounded-md border bg-muted/30">
             <HarnessIcon id={harness.type} className="size-5 text-muted-foreground" />
@@ -207,7 +213,7 @@ export default function HarnessPage({ params }: { params: Promise<PageParams> })
                 size="icon-sm"
                 onClick={() => setDeleteOpen(true)}
                 title="Delete harness"
-                className="text-muted-foreground hover:text-destructive"
+                className="text-destructive hover:text-destructive hover:bg-destructive/10"
               >
                 <Trash2 />
               </Button>
@@ -224,21 +230,41 @@ export default function HarnessPage({ params }: { params: Promise<PageParams> })
           </Button>
         </header>
 
-        <Tabs defaultValue="sessions">
-          <TabsList>
-            <TabsTrigger value="sessions">Sessions</TabsTrigger>
-            <TabsTrigger value="files">Files</TabsTrigger>
-            <TabsTrigger value="env">Environment Variables</TabsTrigger>
-          </TabsList>
-          <TabsContent value="sessions">
+        <section className="shrink-0">
+          <div className="mb-1.5 flex items-center justify-between px-0.5">
+            <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+              Sessions{sessions.length > 0 ? ` (${sessions.length})` : ""}
+            </div>
+            {isOwner && (
+              <button
+                type="button"
+                onClick={() => setPurgeOpen(true)}
+                className="inline-flex h-5 cursor-pointer items-center gap-1 rounded px-1.5 text-[10px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                title="Permanently remove dead sessions from this harness"
+              >
+                <Eraser className="size-3" />
+                Clean up dead sessions
+              </button>
+            )}
+          </div>
+          <div className="max-h-[40vh] overflow-y-auto rounded-md border">
             <SessionsList sessions={sessions} onOpenSession={id => router.push(`/sessions/${id}`)} />
-          </TabsContent>
-          <TabsContent value="files">
-            <div className="h-[520px] overflow-hidden rounded-md border">
+          </div>
+        </section>
+
+        <Tabs defaultValue="files" className="flex min-h-0 flex-1 flex-col">
+          <TabsList className="shrink-0">
+            <TabsTrigger value="files">Files</TabsTrigger>
+            <TabsTrigger value="env">
+              Environment Variables{envCount > 0 ? ` (${envCount})` : ""}
+            </TabsTrigger>
+          </TabsList>
+          <TabsContent value="files" className="mt-2 min-h-0 flex-1">
+            <div className="h-full overflow-hidden rounded-md border">
               <FileBrowserPanel harness={harness} />
             </div>
           </TabsContent>
-          <TabsContent value="env">
+          <TabsContent value="env" className="mt-2 min-h-0 flex-1 overflow-y-auto">
             <EnvVars vars={harness.env_vars ?? {}} />
           </TabsContent>
         </Tabs>
@@ -300,6 +326,25 @@ export default function HarnessPage({ params }: { params: Promise<PageParams> })
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={purgeOpen}
+        onOpenChange={setPurgeOpen}
+        title="Clean up dead sessions?"
+        description={
+          <>
+            Permanently delete every session in{" "}
+            <span className="font-medium text-foreground">{harness.harness_name ?? "Untitled"}</span>{" "}
+            whose sandbox has died. This cannot be undone.
+          </>
+        }
+        confirmLabel="Clean up"
+        destructive
+        onConfirm={async () => {
+          await purgeDeadSessions(harness.harness_id)
+          await loadHarnesses()
+        }}
+      />
     </div>
   )
 }
@@ -327,14 +372,14 @@ function SessionsList({
 }) {
   if (sessions.length === 0) {
     return (
-      <div className="flex min-h-32 flex-col items-center justify-center rounded-md border text-muted-foreground">
+      <div className="flex min-h-32 flex-col items-center justify-center text-muted-foreground">
         <MessagesSquare className="mb-2 size-5" />
         <p className="text-sm">No sessions</p>
       </div>
     )
   }
   return (
-    <div className="overflow-hidden rounded-md border">
+    <div>
       {sessions.map(session => (
         <button
           key={session.session_id}
