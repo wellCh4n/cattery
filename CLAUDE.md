@@ -20,11 +20,17 @@ make build                        # compile Go server to backend/bin/server
 make stop                         # kill :8080 and :3000
 make build-harness                # build all four harness images
 make build-harness HARNESS=codex  # build a single harness (opencode | claude-code | codex | hermes)
+make build-sidecar                # build all sidecar images (currently just filemgr)
+make build-sidecar SIDECAR=filemgr
 ```
 
 Go binary lives at `/usr/local/go/bin/go`; PATH typically does not include it, so prefer `make` targets or call the absolute path directly. Same for bun at `~/.bun/bin/bun`.
 
-Backend env vars (see `backend/.env`, gitignored): `DATABASE_URL`, `PORT`, `K8S_NAMESPACE`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_API_KEY`.
+Backend env vars (see `backend/.env`, gitignored): `DATABASE_URL`, `PORT`, `K8S_NAMESPACE`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `JWT_SECRET` (required — signing key for login tokens; rotating it invalidates every issued session).
+
+DB migrations live in `backend/internal/db/migrations/` and are applied automatically by the backend on startup via `goose`. Add a new numbered SQL file there rather than running migrations manually.
+
+On first start with an empty `users` table, the server auto-creates an `admin` account with a random password and prints it once to stdout — there is no self-signup, so capture that line if you bring up a fresh DB.
 
 ## Architecture
 
@@ -110,9 +116,13 @@ The response is itself an SSE stream; the frontend reads it directly from the `f
 
 `web/components/chat-panel.tsx` is the single point that consumes platform events. It maintains a `Bubble[]` list keyed by `partId` / `toolId`. **Do not** branch on harness-specific event types here — if you need new behavior, extend the platform protocol and update the translators.
 
+### Sidecars in the sandbox pod
+
+The Sandbox CR launches the harness container alongside one or more sidecars defined in `sidecars/` (currently just `filemgr` — the file browser/upload backend that powers `web/components/file-browser-panel.tsx`). When changing the pod shape, update both the Sandbox manifest construction in `backend/internal/sandbox/` and the sidecar image build under `sidecars/<name>/`.
+
 ### Notes for the frontend
 
-`web/AGENTS.md` warns that this Next.js version has breaking changes from training-data knowledge. When touching frontend code, consult `node_modules/next/dist/docs/` first; do not assume App Router APIs match older Next.js conventions. shadcn `Dialog` uses `@base-ui/react` here, so `DialogTrigger` takes `render={<Button/>}` rather than `asChild`.
+This Next.js version has breaking changes from training-data knowledge. When touching frontend code, consult `node_modules/next/dist/docs/` first; do not assume App Router APIs match older Next.js conventions. shadcn `Dialog` uses `@base-ui/react` here, so `DialogTrigger` takes `render={<Button/>}` rather than `asChild`.
 
 # Collaboration
 List Claude as a co-author when committing.

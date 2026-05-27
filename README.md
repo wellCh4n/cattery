@@ -1,6 +1,6 @@
 # Cattery
 
-Self-hosted, team-oriented AI coding agent platform. Each Agent template runs inside an isolated Kubernetes Sandbox Pod; users interact with the running agent through Sessions.
+Self-hosted, team-oriented AI coding agent platform. Work is organised into **Projects** — shared workspaces with their own files, members, and one or more **Harnesses** (agent templates). Each Harness runs inside an isolated Kubernetes Sandbox Pod, and users interact with it through **Sessions**.
 
 The platform is harness-agnostic. Two transports are supported:
 
@@ -8,9 +8,10 @@ The platform is harness-agnostic. Two transports are supported:
 - **Terminal harnesses** (e.g. `codex`, `hermes`) — wrap a TUI; the backend proxies raw PTY bytes over WebSocket to a terminal view.
 
 ```
-web (Next.js + shadcn)   →   backend (Go + Echo)   →   K8s Sandbox Pod
-                                                       └─ harness container (e.g. opencode)
-                                                       └─ external model API (anthropic/openai-compatible)
+web (Next.js + shadcn)   →   backend (Go + Echo)   →   K8s
+                                                       ├─ Project Pod    (filemgr — shared workspace PVC)
+                                                       └─ Harness Pod    (harness container + sidecars)
+                                                                         └─ external model API (anthropic/openai-compatible)
 ```
 
 ## Prerequisites
@@ -78,7 +79,7 @@ DATABASE_URL='postgres://user:pw@host.docker.internal:5432/cattery?sslmode=disab
   docker compose -f docker/docker-compose.yml up -d --no-deps backend web
 ```
 
-Open <http://localhost:3000> and click `+` in the sidebar to create your first agent.
+Open <http://localhost:3000>, sign in with the bootstrap admin credentials (see [Authentication](#authentication)), then create your first **Project** from the sidebar — Harnesses live inside Projects.
 
 Database schema changes are versioned under
 [`backend/internal/db/migrations`](backend/internal/db/migrations) and applied
@@ -94,6 +95,7 @@ automatically by the backend on startup using `goose`.
 | `make build`        | Compile the Go server to `backend/bin/server`                      |
 | `make stop`         | Kill processes on `:8080` and `:3000`                              |
 | `make build-harness`| Build all harness Docker images; pass `HARNESS=<name>` to build one |
+| `make build-sidecar`| Build all sidecar images (currently `filemgr`); pass `SIDECAR=<name>` to build one |
 
 ## Configuration
 
@@ -140,9 +142,19 @@ Deleting a user cascades to their harnesses and sessions, and stops their K8s sa
 
 ## Resource model
 
-- **Agent** — configuration template (model, prompt, harness_id, repo, env_vars). Owns a single long-lived sandbox.
-- **Sandbox** — one Kubernetes `agents.x-k8s.io/v1alpha1` Sandbox CR per Agent, named `cattery-<agent_id>`. Status is mirrored to the Agent row.
-- **Session** — a conversation inside an Agent's sandbox. Multiple sessions share one sandbox.
+- **Project** — a shared workspace owned by one user with optional members at `viewer` / `editor` / `owner` roles. Each project has its own PVC-backed file workspace, served by a per-project `filemgr` Pod.
+- **Harness** — an agent template (model, prompt, harness_id, repo, env_vars) scoped to a Project. Owns a single long-lived sandbox.
+- **Sandbox** — one Kubernetes `agents.x-k8s.io/v1alpha1` Sandbox CR per Harness, named `cattery-<harness_id>`. Status is mirrored to the Harness row.
+- **Session** — a conversation inside a Harness's sandbox. Multiple sessions share one sandbox.
+
+Project members see all of the project's harnesses, files, and sessions; their access role gates which mutations they can perform. Deleting a project tears down its filemgr Pod, all harness sandboxes, and the workspace PVC.
+
+## Operational endpoints
+
+- `GET /healthz` — liveness; always 200 once the process is up.
+- `GET /readyz` — readiness; reports DB and Kubernetes client wiring.
+
+Both probes are excluded from the request log to keep K8s polling traffic out of stdout.
 
 ## Adding a new harness
 
