@@ -18,6 +18,7 @@ import "@xterm/xterm/css/xterm.css"
 import "@fontsource/noto-sans-symbols-2/symbols-400.css"
 import { termURL, type Session, type Harness } from "@/lib/api"
 import { Badge } from "@/components/ui/badge"
+import { HarnessInfoButton } from "@/components/harness-info-button"
 
 interface Props {
   session: Session
@@ -226,6 +227,7 @@ export function TerminalView({ session, harness }: Props) {
         <Badge variant={statusVariant(session.status)} className="text-[10px] h-5">
           {session.status}
         </Badge>
+        <HarnessInfoButton harness={harness} session={session} />
       </header>
       <div className="flex-1 min-h-0">{body}</div>
     </div>

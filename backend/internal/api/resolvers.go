@@ -13,9 +13,48 @@ import (
 	"github.com/wellch4n/cattery/internal/model"
 )
 
+func requireReadableProject(c echo.Context, store *db.ProjectStore) (*model.ProjectAccess, error) {
+	userID, ok := UserIDFromContext(c)
+	if !ok {
+		return nil, echo.ErrUnauthorized
+	}
+	id, err := uuid.Parse(c.Param("project_id"))
+	if err != nil {
+		return nil, echo.NewHTTPError(http.StatusNotFound, "project not found")
+	}
+	access, err := store.GetAccessible(c.Request().Context(), id, userID)
+	if err != nil {
+		return nil, echo.NewHTTPError(http.StatusNotFound, "project not found")
+	}
+	return access, nil
+}
+
+func requireWritableProject(c echo.Context, store *db.ProjectStore) (*model.ProjectAccess, error) {
+	access, err := requireReadableProject(c, store)
+	if err != nil {
+		return nil, err
+	}
+	if access.AccessRole != model.AccessOwner && access.AccessRole != model.AccessEditor {
+		return nil, echo.NewHTTPError(http.StatusForbidden, "editor access required")
+	}
+	return access, nil
+}
+
+func requireManageableProject(c echo.Context, store *db.ProjectStore) (*model.ProjectAccess, error) {
+	access, err := requireReadableProject(c, store)
+	if err != nil {
+		return nil, err
+	}
+	if access.AccessRole != model.AccessOwner {
+		return nil, echo.NewHTTPError(http.StatusForbidden, "owner access required")
+	}
+	return access, nil
+}
+
 // requireReadableHarness loads :harness_id and verifies the caller can read
-// it. Bad ID, missing row, and access mismatch all surface as 404 — we don't
-// want to confirm the existence of someone else's harness via a 403.
+// it via the parent project. Bad ID, missing row, and access mismatch all
+// surface as 404 — we don't want to confirm the existence of someone else's
+// harness via a 403.
 func requireReadableHarness(c echo.Context, store *db.HarnessStore) (*model.HarnessAccess, error) {
 	userID, ok := UserIDFromContext(c)
 	if !ok {

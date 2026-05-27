@@ -24,6 +24,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Markdown } from "@/components/markdown"
 import { FileViewer } from "@/components/file-viewer"
+import { HarnessInfoButton } from "@/components/harness-info-button"
 import { cn } from "@/lib/utils"
 import { answerSession, exportSessionURL, type Session, type Harness, type QuestionAnswer } from "@/lib/api"
 import {
@@ -135,6 +136,7 @@ export function ChatPanel({ session, harness }: Props) {
         <Badge variant={statusVariant(session.status)} className="text-[10px] h-5">
           {session.status}
         </Badge>
+        <HarnessInfoButton harness={harness} session={session} />
       </header>
 
       <div className="relative flex-1 min-h-0">

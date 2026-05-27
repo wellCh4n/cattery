@@ -1,11 +1,14 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { usePathname, useRouter } from "next/navigation"
 import {
   Bot,
   Cat,
+  Check,
   ChevronRight,
+  ChevronsUpDown,
+  FolderOpen,
   Info,
   KeyRound,
   Loader2,
@@ -16,47 +19,77 @@ import {
   Shield,
   Trash2,
   UserCircle2,
+  Users,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { ChangePasswordDialog } from "@/components/change-password-dialog"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { CreateHarnessDialog } from "@/components/create-harness-dialog"
+import { FileBrowserPanel } from "@/components/file-browser-panel"
 import { HarnessIcon } from "@/components/harness-icon"
+import { NewProjectDialog } from "@/components/new-project-dialog"
+import { ProjectMembersPanel } from "@/components/project-members-panel"
 import { RenameSessionDialog } from "@/components/rename-session-dialog"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { cn } from "@/lib/utils"
 import { useResizable } from "@/lib/use-resizable"
 import { type Session } from "@/lib/api"
-import { type HarnessWithSessions, useWorkspaceStore } from "@/lib/workspace-store"
+import { type HarnessWithSessions, type ProjectWithHarnesses, useWorkspaceStore } from "@/lib/workspace-store"
 import { useAuthStore } from "@/lib/auth-store"
+
+type SidebarView = "harnesses" | "files" | "members"
+const VIEW_STORAGE_KEY = "cattery:sidebar:view"
+
+const TYPE_LABELS: Record<string, string> = {
+  "opencode":    "OpenCode",
+  "claude-code": "Claude Code",
+  "codex":       "Codex",
+  "hermes":      "Hermes",
+}
 
 export function Sidebar() {
   const router = useRouter()
   const pathname = usePathname()
-  const selectedSessionId = pathname.startsWith("/sessions/")
-    ? pathname.slice("/sessions/".length)
-    : null
-  const selectedHarnessId = pathname.startsWith("/harnesses/")
-    ? pathname.slice("/harnesses/".length)
-    : null
-  const harnesses = useWorkspaceStore(state => state.harnesses)
+  const selectedSessionId = pathname.startsWith("/sessions/") ? pathname.slice("/sessions/".length) : null
+  const selectedHarnessId = pathname.startsWith("/harnesses/") ? pathname.slice("/harnesses/".length) : null
+
+  const projects = useWorkspaceStore(state => state.projects)
+  const currentProjectId = useWorkspaceStore(state => state.currentProjectId)
+  const setCurrentProject = useWorkspaceStore(state => state.setCurrentProject)
   const busySessions = useWorkspaceStore(state => state.busySessions)
-  const loadHarnesses = useWorkspaceStore(state => state.loadHarnesses)
+  const loadProjects = useWorkspaceStore(state => state.loadProjects)
   const pollHarnesses = useWorkspaceStore(state => state.pollHarnesses)
-  const toggleExpand = useWorkspaceStore(state => state.toggleExpand)
-  const setHarnessesExpanded = useWorkspaceStore(state => state.setHarnessesExpanded)
+  const toggleHarnessExpand = useWorkspaceStore(state => state.toggleHarnessExpand)
   const addHarness = useWorkspaceStore(state => state.addHarness)
   const createSession = useWorkspaceStore(state => state.createSession)
   const deleteSession = useWorkspaceStore(state => state.deleteSession)
+  const deleteProject = useWorkspaceStore(state => state.deleteProject)
+
   const [launching, setLaunching] = useState<string | null>(null)
-  const [deleteTarget, setDeleteTarget] = useState<{ session_id: string; harness_id: string; title: string } | null>(null)
+  const [newProjectOpen, setNewProjectOpen] = useState(false)
+  const [createHarnessProject, setCreateHarnessProject] = useState<ProjectWithHarnesses | null>(null)
+  const [deleteSessionTarget, setDeleteSessionTarget] = useState<{ session_id: string; harness_id: string; title: string } | null>(null)
   const [renameTarget, setRenameTarget] = useState<Session | null>(null)
   const [renameOpen, setRenameOpen] = useState(false)
+  const [projectPickerOpen, setProjectPickerOpen] = useState(false)
+  const [deleteProjectTarget, setDeleteProjectTarget] = useState<ProjectWithHarnesses | null>(null)
+  const projectPickerRef = useRef<HTMLDivElement>(null)
+
   const user = useAuthStore(s => s.user)
   const logout = useAuthStore(s => s.logout)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [changePasswordOpen, setChangePasswordOpen] = useState(false)
   const userMenuRef = useRef<HTMLDivElement>(null)
+
+  const [view, setView] = useState<SidebarView>("harnesses")
+  useEffect(() => {
+    const saved = localStorage.getItem(VIEW_STORAGE_KEY)
+    if (saved === "files" || saved === "harnesses" || saved === "members") setView(saved)
+  }, [])
+  useEffect(() => {
+    localStorage.setItem(VIEW_STORAGE_KEY, view)
+  }, [view])
 
   useEffect(() => {
     if (!userMenuOpen) return
@@ -69,9 +102,20 @@ export function Sidebar() {
     return () => document.removeEventListener("pointerdown", onPointerDown)
   }, [userMenuOpen])
 
+  useEffect(() => {
+    if (!projectPickerOpen) return
+    function onPointerDown(e: PointerEvent) {
+      if (projectPickerRef.current && !projectPickerRef.current.contains(e.target as Node)) {
+        setProjectPickerOpen(false)
+      }
+    }
+    document.addEventListener("pointerdown", onPointerDown)
+    return () => document.removeEventListener("pointerdown", onPointerDown)
+  }, [projectPickerOpen])
+
   const { width: sidebarWidth, onMouseDown: onSidebarMouseDown } = useResizable({
     initial: 256,
-    min: 200,
+    min: 240,
     max: 480,
     storageKey: "cattery:sidebar:width",
     side: "right",
@@ -80,10 +124,16 @@ export function Sidebar() {
   useEffect(() => {
     let cancelled = false
     queueMicrotask(() => {
-      if (!cancelled) void loadHarnesses()
+      if (!cancelled) void loadProjects()
     })
     return () => { cancelled = true }
-  }, [loadHarnesses])
+  }, [loadProjects])
+
+  const currentProject = useMemo(
+    () => projects.find(p => p.project_id === currentProjectId) ?? null,
+    [projects, currentProjectId],
+  )
+  const harnesses = currentProject?.harnesses ?? []
 
   const pollingKey = harnesses
     .filter(h => h.sandbox_status !== "ready" && h.sandbox_status !== "failed")
@@ -111,49 +161,6 @@ export function Sidebar() {
     }
   }
 
-  function statusDot(status: string) {
-    if (status === "ready") return "bg-emerald-500"
-    if (status === "failed") return "bg-destructive"
-    return "bg-amber-400 animate-pulse"
-  }
-
-  function sandboxDot(status: string): string | null {
-    if (status === "ready") return null
-    if (status === "failed") return "bg-destructive"
-    if (status === "starting") return "bg-amber-400 animate-pulse"
-    return "bg-muted-foreground/40"
-  }
-
-  function canCreateSession(harness: HarnessWithSessions): boolean {
-    return harness.sandbox_status === "ready" && harness.access_role !== "viewer"
-  }
-
-  function newSessionTitle(harness: HarnessWithSessions): string {
-    if (harness.access_role === "viewer") return "Viewer access"
-    return canCreateSession(harness) ? "New session" : "Sandbox is not ready"
-  }
-
-  const TYPE_LABELS: Record<string, string> = {
-    "opencode":    "OpenCode",
-    "claude-code": "Claude Code",
-    "codex":       "Codex",
-    "hermes":      "Hermes",
-  }
-
-  const recentSessions: Array<Session & { harness_name: string | null }> = harnesses
-    .flatMap(h => h.sessions.map(s => ({ ...s, harness_name: h.harness_name })))
-    .filter(s => s.status !== "dead")
-    .sort((a, b) => {
-      const ta = new Date(a.last_seen_at ?? a.created_at).getTime()
-      const tb = new Date(b.last_seen_at ?? b.created_at).getTime()
-      return tb - ta
-    })
-    .slice(0, 3)
-
-  const ownHarnesses = harnesses.filter(h => h.access_role === "owner")
-  const sharedHarnesses = harnesses.filter(h => h.access_role !== "owner")
-  const hasAnySessions = harnesses.some(h => h.sessions.some(s => s.status !== "dead"))
-
   return (
     <>
       <aside
@@ -164,81 +171,139 @@ export function Sidebar() {
           onMouseDown={onSidebarMouseDown}
           className="absolute right-0 top-0 z-10 h-full w-1 translate-x-1/2 cursor-col-resize transition-colors hover:bg-primary/40"
         />
-        <header className="flex h-12 shrink-0 items-center justify-between border-b px-3">
-          <div className="flex items-center gap-1.5">
-            <Cat className="size-4 text-foreground" />
-            <span className="font-heading text-base font-semibold tracking-tight">Cattery</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <ThemeToggle />
-            <CreateHarnessDialog onCreated={addHarness} />
+        <header className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
+          <Cat className="size-4 shrink-0 text-foreground" />
+          <span className="font-heading shrink-0 text-base font-semibold tracking-tight">Cattery</span>
+          <div ref={projectPickerRef} className="relative min-w-0 flex-1">
+            <button
+              type="button"
+              onClick={() => setProjectPickerOpen(o => !o)}
+              className={cn(
+                "flex h-7 w-full cursor-pointer items-center gap-1.5 rounded-md border border-transparent px-2 text-xs transition-colors",
+                "hover:border-border hover:bg-muted",
+                projectPickerOpen && "border-border bg-muted",
+              )}
+              title="Switch project"
+            >
+              <span className="min-w-0 flex-1 truncate text-left text-foreground/90">
+                {currentProject?.project_name ?? (projects.length === 0 ? "No project" : "Untitled")}
+              </span>
+              <ChevronsUpDown className="size-3 shrink-0 text-muted-foreground" />
+            </button>
+            {projectPickerOpen && (
+              <div className="absolute left-0 top-full z-30 mt-1 w-max min-w-full max-w-[320px] max-h-[60vh] overflow-y-auto rounded-md border bg-popover text-sm shadow-md">
+                {projects.length === 0 && (
+                  <div className="px-3 py-2 text-xs text-muted-foreground">No projects yet</div>
+                )}
+                {projects.map(project => {
+                  const active = project.project_id === currentProjectId
+                  const ownsProject = project.access_role === "owner"
+                  return (
+                    <div
+                      key={project.project_id}
+                      className={cn(
+                        "group/proj flex h-9 cursor-pointer items-center gap-2 px-2.5 text-left hover:bg-muted",
+                        active && "bg-muted/60",
+                      )}
+                      onClick={() => {
+                        setCurrentProject(project.project_id)
+                        setProjectPickerOpen(false)
+                      }}
+                    >
+                      <span className="flex size-4 shrink-0 items-center justify-center text-foreground">
+                        {active ? <Check className="size-3.5" /> : null}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate text-xs">
+                        {project.project_name ?? "Untitled"}
+                      </span>
+                      {!ownsProject && (
+                        <Badge variant="secondary" className="h-4 shrink-0 px-1.5 text-[10px] font-normal">
+                          {project.access_role}
+                        </Badge>
+                      )}
+                      {ownsProject && (
+                        <button
+                          type="button"
+                          title="Delete project"
+                          aria-label="Delete project"
+                          onClick={e => {
+                            e.stopPropagation()
+                            setProjectPickerOpen(false)
+                            setDeleteProjectTarget(project)
+                          }}
+                          className="hidden size-6 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/15 hover:text-destructive group-hover/proj:inline-flex"
+                        >
+                          <Trash2 className="size-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  )
+                })}
+                <div className="border-t border-border/60" />
+                <button
+                  type="button"
+                  className="flex h-9 w-full cursor-pointer items-center gap-2 px-2.5 text-left text-xs hover:bg-muted"
+                  onClick={() => {
+                    setProjectPickerOpen(false)
+                    setNewProjectOpen(true)
+                  }}
+                >
+                  <Plus className="size-3.5 text-muted-foreground" />
+                  New project
+                </button>
+              </div>
+            )}
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto py-1.5">
-          {recentSessions.length > 0 && (
-            <div className="mb-2 px-1.5">
-              <div className="px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                Recent Sessions
-              </div>
-              <div className="space-y-0.5">
-                {recentSessions.map(sess => (
-                  <div
-                    key={sess.session_id}
-                    role="button"
-                    onClick={() => router.push(`/sessions/${sess.session_id}`)}
-                    className={cn(
-                      "group/recent flex h-7 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-xs transition-colors",
-                      "text-muted-foreground hover:bg-muted hover:text-foreground",
-                      selectedSessionId === sess.session_id && "bg-muted font-medium text-foreground"
-                    )}
-                  >
-                    {busySessions.has(sess.session_id) ? (
-                      <Loader2 className="size-3 shrink-0 animate-spin text-amber-500" />
-                    ) : (
-                      <span className={cn("size-1.5 shrink-0 rounded-full", statusDot(sess.status))} />
-                    )}
-                    <span className="flex-1 truncate text-left">{sess.title ?? "New Session"}</span>
-                    <span className="max-w-[60px] shrink-0 truncate text-[10px] text-muted-foreground/60 group-hover/recent:hidden">
-                      {sess.harness_name ?? "Untitled"}
-                    </span>
-                    <button
-                      type="button"
-                      title="Rename session"
-                      aria-label="Rename session"
-                      onClick={e => {
-                        e.stopPropagation()
-                        setRenameTarget(sess)
-                        setRenameOpen(true)
-                      }}
-                      className="hidden size-5 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground group-hover/recent:inline-flex"
-                    >
-                      <Pencil className="size-3" />
-                    </button>
-                    <button
-                      type="button"
-                      title="Delete session"
-                      aria-label="Delete session"
-                      onClick={e => {
-                        e.stopPropagation()
-                        setDeleteTarget({
-                          session_id: sess.session_id,
-                          harness_id: sess.harness_id,
-                          title: sess.title ?? "New Session",
-                        })
-                      }}
-                      className="hidden size-5 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/15 hover:text-destructive group-hover/recent:inline-flex"
-                    >
-                      <Trash2 className="size-3" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-              <div className="mx-2 my-2 border-t border-border/60" />
+        <div className="flex min-h-0 flex-1 flex-row">
+        <div className="flex w-12 shrink-0 flex-col gap-1 border-r py-2">
+          <ActivityButton
+            icon={<Bot className="size-5" />}
+            label="Harnesses"
+            active={view === "harnesses"}
+            onClick={() => setView("harnesses")}
+          />
+          <ActivityButton
+            icon={<FolderOpen className="size-5" />}
+            label="Files"
+            active={view === "files"}
+            onClick={() => setView("files")}
+          />
+          <ActivityButton
+            icon={<Users className="size-5" />}
+            label="Members"
+            active={view === "members"}
+            onClick={() => setView("members")}
+          />
+        </div>
+        {view === "harnesses" ? (
+        <div className="flex min-w-0 flex-1 flex-col">
+        <div className="flex h-9 shrink-0 items-center justify-between border-b px-2">
+          <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            Harnesses
+          </span>
+          {currentProject && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => setCreateHarnessProject(currentProject)}
+              title="New harness"
+            >
+              <Plus />
+            </Button>
+          )}
+        </div>
+        <div className="min-w-0 flex-1 overflow-y-auto py-1.5">
+          {!currentProject && (
+            <div className="px-4 py-8 text-center">
+              <Shield className="mx-auto size-8 text-muted-foreground/50" />
+              <p className="mt-2 text-xs text-muted-foreground">No project selected</p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground/70">Pick or create one above</p>
             </div>
           )}
 
-          {harnesses.length === 0 && (
+          {currentProject && harnesses.length === 0 && (
             <div className="px-4 py-8 text-center">
               <Bot className="mx-auto size-8 text-muted-foreground/50" />
               <p className="mt-2 text-xs text-muted-foreground">No harnesses yet</p>
@@ -246,66 +311,54 @@ export function Sidebar() {
             </div>
           )}
 
-          <HarnessListSection
-            title={hasAnySessions ? "My Harness" : null}
-            harnesses={ownHarnesses}
-            actionLabel={ownHarnesses.length > 0 ? (ownHarnesses.every(h => h.expanded) ? "Collapse all" : "Expand all") : undefined}
-            onAction={ownHarnesses.length > 0
-              ? () => {
-                  const shouldExpand = ownHarnesses.some(h => !h.expanded)
-                  setHarnessesExpanded(ownHarnesses.map(h => h.harness_id), shouldExpand)
-                }
-              : undefined}
-            selectedSessionId={selectedSessionId}
-            selectedHarnessId={selectedHarnessId}
-            launching={launching}
-            busySessions={busySessions}
-            typeLabels={TYPE_LABELS}
-            onToggleExpand={toggleExpand}
-            onNewSession={handleNewSession}
-            onRouteSession={id => router.push(`/sessions/${id}`)}
-            onRouteHarness={id => router.push(`/harnesses/${id}`)}
-            onRequestDeleteSession={(sess, harnessId) => setDeleteTarget({
-              session_id: sess.session_id,
-              harness_id: harnessId,
-              title: sess.title ?? "New Session",
-            })}
-            onRequestRenameSession={sess => {
-              setRenameTarget(sess)
-              setRenameOpen(true)
-            }}
-            canCreateSession={canCreateSession}
-            newSessionTitle={newSessionTitle}
-            statusDot={statusDot}
-            sandboxDot={sandboxDot}
-          />
-
-          <HarnessListSection
-            title={sharedHarnesses.length > 0 ? "Shared With Me" : null}
-            harnesses={sharedHarnesses}
-            selectedSessionId={selectedSessionId}
-            selectedHarnessId={selectedHarnessId}
-            launching={launching}
-            busySessions={busySessions}
-            typeLabels={TYPE_LABELS}
-            onToggleExpand={toggleExpand}
-            onNewSession={handleNewSession}
-            onRouteSession={id => router.push(`/sessions/${id}`)}
-            onRouteHarness={id => router.push(`/harnesses/${id}`)}
-            onRequestDeleteSession={(sess, harnessId) => setDeleteTarget({
-              session_id: sess.session_id,
-              harness_id: harnessId,
-              title: sess.title ?? "New Session",
-            })}
-            onRequestRenameSession={sess => {
-              setRenameTarget(sess)
-              setRenameOpen(true)
-            }}
-            canCreateSession={canCreateSession}
-            newSessionTitle={newSessionTitle}
-            statusDot={statusDot}
-            sandboxDot={sandboxDot}
-          />
+          {harnesses.map(harness => (
+            <HarnessRow
+              key={harness.harness_id}
+              harness={harness}
+              selected={selectedHarnessId === harness.harness_id}
+              selectedSessionId={selectedSessionId}
+              launching={launching}
+              busySessions={busySessions}
+              onToggleExpand={toggleHarnessExpand}
+              onNewSession={handleNewSession}
+              onRouteSession={id => router.push(`/sessions/${id}`)}
+              onRouteHarness={id => router.push(`/harnesses/${id}`)}
+              onRequestDeleteSession={(sess, harnessId) => setDeleteSessionTarget({
+                session_id: sess.session_id,
+                harness_id: harnessId,
+                title: sess.title ?? "New Session",
+              })}
+              onRequestRenameSession={sess => {
+                setRenameTarget(sess)
+                setRenameOpen(true)
+              }}
+            />
+          ))}
+        </div>
+        </div>
+        ) : view === "files" ? (
+          <div className="min-h-0 flex-1 overflow-hidden">
+            {currentProject ? (
+              <FileBrowserPanel
+                projectId={currentProject.project_id}
+                canWrite={currentProject.access_role !== "viewer"}
+              />
+            ) : (
+              <NoProjectPlaceholder />
+            )}
+          </div>
+        ) : (
+          <div className="min-h-0 flex-1 overflow-hidden">
+            {currentProject ? (
+              <ProjectMembersPanel
+                project={currentProject}
+                canManage={currentProject.access_role === "owner"}
+              />
+            ) : (
+              <NoProjectPlaceholder />
+            )}
+          </div>
+        )}
         </div>
 
         <div ref={userMenuRef} className="relative shrink-0 border-t">
@@ -336,21 +389,41 @@ export function Sidebar() {
               </button>
             </div>
           )}
-          <button
-            className={cn(
-              "flex h-10 w-full cursor-pointer items-center gap-2 px-2.5 transition-colors hover:bg-muted",
-              userMenuOpen && "bg-muted"
-            )}
-            onClick={() => setUserMenuOpen(o => !o)}
-          >
-            <UserCircle2 className="size-4 shrink-0 text-muted-foreground" />
-            <span className="flex-1 truncate text-left text-xs text-foreground/90">{user?.username ?? "-"}</span>
-            {user?.is_admin && (
-              <Badge variant="secondary" className="h-4 shrink-0 px-1.5 text-[10px] font-normal">admin</Badge>
-            )}
-          </button>
+          <div className="flex h-10 items-center gap-1 pr-1.5">
+            <button
+              className={cn(
+                "flex h-10 min-w-0 flex-1 cursor-pointer items-center gap-2 px-2.5 transition-colors hover:bg-muted",
+                userMenuOpen && "bg-muted",
+              )}
+              onClick={() => setUserMenuOpen(o => !o)}
+            >
+              <UserCircle2 className="size-4 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1 truncate text-left text-xs text-foreground/90">{user?.username ?? "-"}</span>
+              {user?.is_admin && (
+                <Badge variant="secondary" className="h-4 shrink-0 px-1.5 text-[10px] font-normal">admin</Badge>
+              )}
+            </button>
+            <ThemeToggle />
+          </div>
         </div>
       </aside>
+
+      <NewProjectDialog
+        open={newProjectOpen}
+        onOpenChange={setNewProjectOpen}
+      />
+
+      {createHarnessProject && (
+        <CreateHarnessDialog
+          projectId={createHarnessProject.project_id}
+          open={true}
+          onOpenChange={open => { if (!open) setCreateHarnessProject(null) }}
+          onCreated={harness => {
+            addHarness(harness)
+            setCreateHarnessProject(null)
+          }}
+        />
+      )}
 
       <ChangePasswordDialog open={changePasswordOpen} onOpenChange={setChangePasswordOpen} />
 
@@ -361,20 +434,20 @@ export function Sidebar() {
       />
 
       <ConfirmDialog
-        open={deleteTarget !== null}
-        onOpenChange={open => { if (!open) setDeleteTarget(null) }}
+        open={deleteSessionTarget !== null}
+        onOpenChange={open => { if (!open) setDeleteSessionTarget(null) }}
         title="Delete session?"
         description={
           <>
-            <span className="font-medium text-foreground">{deleteTarget?.title}</span>
+            <span className="font-medium text-foreground">{deleteSessionTarget?.title}</span>
             {" "}will be permanently deleted along with its transcript. This cannot be undone.
           </>
         }
         confirmLabel="Delete"
         destructive
         onConfirm={async () => {
-          if (!deleteTarget) return
-          const target = deleteTarget
+          if (!deleteSessionTarget) return
+          const target = deleteSessionTarget
           await deleteSession(target.session_id, target.harness_id)
           if (selectedSessionId === target.session_id) {
             router.push(`/harnesses/${target.harness_id}`)
@@ -382,93 +455,54 @@ export function Sidebar() {
         }}
       />
 
+      <ConfirmDialog
+        open={deleteProjectTarget !== null}
+        onOpenChange={open => { if (!open) setDeleteProjectTarget(null) }}
+        title="Delete project?"
+        description={
+          <>
+            <span className="font-medium text-foreground">{deleteProjectTarget?.project_name ?? "Untitled"}</span>
+            {" "}and all its harnesses, sessions, and shared files will be permanently deleted. This cannot be undone.
+          </>
+        }
+        confirmLabel="Delete"
+        destructive
+        onConfirm={async () => {
+          if (!deleteProjectTarget) return
+          const target = deleteProjectTarget
+          await deleteProject(target.project_id)
+          if (selectedHarnessId && target.harnesses.some(h => h.harness_id === selectedHarnessId)) {
+            router.push("/")
+          }
+          if (selectedSessionId && target.harnesses.some(h => h.sessions.some(s => s.session_id === selectedSessionId))) {
+            router.push("/")
+          }
+        }}
+      />
     </>
   )
 }
 
-function HarnessListSection({
-  title,
-  actionLabel,
-  onAction,
-  harnesses,
-  selectedSessionId,
-  selectedHarnessId,
-  launching,
-  busySessions,
-  typeLabels,
-  onToggleExpand,
-  onNewSession,
-  onRouteSession,
-  onRouteHarness,
-  onRequestDeleteSession,
-  onRequestRenameSession,
-  canCreateSession,
-  newSessionTitle,
-  statusDot,
-  sandboxDot,
-}: {
-  title: string | null
-  actionLabel?: string
-  onAction?: () => void
-  harnesses: HarnessWithSessions[]
-  selectedSessionId: string | null
-  selectedHarnessId: string | null
-  launching: string | null
-  busySessions: Set<string>
-  typeLabels: Record<string, string>
-  onToggleExpand: (harnessId: string) => void
-  onNewSession: (harness: HarnessWithSessions) => void
-  onRouteSession: (sessionId: string) => void
-  onRouteHarness: (harnessId: string) => void
-  onRequestDeleteSession: (sess: Session, harnessId: string) => void
-  onRequestRenameSession: (sess: Session) => void
-  canCreateSession: (harness: HarnessWithSessions) => boolean
-  newSessionTitle: (harness: HarnessWithSessions) => string
-  statusDot: (status: string) => string
-  sandboxDot: (status: string) => string | null
-}) {
-  if (!title && harnesses.length === 0) return null
-  return (
-    <div className="mb-2">
-      {title && (
-        <div className="flex items-center justify-between px-3 py-1">
-          <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-            {title}
-          </div>
-          {actionLabel && onAction && (
-            <button
-              type="button"
-              onClick={onAction}
-              className="cursor-pointer rounded px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            >
-              {actionLabel}
-            </button>
-          )}
-        </div>
-      )}
-      {harnesses.map(harness => (
-        <HarnessRow
-          key={harness.harness_id}
-          harness={harness}
-          selected={selectedHarnessId === harness.harness_id}
-          selectedSessionId={selectedSessionId}
-          launching={launching}
-          busySessions={busySessions}
-          typeLabels={typeLabels}
-          onToggleExpand={onToggleExpand}
-          onNewSession={onNewSession}
-          onRouteSession={onRouteSession}
-          onRouteHarness={onRouteHarness}
-          onRequestDeleteSession={onRequestDeleteSession}
-          onRequestRenameSession={onRequestRenameSession}
-          canCreateSession={canCreateSession}
-          newSessionTitle={newSessionTitle}
-          statusDot={statusDot}
-          sandboxDot={sandboxDot}
-        />
-      ))}
-    </div>
-  )
+function statusDot(status: string) {
+  if (status === "ready") return "bg-emerald-500"
+  if (status === "failed") return "bg-destructive"
+  return "bg-amber-400 animate-pulse"
+}
+
+function sandboxDot(status: string): string | null {
+  if (status === "ready") return null
+  if (status === "failed") return "bg-destructive"
+  if (status === "starting") return "bg-amber-400 animate-pulse"
+  return "bg-muted-foreground/40"
+}
+
+function canCreateSession(harness: HarnessWithSessions): boolean {
+  return harness.sandbox_status === "ready" && harness.access_role !== "viewer"
+}
+
+function newSessionTitle(harness: HarnessWithSessions): string {
+  if (harness.access_role === "viewer") return "Viewer access"
+  return canCreateSession(harness) ? "New session" : "Sandbox is not ready"
 }
 
 function HarnessRow({
@@ -477,34 +511,24 @@ function HarnessRow({
   selectedSessionId,
   launching,
   busySessions,
-  typeLabels,
   onToggleExpand,
   onNewSession,
   onRouteSession,
   onRouteHarness,
   onRequestDeleteSession,
   onRequestRenameSession,
-  canCreateSession,
-  newSessionTitle,
-  statusDot,
-  sandboxDot,
 }: {
   harness: HarnessWithSessions
   selected: boolean
   selectedSessionId: string | null
   launching: string | null
   busySessions: Set<string>
-  typeLabels: Record<string, string>
   onToggleExpand: (harnessId: string) => void
   onNewSession: (harness: HarnessWithSessions) => void
   onRouteSession: (sessionId: string) => void
   onRouteHarness: (harnessId: string) => void
   onRequestDeleteSession: (sess: Session, harnessId: string) => void
   onRequestRenameSession: (sess: Session) => void
-  canCreateSession: (harness: HarnessWithSessions) => boolean
-  newSessionTitle: (harness: HarnessWithSessions) => string
-  statusDot: (status: string) => string
-  sandboxDot: (status: string) => string | null
 }) {
   function handleRowClick() {
     onToggleExpand(harness.harness_id)
@@ -521,7 +545,7 @@ function HarnessRow({
         role="button"
         className={cn(
           "group flex h-8 cursor-pointer items-center gap-0.5 rounded-md pl-1 pr-0.5 transition-colors select-none",
-          selected ? "bg-muted text-foreground" : "hover:bg-muted"
+          selected ? "bg-muted text-foreground" : "hover:bg-muted",
         )}
         onClick={handleRowClick}
         title={harness.expanded ? "Collapse" : "Expand"}
@@ -536,7 +560,7 @@ function HarnessRow({
           <ChevronRight
             className={cn(
               "size-3.5 transition-transform",
-              harness.expanded && "rotate-90"
+              harness.expanded && "rotate-90",
             )}
           />
         </button>
@@ -553,7 +577,7 @@ function HarnessRow({
             variant="secondary"
             className="h-4 shrink-0 px-1.5 text-[10px] font-normal group-hover:hidden"
           >
-            {harness.access_role === "owner" ? typeLabels[harness.type] ?? harness.type : harness.access_role}
+            {harness.access_role === "owner" ? TYPE_LABELS[harness.type] ?? harness.type : harness.access_role}
           </Badge>
         </div>
         <button
@@ -561,7 +585,7 @@ function HarnessRow({
             "hidden size-6 items-center justify-center rounded transition-colors focus-visible:inline-flex group-hover:inline-flex disabled:cursor-not-allowed disabled:opacity-40",
             canCreateSession(harness)
               ? "cursor-pointer text-muted-foreground hover:bg-foreground/10 hover:text-foreground"
-              : "cursor-not-allowed text-muted-foreground/40 hover:bg-transparent hover:text-muted-foreground/40"
+              : "cursor-not-allowed text-muted-foreground/40 hover:bg-transparent hover:text-muted-foreground/40",
           )}
           title={newSessionTitle(harness)}
           disabled={launching === harness.harness_id || !canCreateSession(harness)}
@@ -600,7 +624,7 @@ function HarnessRow({
                 className={cn(
                   "group/sess flex h-7 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-xs transition-colors",
                   "text-muted-foreground hover:bg-muted hover:text-foreground",
-                  selectedSessionId === sess.session_id && "bg-muted font-medium text-foreground"
+                  selectedSessionId === sess.session_id && "bg-muted font-medium text-foreground",
                 )}
                 onClick={() => onRouteSession(sess.session_id)}
               >
@@ -645,6 +669,53 @@ function HarnessRow({
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+function NoProjectPlaceholder() {
+  return (
+    <div className="px-4 py-8 text-center">
+      <Shield className="mx-auto size-8 text-muted-foreground/50" />
+      <p className="mt-2 text-xs text-muted-foreground">No project selected</p>
+      <p className="mt-0.5 text-[11px] text-muted-foreground/70">Pick or create one above</p>
+    </div>
+  )
+}
+
+function ActivityButton({
+  icon,
+  label,
+  active,
+  onClick,
+}: {
+  icon: React.ReactNode
+  label: string
+  active: boolean
+  onClick: () => void
+}) {
+  return (
+    <div className="relative">
+      <span
+        aria-hidden
+        className={cn(
+          "pointer-events-none absolute left-0 top-1 bottom-1 w-0.5 rounded-r transition-colors",
+          active ? "bg-foreground" : "bg-transparent",
+        )}
+      />
+      <button
+        type="button"
+        onClick={onClick}
+        title={label}
+        aria-label={label}
+        aria-pressed={active}
+        className={cn(
+          "flex h-10 w-full cursor-pointer items-center justify-center transition-colors",
+          active ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+        )}
+      >
+        {icon}
+      </button>
     </div>
   )
 }

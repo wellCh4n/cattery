@@ -13,36 +13,37 @@ import (
 )
 
 type HarnessHandler struct {
-	store   *db.HarnessStore
-	shares  *db.ShareStore
-	users   *db.UserStore
-	sandbox *sandbox.Manager
+	store    *db.HarnessStore
+	projects *db.ProjectStore
+	sandbox  *sandbox.Manager
 }
 
-func NewHarnessHandler(store *db.HarnessStore, shares *db.ShareStore, users *db.UserStore, sandboxMgr *sandbox.Manager) *HarnessHandler {
-	return &HarnessHandler{store: store, shares: shares, users: users, sandbox: sandboxMgr}
+func NewHarnessHandler(store *db.HarnessStore, projects *db.ProjectStore, sandboxMgr *sandbox.Manager) *HarnessHandler {
+	return &HarnessHandler{store: store, projects: projects, sandbox: sandboxMgr}
 }
 
 // harnessDTO 在 model.Harness 上叠加 transport_kind 派生字段，让前端能直接判断
 // 走聊天 UI 还是终端 UI，避免再单独请求一次 kind。
 type harnessDTO struct {
 	*model.Harness
-	TransportKind harness.Kind `json:"transport_kind"`
-	AccessRole    string       `json:"access_role"`
-	OwnerUsername string       `json:"owner_username"`
+	TransportKind harness.Kind   `json:"transport_kind"`
+	AccessRole    string         `json:"access_role"`
+	OwnerUsername string         `json:"owner_username"`
+	Project       *model.Project `json:"project,omitempty"`
 }
 
-func toDTO(h *model.Harness, accessRole, ownerUsername string) *harnessDTO {
+func toDTO(h *model.Harness, accessRole, ownerUsername string, project *model.Project) *harnessDTO {
 	return &harnessDTO{
 		Harness:       h,
 		TransportKind: harness.KindFor(h.Type),
 		AccessRole:    accessRole,
 		OwnerUsername: ownerUsername,
+		Project:       project,
 	}
 }
 
 func toAccessDTO(access *model.HarnessAccess) *harnessDTO {
-	return toDTO(access.Harness, access.AccessRole, access.OwnerUsername)
+	return toDTO(access.Harness, access.AccessRole, access.OwnerUsername, access.Project)
 }
 
 type createHarnessRequest struct {
@@ -53,9 +54,9 @@ type createHarnessRequest struct {
 }
 
 func (h *HarnessHandler) Create(c echo.Context) error {
-	userID, ok := UserIDFromContext(c)
-	if !ok {
-		return echo.ErrUnauthorized
+	projectAccess, err := requireWritableProject(c, h.projects)
+	if err != nil {
+		return err
 	}
 	var req createHarnessRequest
 	if err := c.Bind(&req); err != nil {
@@ -73,7 +74,7 @@ func (h *HarnessHandler) Create(c echo.Context) error {
 
 	inst := &model.Harness{
 		HarnessID:   uuid.New(),
-		OwnerUserID: userID,
+		ProjectID:   projectAccess.Project.ProjectID,
 		HarnessName: req.HarnessName,
 		Model:       req.Model,
 		Type:        req.Type,
@@ -90,28 +91,7 @@ func (h *HarnessHandler) Create(c echo.Context) error {
 	// 非终态（!= ready / failed）都会轮询。
 	h.sandbox.EnsureReadyAsync(inst)
 
-	owner, _ := h.users.GetByID(c.Request().Context(), userID)
-	ownerUsername := ""
-	if owner != nil {
-		ownerUsername = owner.Username
-	}
-	return c.JSON(http.StatusCreated, toDTO(inst, model.AccessOwner, ownerUsername))
-}
-
-func (h *HarnessHandler) List(c echo.Context) error {
-	userID, ok := UserIDFromContext(c)
-	if !ok {
-		return echo.ErrUnauthorized
-	}
-	harnesses, err := h.store.ListAccessible(c.Request().Context(), userID)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-	out := make([]*harnessDTO, 0, len(harnesses))
-	for _, access := range harnesses {
-		out = append(out, toAccessDTO(access))
-	}
-	return c.JSON(http.StatusOK, out)
+	return c.JSON(http.StatusCreated, toDTO(inst, projectAccess.AccessRole, projectAccess.OwnerUsername, projectAccess.Project))
 }
 
 func (h *HarnessHandler) Get(c echo.Context) error {
@@ -138,13 +118,13 @@ func (h *HarnessHandler) Update(c echo.Context) error {
 	if req.HarnessName == nil {
 		return echo.ErrBadRequest
 	}
-	if err := h.store.UpdateNameForOwner(c.Request().Context(), access.Harness.HarnessID, access.Harness.OwnerUserID, *req.HarnessName); err != nil {
+	if err := h.store.UpdateNameForProject(c.Request().Context(), access.Harness.HarnessID, access.Harness.ProjectID, *req.HarnessName); err != nil {
 		if errors.Is(err, db.ErrHarnessNotFound) {
 			return echo.NewHTTPError(http.StatusNotFound, "harness not found")
 		}
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
-	updated, err := h.store.GetAccessible(c.Request().Context(), access.Harness.HarnessID, access.Harness.OwnerUserID)
+	updated, err := h.store.GetAccessible(c.Request().Context(), access.Harness.HarnessID, access.Project.OwnerUserID)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusNotFound, "harness not found")
 	}
@@ -157,107 +137,9 @@ func (h *HarnessHandler) Delete(c echo.Context) error {
 		return err
 	}
 	h.sandbox.Stop(c.Request().Context(), access.Harness)
-	if err := h.store.DeleteForOwner(c.Request().Context(), access.Harness.HarnessID, access.Harness.OwnerUserID); err != nil {
+	if err := h.store.DeleteForProject(c.Request().Context(), access.Harness.HarnessID, access.Harness.ProjectID); err != nil {
 		if errors.Is(err, db.ErrHarnessNotFound) {
 			return echo.NewHTTPError(http.StatusNotFound, "harness not found")
-		}
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-	return c.NoContent(http.StatusNoContent)
-}
-
-type shareRequest struct {
-	Username string `json:"username"`
-	Role     string `json:"role"`
-}
-
-type updateShareRequest struct {
-	Role string `json:"role"`
-}
-
-func validShareRole(role string) bool {
-	return role == model.AccessViewer || role == model.AccessEditor
-}
-
-func (h *HarnessHandler) ListShares(c echo.Context) error {
-	access, err := requireReadableHarness(c, h.store)
-	if err != nil {
-		return err
-	}
-	shares, err := h.shares.ListByHarness(c.Request().Context(), access.Harness.HarnessID)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-	if shares == nil {
-		shares = []*model.HarnessShare{}
-	}
-	return c.JSON(http.StatusOK, shares)
-}
-
-func (h *HarnessHandler) CreateShare(c echo.Context) error {
-	access, err := requireManageableHarness(c, h.store)
-	if err != nil {
-		return err
-	}
-	var req shareRequest
-	if err := c.Bind(&req); err != nil {
-		return echo.ErrBadRequest
-	}
-	if !validShareRole(req.Role) {
-		return echo.NewHTTPError(http.StatusBadRequest, "invalid share role")
-	}
-	user, err := h.users.GetByUsername(c.Request().Context(), req.Username)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusNotFound, "user not found")
-	}
-	if user.UserID == access.Harness.OwnerUserID {
-		return echo.NewHTTPError(http.StatusBadRequest, "owner already has access")
-	}
-	share, err := h.shares.Upsert(c.Request().Context(), access.Harness.HarnessID, user.UserID, req.Role)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-	return c.JSON(http.StatusCreated, share)
-}
-
-func (h *HarnessHandler) UpdateShare(c echo.Context) error {
-	access, err := requireManageableHarness(c, h.store)
-	if err != nil {
-		return err
-	}
-	userID, err := uuid.Parse(c.Param("user_id"))
-	if err != nil {
-		return echo.NewHTTPError(http.StatusNotFound, "share not found")
-	}
-	var req updateShareRequest
-	if err := c.Bind(&req); err != nil {
-		return echo.ErrBadRequest
-	}
-	if !validShareRole(req.Role) {
-		return echo.NewHTTPError(http.StatusBadRequest, "invalid share role")
-	}
-	share, err := h.shares.UpdateRole(c.Request().Context(), access.Harness.HarnessID, userID, req.Role)
-	if err != nil {
-		if errors.Is(err, db.ErrShareNotFound) {
-			return echo.NewHTTPError(http.StatusNotFound, "share not found")
-		}
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-	return c.JSON(http.StatusOK, share)
-}
-
-func (h *HarnessHandler) DeleteShare(c echo.Context) error {
-	access, err := requireManageableHarness(c, h.store)
-	if err != nil {
-		return err
-	}
-	userID, err := uuid.Parse(c.Param("user_id"))
-	if err != nil {
-		return echo.NewHTTPError(http.StatusNotFound, "share not found")
-	}
-	if err := h.shares.Delete(c.Request().Context(), access.Harness.HarnessID, userID); err != nil {
-		if errors.Is(err, db.ErrShareNotFound) {
-			return echo.NewHTTPError(http.StatusNotFound, "share not found")
 		}
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}

@@ -38,19 +38,21 @@ func main() {
 	}
 
 	harnessStore := db.NewHarnessStore(database)
-	shareStore := db.NewShareStore(database)
+	projectStore := db.NewProjectStore(database)
+	memberStore := db.NewMemberStore(database)
 	sessionStore := db.NewSessionStore(database)
 	harnessClient := harness.NewClient()
 	sandboxMgr := sandbox.NewManager(harnessStore, k8s, harnessClient, cfg)
 
-	harnessH := api.NewHarnessHandler(harnessStore, shareStore, userStore, sandboxMgr)
+	projectH := api.NewProjectHandler(projectStore, harnessStore, memberStore, userStore, sandboxMgr, k8s)
+	harnessH := api.NewHarnessHandler(harnessStore, projectStore, sandboxMgr)
 	sessionH := api.NewSessionHandler(sessionStore, harnessStore, harnessClient, sandboxMgr)
-	filesH := api.NewFilesHandler(harnessStore)
+	filesH := api.NewFilesHandler(projectStore, k8s)
 	authH := api.NewAuthHandler(userStore, signer)
-	adminH := api.NewAdminHandler(userStore, harnessStore, sandboxMgr)
+	adminH := api.NewAdminHandler(userStore, harnessStore, projectStore, sandboxMgr)
 	usersH := api.NewUsersHandler(userStore)
 
-	router := api.NewRouter(database, harnessH, sessionH, filesH, authH, adminH, usersH, signer)
+	router := api.NewRouter(database, harnessH, projectH, sessionH, filesH, authH, adminH, usersH, signer)
 	log.Printf("starting server on :%s", cfg.Port)
 	log.Fatal(router.Start(":" + cfg.Port))
 }

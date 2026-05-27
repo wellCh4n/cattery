@@ -24,6 +24,9 @@ import { ModelIcon } from "@/components/model-icon"
 
 interface Props {
   onCreated: (harness: Harness) => void
+  projectId: string
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
 }
 
 const TYPES = [
@@ -56,10 +59,12 @@ const defaultForm = {
   env_vars: "",
 }
 
-export function CreateHarnessDialog({ onCreated }: Props) {
-  const [open, setOpen] = useState(false)
+export function CreateHarnessDialog({ onCreated, projectId, open: controlledOpen, onOpenChange }: Props) {
+  const [internalOpen, setInternalOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [form, setForm] = useState(defaultForm)
+  const open = controlledOpen ?? internalOpen
+  const setOpen = onOpenChange ?? setInternalOpen
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -73,7 +78,7 @@ export function CreateHarnessDialog({ onCreated }: Props) {
         }
       }
       const model = form.model === "__custom__" ? form.custom_model : form.model
-      const harness = await createHarness({
+      const harness = await createHarness(projectId, {
         harness_name: form.harness_name || null,
         model,
         type: form.type,
@@ -89,11 +94,11 @@ export function CreateHarnessDialog({ onCreated }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button variant="ghost" size="icon-sm" title="New harness">
-          <Plus />
-        </Button>
-      </DialogTrigger>
+      {controlledOpen === undefined && (
+        <DialogTrigger asChild>
+          <Button variant="ghost" size="icon-sm" title="New harness"><Plus /></Button>
+        </DialogTrigger>
+      )}
       <DialogContent className="sm:max-w-[620px]">
         <DialogHeader>
           <DialogTitle>Create Harness</DialogTitle>

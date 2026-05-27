@@ -18,11 +18,12 @@ import (
 type AdminHandler struct {
 	users    *db.UserStore
 	harness  *db.HarnessStore
+	projects *db.ProjectStore
 	sandbox  *sandbox.Manager
 }
 
-func NewAdminHandler(users *db.UserStore, harnessStore *db.HarnessStore, sandboxMgr *sandbox.Manager) *AdminHandler {
-	return &AdminHandler{users: users, harness: harnessStore, sandbox: sandboxMgr}
+func NewAdminHandler(users *db.UserStore, harnessStore *db.HarnessStore, projectStore *db.ProjectStore, sandboxMgr *sandbox.Manager) *AdminHandler {
+	return &AdminHandler{users: users, harness: harnessStore, projects: projectStore, sandbox: sandboxMgr}
 }
 
 // adminUserDTO is the richer user view shown only on admin endpoints —
@@ -164,9 +165,9 @@ func (h *AdminHandler) UpdateUser(c echo.Context) error {
 }
 
 // DeleteUser drops the user and (because of ON DELETE CASCADE) their
-// harnesses + sessions. The DB cascade does NOT touch K8s — we must stop
-// each Sandbox CR explicitly first or it'll keep running forever as an
-// orphan. We do this synchronously before the DB delete; sandbox.Stop is
+// projects, harnesses, and sessions. The DB cascade does NOT touch K8s — we
+// must stop each Sandbox CR explicitly first or it'll keep running forever as
+// an orphan. We do this synchronously before the DB delete; sandbox.Stop is
 // itself fire-and-forget so it just kicks off the deletion.
 func (h *AdminHandler) DeleteUser(c echo.Context) error {
 	callerID, _ := UserIDFromContext(c)

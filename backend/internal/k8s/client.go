@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -26,9 +27,16 @@ var podGVR = schema.GroupVersionResource{
 	Resource: "pods",
 }
 
+var pvcGVR = schema.GroupVersionResource{
+	Group:    "",
+	Version:  "v1",
+	Resource: "persistentvolumeclaims",
+}
+
 const (
-	LabelHarnessID   = "cattery.harness.id"
-	LabelOwnerUserID = "cattery.harness.owner"
+	LabelHarnessID = "cattery.harness.id"
+	LabelProjectID = "cattery.project.id"
+	LabelComponent = "cattery.component"
 )
 
 type Client struct {
@@ -55,10 +63,11 @@ type SandboxSpec struct {
 	Name          string
 	SessionID     string
 	HarnessID     string
-	OwnerUserID   string
+	ProjectID     string
 	HarnessImage  string
 	ContainerPort int
 	Env           map[string]string
+	WorkspacePVC  string
 	// Sidecars contains additional containers that share a workspace volume
 	// (mounted at WorkVolumeMount, default /work) with the harness container.
 	Sidecars []SidecarSpec
@@ -124,8 +133,20 @@ func (c *Client) RunTask(ctx context.Context, spec SandboxSpec) error {
 	}
 
 	labels := map[string]interface{}{
-		LabelHarnessID:   spec.HarnessID,
-		LabelOwnerUserID: spec.OwnerUserID,
+		LabelHarnessID: spec.HarnessID,
+		LabelProjectID: spec.ProjectID,
+	}
+	workspaceVolume := map[string]interface{}{
+		"name":     workVolumeName,
+		"emptyDir": map[string]interface{}{},
+	}
+	if spec.WorkspacePVC != "" {
+		workspaceVolume = map[string]interface{}{
+			"name": workVolumeName,
+			"persistentVolumeClaim": map[string]interface{}{
+				"claimName": spec.WorkspacePVC,
+			},
+		}
 	}
 
 	sandbox := &unstructured.Unstructured{
@@ -152,10 +173,7 @@ func (c *Client) RunTask(ctx context.Context, spec SandboxSpec) error {
 							"fsGroup": int64(1000),
 						},
 						"volumes": []interface{}{
-							map[string]interface{}{
-								"name":     workVolumeName,
-								"emptyDir": map[string]interface{}{},
-							},
+							workspaceVolume,
 						},
 						"containers": containers,
 					},
@@ -165,6 +183,38 @@ func (c *Client) RunTask(ctx context.Context, spec SandboxSpec) error {
 	}
 
 	_, err := c.dynamic.Resource(sandboxGVR).Namespace(c.namespace).Create(ctx, sandbox, metav1.CreateOptions{})
+	return err
+}
+
+func (c *Client) EnsurePVC(ctx context.Context, name string, labels map[string]string) error {
+	_, err := c.dynamic.Resource(pvcGVR).Namespace(c.namespace).Get(ctx, name, metav1.GetOptions{})
+	if err == nil {
+		return nil
+	}
+	metaLabels := map[string]interface{}{}
+	for k, v := range labels {
+		metaLabels[k] = v
+	}
+	pvc := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "v1",
+			"kind":       "PersistentVolumeClaim",
+			"metadata": map[string]interface{}{
+				"name":      name,
+				"namespace": c.namespace,
+				"labels":    metaLabels,
+			},
+			"spec": map[string]interface{}{
+				"accessModes": []interface{}{"ReadWriteOnce"},
+				"resources": map[string]interface{}{
+					"requests": map[string]interface{}{
+						"storage": "10Gi",
+					},
+				},
+			},
+		},
+	}
+	_, err = c.dynamic.Resource(pvcGVR).Namespace(c.namespace).Create(ctx, pvc, metav1.CreateOptions{})
 	return err
 }
 
@@ -254,4 +304,125 @@ func (c *Client) ListSandboxes(ctx context.Context) ([]unstructured.Unstructured
 		return nil, err
 	}
 	return list.Items, nil
+}
+
+// FileMgrPodSpec describes the filemgr Pod that lives once per project and
+// exposes /list /read /upload etc. over the project's workspace PVC.
+type FileMgrPodSpec struct {
+	Name      string
+	ProjectID string
+	PVCName   string
+	Image     string
+	Port      int
+}
+
+// EnsureFileMgrPod creates a bare Pod running the filemgr image with the
+// project PVC mounted at /work. Idempotent: if a Pod with the same name
+// already exists, returns nil without re-creating.
+func (c *Client) EnsureFileMgrPod(ctx context.Context, spec FileMgrPodSpec) error {
+	if _, err := c.dynamic.Resource(podGVR).Namespace(c.namespace).Get(ctx, spec.Name, metav1.GetOptions{}); err == nil {
+		return nil
+	} else if !apierrors.IsNotFound(err) {
+		return err
+	}
+	pod := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "v1",
+			"kind":       "Pod",
+			"metadata": map[string]interface{}{
+				"name":      spec.Name,
+				"namespace": c.namespace,
+				"labels": map[string]interface{}{
+					LabelProjectID: spec.ProjectID,
+					LabelComponent: "filemgr",
+				},
+			},
+			"spec": map[string]interface{}{
+				// Always-restart so a crashed filemgr comes back without
+				// operator intervention. Node loss still drops the Pod —
+				// upgrade to a Deployment if that matters later.
+				"restartPolicy": "Always",
+				"securityContext": map[string]interface{}{
+					"fsGroup": int64(1000),
+				},
+				"volumes": []interface{}{
+					map[string]interface{}{
+						"name": "workspace",
+						"persistentVolumeClaim": map[string]interface{}{
+							"claimName": spec.PVCName,
+						},
+					},
+				},
+				"containers": []interface{}{
+					map[string]interface{}{
+						"name":  "filemgr",
+						"image": spec.Image,
+						"ports": []interface{}{
+							map[string]interface{}{"containerPort": int64(spec.Port)},
+						},
+						"env": []interface{}{
+							map[string]interface{}{"name": "FILEMGR_ROOT", "value": "/work"},
+							map[string]interface{}{"name": "PORT", "value": fmt.Sprintf("%d", spec.Port)},
+						},
+						"volumeMounts": []interface{}{
+							map[string]interface{}{"name": "workspace", "mountPath": "/work"},
+						},
+					},
+				},
+			},
+		},
+	}
+	_, err := c.dynamic.Resource(podGVR).Namespace(c.namespace).Create(ctx, pod, metav1.CreateOptions{})
+	return err
+}
+
+// WaitPodReady polls until status.podIP is set and the Ready condition is
+// True, then returns the Pod IP. Used for filemgr — sandbox readiness flows
+// through the Sandbox CR instead.
+func (c *Client) WaitPodReady(ctx context.Context, name string, timeout time.Duration) (string, error) {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		obj, err := c.dynamic.Resource(podGVR).Namespace(c.namespace).Get(ctx, name, metav1.GetOptions{})
+		if err == nil {
+			ip, _, _ := unstructured.NestedString(obj.Object, "status", "podIP")
+			ready := false
+			conditions, _, _ := unstructured.NestedSlice(obj.Object, "status", "conditions")
+			for _, raw := range conditions {
+				cond, ok := raw.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				if cond["type"] == "Ready" && cond["status"] == "True" {
+					ready = true
+					break
+				}
+			}
+			if ip != "" && ready {
+				return ip, nil
+			}
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	return "", fmt.Errorf("timeout waiting for pod %s", name)
+}
+
+// DeletePod removes the named Pod. A NotFound is treated as success so
+// callers can use it for idempotent cleanup.
+func (c *Client) DeletePod(ctx context.Context, name string) error {
+	err := c.dynamic.Resource(podGVR).Namespace(c.namespace).Delete(ctx, name, metav1.DeleteOptions{})
+	if err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+	return nil
+}
+
+// DeletePVC removes the named PersistentVolumeClaim. NotFound = success.
+// Cleanup of the bound PersistentVolume is left to the storage class's
+// reclaim policy (typically Delete for dynamic provisioning).
+func (c *Client) DeletePVC(ctx context.Context, name string) error {
+	err := c.dynamic.Resource(pvcGVR).Namespace(c.namespace).Delete(ctx, name, metav1.DeleteOptions{})
+	if err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+	return nil
 }

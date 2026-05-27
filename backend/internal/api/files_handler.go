@@ -1,8 +1,10 @@
-// Package api — files_handler proxies file operations to the filemgr sidecar
-// running inside each harness Pod. The sidecar exposes /list /read /download
-// /upload on FileMgrPort and shares /work with the harness container; the
-// frontend reaches them through this handler so it never needs the in-cluster
-// pod IP.
+// Package api — files_handler proxies file operations to the per-project
+// filemgr Pod, which mounts the project's workspace PVC at /work and exposes
+// /list /read /download /upload over FileMgrPort. The Pod is created when the
+// project is created; this handler also lazy-creates it as a fallback so
+// existing projects (or recovered ones) get a filemgr the first time a file
+// API is hit. Frontend reaches the sidecar through this proxy so it never
+// needs the in-cluster Pod IP.
 package api
 
 import (
@@ -11,74 +13,98 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/wellch4n/cattery/internal/db"
+	"github.com/wellch4n/cattery/internal/k8s"
 	"github.com/wellch4n/cattery/internal/model"
 	"github.com/wellch4n/cattery/internal/sandbox"
 )
 
 type FilesHandler struct {
-	store *db.HarnessStore
+	projects *db.ProjectStore
+	k8s      *k8s.Client
 }
 
-func NewFilesHandler(store *db.HarnessStore) *FilesHandler {
-	return &FilesHandler{store: store}
+func NewFilesHandler(projects *db.ProjectStore, k8sClient *k8s.Client) *FilesHandler {
+	return &FilesHandler{projects: projects, k8s: k8sClient}
 }
+
+// fileMgrReadyTimeout caps how long a /files request can block waiting for
+// the project's filemgr Pod to come up. New projects usually hit this on the
+// very first request after Create — the Pod was scheduled but image pull /
+// PVC binding can take a few seconds.
+const fileMgrReadyTimeout = 30 * time.Second
 
 // requireFileMgrURL verifies the caller has the requested access to
-// :harness_id and derives the filemgr base URL from the harness's sandbox URL
-// (same pod IP, different port). Missing or inaccessible harnesses return 404.
+// :project_id, then returns the URL of that project's filemgr Pod. Ensures
+// PVC + Pod exist (idempotent) and waits for Pod readiness.
 func (h *FilesHandler) requireFileMgrURL(c echo.Context, write bool) (string, error) {
 	var (
-		access *model.HarnessAccess
+		access *model.ProjectAccess
 		err    error
 	)
 	if write {
-		access, err = requireWritableHarness(c, h.store)
+		access, err = requireWritableProject(c, h.projects)
 	} else {
-		access, err = requireReadableHarness(c, h.store)
+		access, err = requireReadableProject(c, h.projects)
 	}
 	if err != nil {
 		return "", err
 	}
-	inst := access.Harness
-	if inst.SandboxURL == nil || inst.SandboxStatus != "ready" {
-		return "", echo.NewHTTPError(http.StatusServiceUnavailable, "sandbox not ready")
+	ctx := c.Request().Context()
+	projectID := access.Project.ProjectID
+	pvcName := sandbox.PVCNameForProjectID(projectID)
+	if err := h.k8s.EnsurePVC(ctx, pvcName, map[string]string{
+		k8s.LabelProjectID: projectID.String(),
+	}); err != nil {
+		return "", echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("ensure pvc: %v", err))
 	}
-	u, err := url.Parse(*inst.SandboxURL)
+	podName := sandbox.FileMgrPodNameForProject(projectID)
+	if err := h.k8s.EnsureFileMgrPod(ctx, k8s.FileMgrPodSpec{
+		Name:      podName,
+		ProjectID: projectID.String(),
+		PVCName:   pvcName,
+		Image:     sandbox.FileMgrImage,
+		Port:      sandbox.FileMgrPort,
+	}); err != nil {
+		return "", echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("ensure filemgr: %v", err))
+	}
+	ip, err := h.k8s.WaitPodReady(ctx, podName, fileMgrReadyTimeout)
 	if err != nil {
-		return "", echo.NewHTTPError(http.StatusInternalServerError, "invalid sandbox url")
+		return "", echo.NewHTTPError(http.StatusServiceUnavailable, fmt.Sprintf("filemgr not ready: %v", err))
 	}
-	host := u.Hostname()
-	u.Host = fmt.Sprintf("%s:%d", host, sandbox.FileMgrPort)
-	return u.String(), nil
+	return (&url.URL{
+		Scheme: "http",
+		Host:   fmt.Sprintf("%s:%d", ip, sandbox.FileMgrPort),
+	}).String(), nil
 }
 
-// List proxies GET /harnesses/:id/files/list?path=...
+// List proxies GET /projects/:id/files/list?path=...
 func (h *FilesHandler) List(c echo.Context) error {
 	return h.proxyGET(c, "/list")
 }
 
-// Read proxies GET /harnesses/:id/files/read?path=...
+// Read proxies GET /projects/:id/files/read?path=...
 func (h *FilesHandler) Read(c echo.Context) error {
 	return h.proxyGET(c, "/read")
 }
 
-// Download proxies GET /harnesses/:id/files/download?path=...
+// Download proxies GET /projects/:id/files/download?path=...
 // Streams the response back as-is, including Content-Disposition.
 func (h *FilesHandler) Download(c echo.Context) error {
 	return h.proxyGET(c, "/download")
 }
 
-// Raw proxies GET /harnesses/:id/files/raw?path=... for inline media preview
+// Raw proxies GET /projects/:id/files/raw?path=... for inline media preview
 // (images, etc.). Same as Download except the sidecar sets a sniffed
 // Content-Type and omits Content-Disposition.
 func (h *FilesHandler) Raw(c echo.Context) error {
 	return h.proxyGET(c, "/raw")
 }
 
-// RawPath proxies GET /harnesses/:id/files/raw-path/<path> as /raw?path=<path>.
+// RawPath proxies GET /projects/:id/files/raw-path/<path> as /raw?path=<path>.
 // It exists so HTML previews have a path-like base URL and relative assets
 // such as ./style.css resolve to neighboring files in the same sandbox dir.
 func (h *FilesHandler) RawPath(c echo.Context) error {
@@ -103,7 +129,7 @@ func (h *FilesHandler) RawPath(c echo.Context) error {
 	return h.proxyGETRawQuery(c, "/raw", query.Encode())
 }
 
-// Upload proxies POST /harnesses/:id/files/upload?path=... with the original
+// Upload proxies POST /projects/:id/files/upload?path=... with the original
 // multipart body. We forward Content-Type so the sidecar can parse the
 // multipart boundary the client picked.
 func (h *FilesHandler) Upload(c echo.Context) error {
@@ -126,7 +152,7 @@ func (h *FilesHandler) Upload(c echo.Context) error {
 	return forward(c, req)
 }
 
-// Delete proxies DELETE /harnesses/:id/files/delete?path=... — hard delete,
+// Delete proxies DELETE /projects/:id/files/delete?path=... — hard delete,
 // no trash. Recursive for directories. Writers only.
 func (h *FilesHandler) Delete(c echo.Context) error {
 	base, err := h.requireFileMgrURL(c, true)
@@ -141,7 +167,7 @@ func (h *FilesHandler) Delete(c echo.Context) error {
 	return forward(c, req)
 }
 
-// Rename proxies POST /harnesses/:id/files/rename?from=...&to=... where `to`
+// Rename proxies POST /projects/:id/files/rename?from=...&to=... where `to`
 // is a base name in the same parent directory. Writers only.
 func (h *FilesHandler) Rename(c echo.Context) error {
 	base, err := h.requireFileMgrURL(c, true)

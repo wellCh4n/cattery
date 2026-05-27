@@ -20,12 +20,16 @@ import (
 // Port 是所有 harness sandbox 容器对外暴露的统一端口。
 const Port = 1114
 
-// FileMgrPort 是 filemgr sidecar 在 Pod 内监听的端口，跟 harness 共享同一个
-// Pod IP。后端 /files 路由会把请求转发到这个端口。
+// FileMgrPort 是 filemgr Pod 监听的端口。一个 project 启动时会拉起一个独立
+// 的 filemgr Pod 挂载 project PVC，后端 /files 路由把请求转发到这个端口。
 const FileMgrPort = 1115
 
-// FileMgrImage 是 filemgr sidecar 镜像。`make build-sidecar` 构建。
+// FileMgrImage 是 filemgr 镜像。`make build-sidecar` 构建。
 const FileMgrImage = "cattery-filemgr:dev"
+
+func FileMgrPodNameForProject(projectID uuid.UUID) string {
+	return fmt.Sprintf("cattery-filemgr-%s", projectID.String())
+}
 
 var images = map[string]string{
 	"opencode":    "opencode-sandbox:dev",
@@ -52,6 +56,14 @@ func NameFor(inst *model.Harness) string {
 		return fmt.Sprintf("cattery-%s", inst.HarnessID.String())
 	}
 	return fmt.Sprintf("cattery-%s-%s", inst.Type, inst.HarnessID.String())
+}
+
+func PVCNameFor(inst *model.Harness) string {
+	return PVCNameForProjectID(inst.ProjectID)
+}
+
+func PVCNameForProjectID(projectID uuid.UUID) string {
+	return fmt.Sprintf("cattery-project-%s-work", projectID.String())
 }
 
 // EnsureReady 确保 inst 对应的 sandbox 已就绪。
@@ -83,6 +95,7 @@ func (m *Manager) EnsureReady(ctx context.Context, inst *model.Harness) (string,
 	env["MODEL"] = inst.Model
 	env["PORT"] = fmt.Sprintf("%d", Port)
 	env["AGENT_ID"] = inst.HarnessID.String()
+	env["PROJECT_ID"] = inst.ProjectID.String()
 
 	provider, ok := model.ProviderForModel(inst.Model)
 	if !ok {
@@ -129,25 +142,23 @@ func (m *Manager) EnsureReady(ctx context.Context, inst *model.Harness) (string,
 		}
 	}
 
+	pvcName := PVCNameFor(inst)
+	if err := m.k8sClient.EnsurePVC(ctx, pvcName, map[string]string{
+		k8s.LabelProjectID: inst.ProjectID.String(),
+	}); err != nil {
+		_ = m.store.UpdateSandboxStatus(ctx, inst.HarnessID, "failed")
+		return "", fmt.Errorf("ensure workspace pvc: %w", err)
+	}
+
 	spec := k8s.SandboxSpec{
 		Name:          name,
 		SessionID:     inst.HarnessID.String(),
 		HarnessID:     inst.HarnessID.String(),
-		OwnerUserID:   inst.OwnerUserID.String(),
+		ProjectID:     inst.ProjectID.String(),
 		HarnessImage:  image,
 		ContainerPort: Port,
 		Env:           env,
-		Sidecars: []k8s.SidecarSpec{
-			{
-				Name:          "filemgr",
-				Image:         FileMgrImage,
-				ContainerPort: FileMgrPort,
-				Env: map[string]string{
-					"FILEMGR_ROOT": "/work",
-					"PORT":         fmt.Sprintf("%d", FileMgrPort),
-				},
-			},
-		},
+		WorkspacePVC:  pvcName,
 	}
 
 	_ = m.store.UpdateSandboxStarting(ctx, inst.HarnessID, name)

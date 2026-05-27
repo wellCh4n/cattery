@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -12,53 +12,53 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { type Session } from "@/lib/api"
-import { useWorkspaceStore } from "@/lib/workspace-store"
+import { useWorkspaceStore, type ProjectWithHarnesses } from "@/lib/workspace-store"
 
 interface Props {
-  session: Session | null
   open: boolean
   onOpenChange: (open: boolean) => void
+  onCreated?: (project: ProjectWithHarnesses) => void
 }
 
-export function RenameSessionDialog({ session, open, onOpenChange }: Props) {
-  const renameSession = useWorkspaceStore(state => state.renameSession)
+export function NewProjectDialog({ open, onOpenChange, onCreated }: Props) {
+  const createProject = useWorkspaceStore(state => state.createProject)
   const [value, setValue] = useState("")
   const [saving, setSaving] = useState(false)
 
-  async function commit() {
-    if (!session) return
-    const next = value.trim()
-    const current = (session.title ?? "").trim()
-    if (!next || next === current) {
-      onOpenChange(false)
-      return
+  useEffect(() => {
+    if (open) {
+      setValue("")
+      setSaving(false)
     }
+  }, [open])
+
+  async function commit() {
+    if (saving) return
     setSaving(true)
     try {
-      await renameSession(session.session_id, next)
+      const trimmed = value.trim()
+      const project = await createProject(trimmed.length === 0 ? null : trimmed)
       onOpenChange(false)
+      onCreated?.(project)
     } finally {
       setSaving(false)
     }
   }
 
-  const currentTitle = (session?.title ?? "").trim()
-  const disabled = saving || !value.trim() || value.trim() === currentTitle
-
   return (
     <Dialog
       open={open}
-      onOpenChange={o => {
+      onOpenChange={next => {
         if (saving) return
-        if (o && session) setValue(session.title ?? "")
-        onOpenChange(o)
+        onOpenChange(next)
       }}
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Rename session</DialogTitle>
-          <DialogDescription>Give this session a new display name.</DialogDescription>
+          <DialogTitle>New project</DialogTitle>
+          <DialogDescription>
+            A workspace volume is provisioned the moment the project is created. Leave the name blank to use the default.
+          </DialogDescription>
         </DialogHeader>
         <Input
           value={value}
@@ -68,15 +68,15 @@ export function RenameSessionDialog({ session, open, onOpenChange }: Props) {
           autoFocus
           autoComplete="off"
           spellCheck={false}
-          placeholder="Session title"
+          placeholder="Project name (optional)"
         />
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
             Cancel
           </Button>
-          <Button onClick={commit} disabled={disabled}>
+          <Button onClick={commit} disabled={saving}>
             {saving ? <Loader2 className="size-3.5 animate-spin" /> : null}
-            Save
+            Create
           </Button>
         </DialogFooter>
       </DialogContent>

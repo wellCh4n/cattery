@@ -12,7 +12,6 @@ import {
   MessagesSquare,
   Pencil,
   Play,
-  Share2,
   Shield,
   Trash2,
 } from "lucide-react"
@@ -27,12 +26,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { FileBrowserPanel } from "@/components/file-browser-panel"
 import { HarnessIcon } from "@/components/harness-icon"
 import { ModelIcon } from "@/components/model-icon"
 import { RenameSessionDialog } from "@/components/rename-session-dialog"
-import { ShareHarnessDialog } from "@/components/share-harness-dialog"
 import { type Session } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { type HarnessWithSessions, useWorkspaceStore } from "@/lib/workspace-store"
@@ -51,11 +47,21 @@ const TYPE_LABELS: Record<string, string> = {
 export default function HarnessPage({ params }: { params: Promise<PageParams> }) {
   const { harness_id } = use(params)
   const router = useRouter()
-  const harness = useWorkspaceStore(state =>
-    state.harnesses.find(h => h.harness_id === harness_id) ?? null
-  )
+  const harness = useWorkspaceStore(state => {
+    for (const project of state.projects) {
+      const harness = project.harnesses.find(h => h.harness_id === harness_id)
+      if (harness) return harness
+    }
+    return null
+  })
+  const project = useWorkspaceStore(state => {
+    for (const project of state.projects) {
+      if (project.harnesses.some(h => h.harness_id === harness_id)) return project
+    }
+    return null
+  })
   const loaded = useWorkspaceStore(state => state.loaded)
-  const loadHarnesses = useWorkspaceStore(state => state.loadHarnesses)
+  const loadProjects = useWorkspaceStore(state => state.loadProjects)
   const createSession = useWorkspaceStore(state => state.createSession)
   const renameHarness = useWorkspaceStore(state => state.renameHarness)
   const deleteHarness = useWorkspaceStore(state => state.deleteHarness)
@@ -64,7 +70,6 @@ export default function HarnessPage({ params }: { params: Promise<PageParams> })
   const [renameOpen, setRenameOpen] = useState(false)
   const [nameValue, setNameValue] = useState("")
   const [renaming, setRenaming] = useState(false)
-  const [shareOpen, setShareOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [renameSessionTarget, setRenameSessionTarget] = useState<Session | null>(null)
@@ -74,12 +79,12 @@ export default function HarnessPage({ params }: { params: Promise<PageParams> })
     if (loaded && harness) return
     let cancelled = false
     queueMicrotask(() => {
-      if (!cancelled) void loadHarnesses().catch(e => {
+      if (!cancelled) void loadProjects().catch(e => {
         if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load harness")
       })
     })
     return () => { cancelled = true }
-  }, [harness, loadHarnesses, loaded])
+  }, [harness, loadProjects, loaded])
 
   async function handleNewSession(h: HarnessWithSessions) {
     if (h.sandbox_status !== "ready" || h.access_role === "viewer") return
@@ -131,7 +136,7 @@ export default function HarnessPage({ params }: { params: Promise<PageParams> })
     )
   }
 
-  if (!loaded || !harness) {
+  if (!loaded || !harness || !project) {
     return (
       <div className="flex h-full items-center justify-center text-muted-foreground">
         <Loader2 className="size-5 animate-spin" />
@@ -172,7 +177,7 @@ export default function HarnessPage({ params }: { params: Promise<PageParams> })
                 </span>
                 <span className="inline-flex min-w-0 items-center gap-1.5">
                   <Shield className="size-3.5" />
-                  <span className="min-w-0 truncate">{harness.owner_username}</span>
+                  <span className="min-w-0 truncate">{project.project_name ?? "Untitled Project"}</span>
                 </span>
                 <span className="inline-flex min-w-0 items-center gap-1.5">
                   <CalendarDays className="size-3.5" />
@@ -202,14 +207,6 @@ export default function HarnessPage({ params }: { params: Promise<PageParams> })
                   title="Rename"
                 >
                   <Pencil />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={() => setShareOpen(true)}
-                  title="Share"
-                >
-                  <Share2 />
                 </Button>
                 <Button
                   variant="ghost"
@@ -253,29 +250,15 @@ export default function HarnessPage({ params }: { params: Promise<PageParams> })
           </div>
         </section>
 
-        <Tabs defaultValue="files" className="flex min-h-0 flex-1 flex-col">
-          <TabsList className="shrink-0">
-            <TabsTrigger value="files">Files</TabsTrigger>
-            <TabsTrigger value="env">
-              Environment Variables{envCount > 0 ? ` (${envCount})` : ""}
-            </TabsTrigger>
-          </TabsList>
-          <TabsContent value="files" className="mt-2 min-h-0 flex-1">
-            <div className="h-full overflow-hidden rounded-md border">
-              <FileBrowserPanel harness={harness} />
-            </div>
-          </TabsContent>
-          <TabsContent value="env" className="mt-2 min-h-0 flex-1 overflow-y-auto">
+        <section className="flex min-h-0 flex-1 flex-col">
+          <div className="shrink-0 mb-2 text-xs font-medium text-muted-foreground">
+            Environment Variables{envCount > 0 ? ` (${envCount})` : ""}
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto">
             <EnvVars vars={harness.env_vars ?? {}} />
-          </TabsContent>
-        </Tabs>
+          </div>
+        </section>
       </div>
-
-      <ShareHarnessDialog
-        harness={harness}
-        open={shareOpen}
-        onOpenChange={setShareOpen}
-      />
 
       <Dialog open={renameOpen} onOpenChange={open => { if (!renaming) setRenameOpen(open) }}>
         <DialogContent>

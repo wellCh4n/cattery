@@ -41,7 +41,6 @@ import {
   uploadFile,
   type FileEntry,
   type FileReadResponse,
-  type Harness,
 } from "@/lib/api"
 
 const IMAGE_EXTS = new Set([
@@ -69,7 +68,8 @@ function isMarkdownPath(path: string): boolean {
 }
 
 interface Props {
-  harness: Harness
+  projectId: string
+  canWrite: boolean
 }
 
 // Opened file is either a text read result (already fetched into memory) or
@@ -83,7 +83,7 @@ type OpenedFile =
 
 type PreviewMode = "preview" | "source"
 
-export function FileBrowserPanel({ harness }: Props) {
+export function FileBrowserPanel({ projectId, canWrite }: Props) {
   const [dir, setDir] = useState("/")
   const [entries, setEntries] = useState<FileEntry[] | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -96,14 +96,11 @@ export function FileBrowserPanel({ harness }: Props) {
   const dragDepthRef = useRef(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const ready = harness.sandbox_status === "ready"
-  const canWrite = harness.access_role !== "viewer"
-
   const load = useCallback(async (path: string) => {
     setLoading(true)
     setError(null)
     try {
-      const list = await listFiles(harness.harness_id, path)
+      const list = await listFiles(projectId, path)
       setEntries(list)
     } catch (e) {
       setEntries(null)
@@ -111,20 +108,16 @@ export function FileBrowserPanel({ harness }: Props) {
     } finally {
       setLoading(false)
     }
-  }, [harness.harness_id])
+  }, [projectId])
 
   useEffect(() => {
     let cancelled = false
     queueMicrotask(() => {
       if (cancelled) return
-      if (!ready) {
-        setEntries(null)
-        return
-      }
       load(dir)
     })
     return () => { cancelled = true }
-  }, [ready, dir, load])
+  }, [dir, load])
 
   function goInto(name: string) {
     const next = dir === "/" ? `/${name}` : `${dir}/${name}`
@@ -148,7 +141,7 @@ export function FileBrowserPanel({ harness }: Props) {
     }
     setOpenLoading(true)
     try {
-      const data = await readFile(harness.harness_id, path)
+      const data = await readFile(projectId, path)
       if (isHtmlPath(path)) {
         setOpened({ kind: "html", path, data })
         return
@@ -175,11 +168,11 @@ export function FileBrowserPanel({ harness }: Props) {
   }
 
   async function uploadFiles(files: File[]) {
-    if (!ready || !canWrite || files.length === 0) return
+    if (!canWrite || files.length === 0) return
     setUploading(true)
     try {
       for (const file of files) {
-        await uploadFile(harness.harness_id, dir, file)
+        await uploadFile(projectId, dir, file)
       }
       await load(dir)
     } catch (err) {
@@ -194,7 +187,7 @@ export function FileBrowserPanel({ harness }: Props) {
     if (!trimmed || trimmed === entry.name) return false
     const from = dir === "/" ? `/${entry.name}` : `${dir}/${entry.name}`
     try {
-      await renameFile(harness.harness_id, from, trimmed)
+      await renameFile(projectId, from, trimmed)
       await load(dir)
       return true
     } catch (err) {
@@ -205,7 +198,7 @@ export function FileBrowserPanel({ harness }: Props) {
 
   async function confirmDelete(entry: FileEntry) {
     const target = dir === "/" ? `/${entry.name}` : `${dir}/${entry.name}`
-    await deleteFile(harness.harness_id, target)
+    await deleteFile(projectId, target)
     await load(dir)
   }
 
@@ -216,27 +209,27 @@ export function FileBrowserPanel({ harness }: Props) {
   }
 
   function onDragEnter(e: React.DragEvent<HTMLDivElement>) {
-    if (!ready || !canWrite) return
+    if (!canWrite) return
     e.preventDefault()
     dragDepthRef.current += 1
     setDragging(true)
   }
 
   function onDragOver(e: React.DragEvent<HTMLDivElement>) {
-    if (!ready || !canWrite) return
+    if (!canWrite) return
     e.preventDefault()
     e.dataTransfer.dropEffect = "copy"
   }
 
   function onDragLeave(e: React.DragEvent<HTMLDivElement>) {
-    if (!ready || !canWrite) return
+    if (!canWrite) return
     e.preventDefault()
     dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
     if (dragDepthRef.current === 0) setDragging(false)
   }
 
   async function onDrop(e: React.DragEvent<HTMLDivElement>) {
-    if (!ready || !canWrite) return
+    if (!canWrite) return
     e.preventDefault()
     dragDepthRef.current = 0
     setDragging(false)
@@ -249,13 +242,16 @@ export function FileBrowserPanel({ harness }: Props) {
 
   return (
     <div className="flex h-full flex-col text-xs">
-      <header className="flex items-center gap-1 px-2 h-12 border-b shrink-0">
+      <div className="flex h-9 shrink-0 items-center gap-1 border-b px-2">
+        <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          Files
+        </span>
         <Button
           variant="ghost"
           size="icon"
-          className="size-7 shrink-0"
+          className="size-6 shrink-0"
           onClick={goUp}
-          disabled={dir === "/" || !ready}
+          disabled={dir === "/"}
           title="Up"
         >
           <ArrowLeft className="size-3.5" />
@@ -263,14 +259,14 @@ export function FileBrowserPanel({ harness }: Props) {
         <Button
           variant="ghost"
           size="icon"
-          className="size-7 shrink-0"
+          className="size-6 shrink-0"
           onClick={() => load(dir)}
-          disabled={!ready || loading}
+          disabled={loading}
           title="Refresh"
         >
           <RefreshCw className={cn("size-3.5", loading && "animate-spin")} />
         </Button>
-        <div className="flex-1 min-w-0 flex items-center gap-0.5 overflow-x-auto pl-1">
+        <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto">
           <button
             onClick={() => { setDir("/"); setOpened(null) }}
             className="text-muted-foreground hover:text-foreground cursor-pointer"
@@ -299,17 +295,18 @@ export function FileBrowserPanel({ harness }: Props) {
           className="hidden"
           onChange={onUpload}
         />
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-7 shrink-0"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={!ready || uploading || !canWrite}
-          title="Upload to this folder"
-        >
-          {uploading ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />}
-        </Button>
-      </header>
+        {canWrite && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+            title="Upload to this folder"
+          >
+            {uploading ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />}
+          </Button>
+        )}
+      </div>
 
       <div
         className={cn(
@@ -321,24 +318,26 @@ export function FileBrowserPanel({ harness }: Props) {
         onDragLeave={onDragLeave}
         onDrop={onDrop}
       >
-        {!ready && (
-          <div className="p-4 text-muted-foreground">Sandbox is not ready yet.</div>
-        )}
-        {ready && error && (
+        {error && (
           <div className="p-4 text-destructive">{error}</div>
         )}
-        {ready && !error && entries && entries.length === 0 && (
+        {!error && entries === null && loading && (
+          <div className="flex min-h-full items-center justify-center text-muted-foreground">
+            <Loader2 className="size-4 animate-spin" />
+          </div>
+        )}
+        {!error && entries && entries.length === 0 && (
           <div className="flex min-h-full flex-col items-center justify-center gap-2 px-4 py-10 text-muted-foreground">
             <Folder className="size-5 opacity-70" />
             <span>No files</span>
           </div>
         )}
-        {ready && entries && entries.map(entry => (
+        {entries && entries.map(entry => (
           <FileRow
             key={entry.name}
             entry={entry}
             dir={dir}
-            harnessId={harness.harness_id}
+            projectId={projectId}
             canWrite={canWrite}
             onOpenFile={openFile}
             onEnterDir={goInto}
@@ -349,7 +348,7 @@ export function FileBrowserPanel({ harness }: Props) {
       </div>
 
       <FileViewerDialog
-        harnessId={harness.harness_id}
+        projectId={projectId}
         opened={opened}
         loading={openLoading}
         onClose={() => setOpened(null)}
@@ -383,12 +382,12 @@ export function FileBrowserPanel({ harness }: Props) {
 // pinned. The default DialogContent caps width at sm:max-w-sm — way too
 // small for code; bump to ~5xl and let it stretch tall.
 function FileViewerDialog({
-  harnessId,
+  projectId,
   opened,
   loading,
   onClose,
 }: {
-  harnessId: string
+  projectId: string
   opened: OpenedFile | null
   loading: boolean
   onClose: () => void
@@ -454,7 +453,7 @@ function FileViewerDialog({
                 </div>
               )}
               <a
-                href={downloadFileURL(harnessId, opened.path)}
+                href={downloadFileURL(projectId, opened.path)}
                 className="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-muted"
                 title="Download"
               >
@@ -483,14 +482,14 @@ function FileViewerDialog({
                 <div className="flex h-full items-center justify-center p-4">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src={rawFileURL(harnessId, opened.path)}
+                    src={rawFileURL(projectId, opened.path)}
                     alt={opened.path}
                     className="max-w-full max-h-full object-contain"
                   />
                 </div>
               ) : opened.kind === "html" && mode === "preview" ? (
                 <iframe
-                  src={rawFilePathURL(harnessId, opened.path)}
+                  src={rawFilePathURL(projectId, opened.path)}
                   title={opened.path}
                   sandbox="allow-forms allow-modals allow-popups allow-same-origin allow-scripts"
                   className="h-full w-full border-0 bg-white"
@@ -524,7 +523,7 @@ function FileViewerDialog({
 function FileRow({
   entry,
   dir,
-  harnessId,
+  projectId,
   canWrite,
   onOpenFile,
   onEnterDir,
@@ -533,7 +532,7 @@ function FileRow({
 }: {
   entry: FileEntry
   dir: string
-  harnessId: string
+  projectId: string
   canWrite: boolean
   onOpenFile: (name: string) => void
   onEnterDir: (name: string) => void
@@ -636,7 +635,7 @@ function FileRow({
       )}
       {!isDir && (
         <a
-          href={downloadFileURL(harnessId, fullPath)}
+          href={downloadFileURL(projectId, fullPath)}
           onClick={e => e.stopPropagation()}
           className="hidden group-hover:inline-flex text-muted-foreground hover:text-foreground shrink-0"
           title="Download"

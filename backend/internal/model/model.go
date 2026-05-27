@@ -18,7 +18,7 @@ const (
 
 type Harness struct {
 	HarnessID     uuid.UUID         `db:"harness_id"     json:"harness_id"`
-	OwnerUserID   uuid.UUID         `db:"owner_user_id"  json:"owner_user_id"`
+	ProjectID     uuid.UUID         `db:"project_id"     json:"project_id"`
 	HarnessName   *string           `db:"harness_name"   json:"harness_name"`
 	Model         string            `db:"model"          json:"model"`
 	Type          string            `db:"type"           json:"type"`
@@ -29,18 +29,32 @@ type Harness struct {
 	CreatedAt     time.Time         `db:"created_at"     json:"created_at"`
 }
 
-type HarnessAccess struct {
-	Harness       *Harness `json:"harness"`
+type Project struct {
+	ProjectID   uuid.UUID `db:"project_id"    json:"project_id"`
+	OwnerUserID uuid.UUID `db:"owner_user_id" json:"owner_user_id"`
+	ProjectName *string   `db:"project_name"  json:"project_name"`
+	CreatedAt   time.Time `db:"created_at"    json:"created_at"`
+}
+
+type ProjectAccess struct {
+	Project       *Project `json:"project"`
 	AccessRole    string   `json:"access_role"`
 	OwnerUsername string   `json:"owner_username"`
 }
 
-type HarnessShare struct {
-	HarnessID uuid.UUID `db:"harness_id" json:"harness_id"`
+type ProjectMember struct {
+	ProjectID uuid.UUID `db:"project_id" json:"project_id"`
 	UserID    uuid.UUID `db:"user_id"    json:"user_id"`
 	Username  string    `db:"username"   json:"username"`
 	Role      string    `db:"role"       json:"role"`
 	CreatedAt time.Time `db:"created_at" json:"created_at"`
+}
+
+type HarnessAccess struct {
+	Harness       *Harness `json:"harness"`
+	AccessRole    string   `json:"access_role"`
+	OwnerUsername string   `json:"owner_username"`
+	Project       *Project `json:"project,omitempty"`
 }
 
 type User struct {

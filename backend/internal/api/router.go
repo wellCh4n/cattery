@@ -27,6 +27,7 @@ func redactURI(uri string) string {
 func NewRouter(
 	database *sqlx.DB,
 	harnessH *HarnessHandler,
+	projectH *ProjectHandler,
 	sessionH *SessionHandler,
 	filesH *FilesHandler,
 	authH *AuthHandler,
@@ -114,27 +115,34 @@ func NewRouter(
 
 	protected.GET("/users/search", usersH.Search)
 
+	projects := protected.Group("/projects")
+	projects.POST("", projectH.Create)
+	projects.GET("", projectH.List)
+	projects.GET("/:project_id", projectH.Get)
+	projects.PATCH("/:project_id", projectH.Update)
+	projects.DELETE("/:project_id", projectH.Delete)
+	projects.GET("/:project_id/harnesses", projectH.ListHarnesses)
+	projects.POST("/:project_id/harnesses", harnessH.Create)
+	projects.GET("/:project_id/members", projectH.ListMembers)
+	projects.POST("/:project_id/members", projectH.CreateMember)
+	projects.PATCH("/:project_id/members/:user_id", projectH.UpdateMember)
+	projects.DELETE("/:project_id/members/:user_id", projectH.DeleteMember)
+	projects.GET("/:project_id/files/list", filesH.List)
+	projects.GET("/:project_id/files/read", filesH.Read)
+	projects.GET("/:project_id/files/raw", filesH.Raw)
+	projects.GET("/:project_id/files/raw-path/*", filesH.RawPath)
+	projects.GET("/:project_id/files/download", filesH.Download)
+	projects.POST("/:project_id/files/upload", filesH.Upload)
+	projects.DELETE("/:project_id/files/delete", filesH.Delete)
+	projects.POST("/:project_id/files/rename", filesH.Rename)
+
 	harnesses := protected.Group("/harnesses")
-	harnesses.POST("", harnessH.Create)
-	harnesses.GET("", harnessH.List)
 	harnesses.GET("/:harness_id", harnessH.Get)
 	harnesses.PATCH("/:harness_id", harnessH.Update)
 	harnesses.DELETE("/:harness_id", harnessH.Delete)
-	harnesses.GET("/:harness_id/shares", harnessH.ListShares)
-	harnesses.POST("/:harness_id/shares", harnessH.CreateShare)
-	harnesses.PATCH("/:harness_id/shares/:user_id", harnessH.UpdateShare)
-	harnesses.DELETE("/:harness_id/shares/:user_id", harnessH.DeleteShare)
 	harnesses.POST("/:harness_id/sessions", sessionH.Create)
 	harnesses.GET("/:harness_id/sessions", sessionH.ListByHarness)
 	harnesses.DELETE("/:harness_id/sandbox", sessionH.StopSandbox)
-	harnesses.GET("/:harness_id/files/list", filesH.List)
-	harnesses.GET("/:harness_id/files/read", filesH.Read)
-	harnesses.GET("/:harness_id/files/raw", filesH.Raw)
-	harnesses.GET("/:harness_id/files/raw-path/*", filesH.RawPath)
-	harnesses.GET("/:harness_id/files/download", filesH.Download)
-	harnesses.POST("/:harness_id/files/upload", filesH.Upload)
-	harnesses.DELETE("/:harness_id/files/delete", filesH.Delete)
-	harnesses.POST("/:harness_id/files/rename", filesH.Rename)
 
 	sessions := protected.Group("/sessions")
 	sessions.GET("/:session_id", sessionH.Get)

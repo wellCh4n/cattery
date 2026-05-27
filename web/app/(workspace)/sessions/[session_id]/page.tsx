@@ -4,7 +4,6 @@ import { use, useEffect, useState } from "react"
 import { AlertTriangle, Loader2 } from "lucide-react"
 import { ChatPanel } from "@/components/chat-panel"
 import { TerminalView } from "@/components/terminal-view"
-import { RightRail } from "@/components/right-rail"
 import { useWorkspaceStore } from "@/lib/workspace-store"
 
 interface PageParams {
@@ -14,15 +13,22 @@ interface PageParams {
 export default function SessionPage({ params }: { params: Promise<PageParams> }) {
   const { session_id } = use(params)
   const session = useWorkspaceStore(state => {
-    for (const harness of state.harnesses) {
-      const session = harness.sessions.find(s => s.session_id === session_id)
-      if (session) return session
+    for (const project of state.projects) {
+      for (const harness of project.harnesses) {
+        const session = harness.sessions.find(s => s.session_id === session_id)
+        if (session) return session
+      }
     }
     return null
   })
-  const harness = useWorkspaceStore(state =>
-    session ? state.harnesses.find(h => h.harness_id === session.harness_id) ?? null : null
-  )
+  const harness = useWorkspaceStore(state => {
+    if (!session) return null
+    for (const project of state.projects) {
+      const harness = project.harnesses.find(h => h.harness_id === session.harness_id)
+      if (harness) return harness
+    }
+    return null
+  })
   const refreshSession = useWorkspaceStore(state => state.refreshSession)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(session === null || harness === null)
@@ -75,7 +81,7 @@ export default function SessionPage({ params }: { params: Promise<PageParams> })
     )
   }
 
-  const main = harness.transport_kind === "terminal" ? (
+  return harness.transport_kind === "terminal" ? (
     <TerminalView
       key={session.session_id}
       session={session}
@@ -88,6 +94,4 @@ export default function SessionPage({ params }: { params: Promise<PageParams> })
       harness={harness}
     />
   )
-
-  return <RightRail harness={harness} session={session}>{main}</RightRail>
 }

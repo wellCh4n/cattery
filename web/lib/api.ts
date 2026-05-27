@@ -24,9 +24,18 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080"
 
 export type TransportKind = "http" | "terminal"
 
+export interface Project {
+  project_id: string
+  owner_user_id: string
+  project_name: string | null
+  access_role: "owner" | "viewer" | "editor"
+  owner_username: string
+  created_at: string
+}
+
 export interface Harness {
   harness_id: string
-  owner_user_id: string
+  project_id: string
   harness_name: string | null
   model: string
   type: string
@@ -36,6 +45,7 @@ export interface Harness {
   env_vars: Record<string, string>
   sandbox_status: string
   created_at: string
+  project?: Project
 }
 
 export interface Session {
@@ -51,16 +61,54 @@ export interface Session {
   stopped_at: string | null
 }
 
-export async function listHarnesses(): Promise<Harness[]> {
-  const res = await authedFetch(`${API_BASE}/api/v1/harnesses`, { cache: "no-store" })
+export async function listProjects(): Promise<Project[]> {
+  const res = await authedFetch(`${API_BASE}/api/v1/projects`, { cache: "no-store" })
+  if (!res.ok) throw new Error("failed to list projects")
+  return res.json()
+}
+
+export type CreateProjectRequest = Pick<Project, "project_name">
+
+export async function createProject(data: CreateProjectRequest): Promise<Project> {
+  const res = await authedFetch(`${API_BASE}/api/v1/projects`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) throw new Error("failed to create project")
+  return res.json()
+}
+
+export async function getProject(projectId: string): Promise<Project> {
+  const res = await authedFetch(`${API_BASE}/api/v1/projects/${projectId}`, { cache: "no-store" })
+  if (!res.ok) throw new Error("failed to get project")
+  return res.json()
+}
+
+export async function updateProject(projectId: string, data: { project_name: string }): Promise<Project> {
+  const res = await authedFetch(`${API_BASE}/api/v1/projects/${projectId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) throw new Error("failed to update project")
+  return res.json()
+}
+
+export async function deleteProject(projectId: string): Promise<void> {
+  await authedFetch(`${API_BASE}/api/v1/projects/${projectId}`, { method: "DELETE" })
+}
+
+export async function listHarnesses(projectId: string): Promise<Harness[]> {
+  const res = await authedFetch(`${API_BASE}/api/v1/projects/${projectId}/harnesses`, { cache: "no-store" })
   if (!res.ok) throw new Error("failed to list harnesses")
   return res.json()
 }
 
 export type CreateHarnessRequest = Pick<Harness, "harness_name" | "model" | "type" | "env_vars">
 
-export async function createHarness(data: CreateHarnessRequest): Promise<Harness> {
-  const res = await authedFetch(`${API_BASE}/api/v1/harnesses`, {
+export async function createHarness(projectId: string, data: CreateHarnessRequest): Promise<Harness> {
+  const res = await authedFetch(`${API_BASE}/api/v1/projects/${projectId}/harnesses`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
@@ -89,8 +137,8 @@ export async function deleteHarness(harnessId: string): Promise<void> {
   await authedFetch(`${API_BASE}/api/v1/harnesses/${harnessId}`, { method: "DELETE" })
 }
 
-export interface HarnessShare {
-  harness_id: string
+export interface ProjectMember {
+  project_id: string
   user_id: string
   username: string
   role: "viewer" | "editor"
@@ -102,9 +150,9 @@ export interface UserSummary {
   username: string
 }
 
-export async function listHarnessShares(harnessId: string): Promise<HarnessShare[]> {
-  const res = await authedFetch(`${API_BASE}/api/v1/harnesses/${harnessId}/shares`, { cache: "no-store" })
-  if (!res.ok) throw new Error("failed to list shares")
+export async function listProjectMembers(projectId: string): Promise<ProjectMember[]> {
+  const res = await authedFetch(`${API_BASE}/api/v1/projects/${projectId}/members`, { cache: "no-store" })
+  if (!res.ok) throw new Error("failed to list members")
   return res.json()
 }
 
@@ -115,37 +163,37 @@ export async function searchUsers(query: string): Promise<UserSummary[]> {
   return res.json()
 }
 
-export async function createHarnessShare(
-  harnessId: string,
+export async function createProjectMember(
+  projectId: string,
   data: { username: string; role: "viewer" | "editor" },
-): Promise<HarnessShare> {
-  const res = await authedFetch(`${API_BASE}/api/v1/harnesses/${harnessId}/shares`, {
+): Promise<ProjectMember> {
+  const res = await authedFetch(`${API_BASE}/api/v1/projects/${projectId}/members`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   })
-  if (!res.ok) throw new Error(await readErrorMessage(res, `create share failed (${res.status})`))
+  if (!res.ok) throw new Error(await readErrorMessage(res, `add member failed (${res.status})`))
   return res.json()
 }
 
-export async function updateHarnessShare(
-  harnessId: string,
+export async function updateProjectMember(
+  projectId: string,
   userId: string,
   data: { role: "viewer" | "editor" },
-): Promise<HarnessShare> {
-  const res = await authedFetch(`${API_BASE}/api/v1/harnesses/${harnessId}/shares/${userId}`, {
+): Promise<ProjectMember> {
+  const res = await authedFetch(`${API_BASE}/api/v1/projects/${projectId}/members/${userId}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   })
-  if (!res.ok) throw new Error(await readErrorMessage(res, `update share failed (${res.status})`))
+  if (!res.ok) throw new Error(await readErrorMessage(res, `update member failed (${res.status})`))
   return res.json()
 }
 
-export async function deleteHarnessShare(harnessId: string, userId: string): Promise<void> {
-  const res = await authedFetch(`${API_BASE}/api/v1/harnesses/${harnessId}/shares/${userId}`, { method: "DELETE" })
+export async function deleteProjectMember(projectId: string, userId: string): Promise<void> {
+  const res = await authedFetch(`${API_BASE}/api/v1/projects/${projectId}/members/${userId}`, { method: "DELETE" })
   if (!res.ok && res.status !== 204) {
-    throw new Error(await readErrorMessage(res, `delete share failed (${res.status})`))
+    throw new Error(await readErrorMessage(res, `remove member failed (${res.status})`))
   }
 }
 
@@ -269,15 +317,15 @@ export interface FileReadResponse {
   content?: string
 }
 
-export async function listFiles(harnessId: string, path: string): Promise<FileEntry[]> {
-  const url = `${API_BASE}/api/v1/harnesses/${harnessId}/files/list?path=${encodeURIComponent(path)}`
+export async function listFiles(projectId: string, path: string): Promise<FileEntry[]> {
+  const url = `${API_BASE}/api/v1/projects/${projectId}/files/list?path=${encodeURIComponent(path)}`
   const res = await authedFetch(url, { cache: "no-store" })
   if (!res.ok) throw new Error(`list files failed: ${res.status}`)
   return res.json()
 }
 
-export async function readFile(harnessId: string, path: string): Promise<FileReadResponse> {
-  const url = `${API_BASE}/api/v1/harnesses/${harnessId}/files/read?path=${encodeURIComponent(path)}`
+export async function readFile(projectId: string, path: string): Promise<FileReadResponse> {
+  const url = `${API_BASE}/api/v1/projects/${projectId}/files/read?path=${encodeURIComponent(path)}`
   const res = await authedFetch(url, { cache: "no-store" })
   if (!res.ok) throw new Error(`read file failed: ${res.status}`)
   return res.json()
@@ -287,37 +335,37 @@ export async function readFile(harnessId: string, path: string): Promise<FileRea
 // browser (download attribute, <img src>, <iframe src>) which can't set
 // Authorization headers — so we append the token as a query param. The
 // backend middleware reads either Authorization or ?token=.
-export function downloadFileURL(harnessId: string, path: string): string {
-  return appendToken(`${API_BASE}/api/v1/harnesses/${harnessId}/files/download?path=${encodeURIComponent(path)}`)
+export function downloadFileURL(projectId: string, path: string): string {
+  return appendToken(`${API_BASE}/api/v1/projects/${projectId}/files/download?path=${encodeURIComponent(path)}`)
 }
 
-export function rawFileURL(harnessId: string, path: string): string {
-  return appendToken(`${API_BASE}/api/v1/harnesses/${harnessId}/files/raw?path=${encodeURIComponent(path)}`)
+export function rawFileURL(projectId: string, path: string): string {
+  return appendToken(`${API_BASE}/api/v1/projects/${projectId}/files/raw?path=${encodeURIComponent(path)}`)
 }
 
-export function rawFilePathURL(harnessId: string, path: string): string {
+export function rawFilePathURL(projectId: string, path: string): string {
   const encodedPath = path.split("/").map(segment => encodeURIComponent(segment)).join("/")
-  return appendToken(`${API_BASE}/api/v1/harnesses/${harnessId}/files/raw-path${encodedPath}`)
+  return appendToken(`${API_BASE}/api/v1/projects/${projectId}/files/raw-path${encodedPath}`)
 }
 
-export async function uploadFile(harnessId: string, dir: string, file: File): Promise<void> {
+export async function uploadFile(projectId: string, dir: string, file: File): Promise<void> {
   const fd = new FormData()
   fd.append("file", file)
-  const url = `${API_BASE}/api/v1/harnesses/${harnessId}/files/upload?path=${encodeURIComponent(dir)}`
+  const url = `${API_BASE}/api/v1/projects/${projectId}/files/upload?path=${encodeURIComponent(dir)}`
   const res = await authedFetch(url, { method: "POST", body: fd })
   if (!res.ok) throw new Error(`upload failed: ${res.status}`)
 }
 
-export async function deleteFile(harnessId: string, path: string): Promise<void> {
-  const url = `${API_BASE}/api/v1/harnesses/${harnessId}/files/delete?path=${encodeURIComponent(path)}`
+export async function deleteFile(projectId: string, path: string): Promise<void> {
+  const url = `${API_BASE}/api/v1/projects/${projectId}/files/delete?path=${encodeURIComponent(path)}`
   const res = await authedFetch(url, { method: "DELETE" })
   if (!res.ok && res.status !== 204) {
     throw new Error(await readErrorMessage(res, `delete failed (${res.status})`))
   }
 }
 
-export async function renameFile(harnessId: string, from: string, toName: string): Promise<{ path: string; name: string }> {
-  const url = `${API_BASE}/api/v1/harnesses/${harnessId}/files/rename?from=${encodeURIComponent(from)}&to=${encodeURIComponent(toName)}`
+export async function renameFile(projectId: string, from: string, toName: string): Promise<{ path: string; name: string }> {
+  const url = `${API_BASE}/api/v1/projects/${projectId}/files/rename?from=${encodeURIComponent(from)}&to=${encodeURIComponent(toName)}`
   const res = await authedFetch(url, { method: "POST" })
   if (!res.ok) {
     throw new Error(await readErrorMessage(res, `rename failed (${res.status})`))

@@ -17,9 +17,9 @@ interface Options {
   min: number
   max: number
   storageKey: string
-  // "left" — handle is on the LEFT edge of the panel (panel is on screen right
-  //          side, e.g. RightRail). Dragging left grows the panel.
-  // "right" — handle is on the RIGHT edge of the panel (panel is on screen
+  // "left" — handle is on the LEFT edge of the panel (panel sits on the right
+  //          side of the screen). Dragging left grows the panel.
+  // "right" — handle is on the RIGHT edge of the panel (panel sits on the
   //           left side, e.g. main Sidebar). Dragging right grows the panel.
   side: "left" | "right"
 }
