@@ -310,8 +310,8 @@ export function FileBrowserPanel({ projectId, canWrite }: Props) {
 
       <div
         className={cn(
-          "relative flex-1 min-h-0 overflow-y-auto border border-transparent transition-colors",
-          dragging && "border-ring bg-muted/30"
+          "relative flex-1 min-h-0 overflow-y-auto px-1.5 py-1.5 transition-colors",
+          dragging && "bg-muted/30 ring-1 ring-inset ring-ring"
         )}
         onDragEnter={onDragEnter}
         onDragOver={onDragOver}

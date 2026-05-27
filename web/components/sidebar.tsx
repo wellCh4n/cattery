@@ -294,7 +294,7 @@ export function Sidebar() {
             </Button>
           )}
         </div>
-        <div className="min-w-0 flex-1 overflow-y-auto py-1.5">
+        <div className="min-w-0 flex-1 overflow-y-auto px-1.5 py-1.5">
           {!currentProject && (
             <div className="px-4 py-8 text-center">
               <Shield className="mx-auto size-8 text-muted-foreground/50" />
@@ -540,11 +540,11 @@ function HarnessRow({
   }
 
   return (
-    <div className="mb-1 px-1.5">
+    <div className="mb-1">
       <div
         role="button"
         className={cn(
-          "group flex h-8 cursor-pointer items-center gap-0.5 rounded-md pl-1 pr-0.5 transition-colors select-none",
+          "group flex h-7 cursor-pointer items-center gap-1.5 rounded-md px-2 text-xs transition-colors select-none",
           selected ? "bg-muted text-foreground" : "hover:bg-muted",
         )}
         onClick={handleRowClick}
@@ -552,7 +552,7 @@ function HarnessRow({
       >
         <button
           type="button"
-          className="flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
+          className="-ml-1 flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
           onClick={handleChevronClick}
           title={harness.expanded ? "Collapse" : "Expand"}
           aria-label={harness.expanded ? "Collapse" : "Expand"}
@@ -564,7 +564,7 @@ function HarnessRow({
             )}
           />
         </button>
-        <div className="flex h-full min-w-0 flex-1 items-center gap-1.5 text-sm font-medium">
+        <div className="flex h-full min-w-0 flex-1 items-center gap-1.5">
           {sandboxDot(harness.sandbox_status) && (
             <span
               title={`sandbox: ${harness.sandbox_status}`}
@@ -582,7 +582,7 @@ function HarnessRow({
         </div>
         <button
           className={cn(
-            "hidden size-6 items-center justify-center rounded transition-colors focus-visible:inline-flex group-hover:inline-flex disabled:cursor-not-allowed disabled:opacity-40",
+            "hidden size-5 items-center justify-center rounded transition-colors focus-visible:inline-flex group-hover:inline-flex disabled:cursor-not-allowed disabled:opacity-40",
             canCreateSession(harness)
               ? "cursor-pointer text-muted-foreground hover:bg-foreground/10 hover:text-foreground"
               : "cursor-not-allowed text-muted-foreground/40 hover:bg-transparent hover:text-muted-foreground/40",
@@ -596,7 +596,7 @@ function HarnessRow({
             : <Plus className="size-3.5" />}
         </button>
         <button
-          className="hidden size-6 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus-visible:inline-flex group-hover:inline-flex"
+          className="hidden size-5 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus-visible:inline-flex group-hover:inline-flex"
           title="Harness info"
           onClick={e => { e.stopPropagation(); onRouteHarness(harness.harness_id) }}
         >
@@ -605,15 +605,15 @@ function HarnessRow({
       </div>
 
       {harness.access_role !== "owner" && (
-        <div className="mb-1 -mt-0.5 ml-8 truncate text-[10px] text-muted-foreground/70">
+        <div className="mb-1 ml-8 truncate text-[10px] text-muted-foreground/70">
           {harness.owner_username} · {harness.access_role}
         </div>
       )}
 
       {harness.expanded && (
-        <div className="ml-3.5 mt-1 space-y-0.5 border-l border-border/60 pl-1.5">
+        <div className="ml-3.5 mt-0.5 space-y-0.5 border-l border-border/60 pl-1.5">
           {harness.sessions.length === 0 ? (
-            <div className="flex items-center gap-1.5 px-2 py-1 text-[11px] text-muted-foreground">
+            <div className="flex h-7 items-center gap-2 rounded-md px-2 text-xs text-muted-foreground">
               <MessagesSquare className="size-3" />
               <span>No sessions</span>
             </div>
