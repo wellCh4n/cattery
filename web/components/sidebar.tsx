@@ -6,32 +6,50 @@ import {
   Bot,
   Cat,
   Check,
-  ChevronRight,
   ChevronsUpDown,
   FolderOpen,
   Info,
+  KeyRound,
   Loader2,
+  LogOut,
   Pencil,
   Plus,
+  RefreshCw,
+  Settings,
+  Shield,
   Trash2,
+  UserCircle2,
   Users,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { ChangePasswordDialog } from "@/components/change-password-dialog"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { CreateHarnessDialog } from "@/components/create-harness-dialog"
 import { FileBrowserPanel } from "@/components/file-browser-panel"
 import { HarnessIcon } from "@/components/harness-icon"
 import { NewProjectDialog } from "@/components/new-project-dialog"
 import { ProjectMembersPanel } from "@/components/project-members-panel"
+import { RenameProjectDialog } from "@/components/rename-project-dialog"
 import { RenameSessionDialog } from "@/components/rename-session-dialog"
+import { ThemeToggle } from "@/components/theme-toggle"
+import { Tree, type TreeNode } from "@/components/tree"
+import { TreeRowAction } from "@/components/tree-row"
 import { cn } from "@/lib/utils"
 import { useResizable } from "@/lib/use-resizable"
 import { type Session } from "@/lib/api"
 import { type HarnessWithSessions, type ProjectWithHarnesses, useWorkspaceStore } from "@/lib/workspace-store"
+import { useAuthStore } from "@/lib/auth-store"
 
 type SidebarView = "harnesses" | "files" | "members"
 const VIEW_STORAGE_KEY = "cattery:sidebar:view"
+const MIN_REFRESH_SPIN_MS = 1000
+
+function readSidebarView(): SidebarView {
+  if (typeof window === "undefined") return "harnesses"
+  const saved = localStorage.getItem(VIEW_STORAGE_KEY)
+  return saved === "files" || saved === "members" || saved === "harnesses" ? saved : "harnesses"
+}
 
 const TYPE_LABELS: Record<string, string> = {
   "opencode":    "OpenCode",
@@ -66,16 +84,28 @@ export function Sidebar() {
   const [renameOpen, setRenameOpen] = useState(false)
   const [projectPickerOpen, setProjectPickerOpen] = useState(false)
   const [deleteProjectTarget, setDeleteProjectTarget] = useState<ProjectWithHarnesses | null>(null)
+  const [renameProjectTarget, setRenameProjectTarget] = useState<ProjectWithHarnesses | null>(null)
   const projectPickerRef = useRef<HTMLDivElement>(null)
 
-  const [view, setView] = useState<SidebarView>("harnesses")
-  useEffect(() => {
-    const saved = localStorage.getItem(VIEW_STORAGE_KEY)
-    if (saved === "files" || saved === "harnesses" || saved === "members") setView(saved)
-  }, [])
+  const user = useAuthStore(s => s.user)
+  const logout = useAuthStore(s => s.logout)
+  const [userMenuOpen, setUserMenuOpen] = useState(false)
+  const [settingsMenuOpen, setSettingsMenuOpen] = useState(false)
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false)
+  const userMenuRef = useRef<HTMLDivElement>(null)
+  const settingsMenuRef = useRef<HTMLDivElement>(null)
+
+  const [view, setView] = useState<SidebarView>(() => readSidebarView())
+  const [visitedViews, setVisitedViews] = useState<Set<SidebarView>>(() => new Set([readSidebarView()]))
+  const [refreshingHarnesses, setRefreshingHarnesses] = useState(false)
   useEffect(() => {
     localStorage.setItem(VIEW_STORAGE_KEY, view)
   }, [view])
+
+  function switchView(next: SidebarView) {
+    setView(next)
+    setVisitedViews(prev => prev.has(next) ? prev : new Set(prev).add(next))
+  }
 
   useEffect(() => {
     if (!projectPickerOpen) return
@@ -87,6 +117,28 @@ export function Sidebar() {
     document.addEventListener("pointerdown", onPointerDown)
     return () => document.removeEventListener("pointerdown", onPointerDown)
   }, [projectPickerOpen])
+
+  useEffect(() => {
+    if (!userMenuOpen) return
+    function onPointerDown(e: PointerEvent) {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setUserMenuOpen(false)
+      }
+    }
+    document.addEventListener("pointerdown", onPointerDown)
+    return () => document.removeEventListener("pointerdown", onPointerDown)
+  }, [userMenuOpen])
+
+  useEffect(() => {
+    if (!settingsMenuOpen) return
+    function onPointerDown(e: PointerEvent) {
+      if (settingsMenuRef.current && !settingsMenuRef.current.contains(e.target as Node)) {
+        setSettingsMenuOpen(false)
+      }
+    }
+    document.addEventListener("pointerdown", onPointerDown)
+    return () => document.removeEventListener("pointerdown", onPointerDown)
+  }, [settingsMenuOpen])
 
   const { width: sidebarWidth, onMouseDown: onSidebarMouseDown } = useResizable({
     initial: 256,
@@ -136,6 +188,18 @@ export function Sidebar() {
     }
   }
 
+  async function refreshHarnesses() {
+    setRefreshingHarnesses(true)
+    const startedAt = Date.now()
+    try {
+      await loadProjects()
+    } finally {
+      const remaining = MIN_REFRESH_SPIN_MS - (Date.now() - startedAt)
+      if (remaining > 0) await new Promise(resolve => setTimeout(resolve, remaining))
+      setRefreshingHarnesses(false)
+    }
+  }
+
   return (
     <>
       <aside
@@ -154,9 +218,9 @@ export function Sidebar() {
               type="button"
               onClick={() => setProjectPickerOpen(o => !o)}
               className={cn(
-                "flex h-7 w-full cursor-pointer items-center gap-1.5 rounded-md border border-transparent px-2 text-xs transition-colors",
-                "hover:border-border hover:bg-muted",
-                projectPickerOpen && "border-border bg-muted",
+                "flex h-7 w-full cursor-pointer items-center gap-1.5 rounded-md border border-border px-2 text-xs transition-colors",
+                "hover:bg-muted",
+                projectPickerOpen && "bg-muted",
               )}
               title="Switch project"
             >
@@ -197,19 +261,34 @@ export function Sidebar() {
                         </Badge>
                       )}
                       {ownsProject && (
-                        <button
-                          type="button"
-                          title="Delete project"
-                          aria-label="Delete project"
-                          onClick={e => {
-                            e.stopPropagation()
-                            setProjectPickerOpen(false)
-                            setDeleteProjectTarget(project)
-                          }}
-                          className="hidden size-6 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/15 hover:text-destructive group-hover/proj:inline-flex"
-                        >
-                          <Trash2 className="size-3.5" />
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            title="Rename project"
+                            aria-label="Rename project"
+                            onClick={e => {
+                              e.stopPropagation()
+                              setProjectPickerOpen(false)
+                              setRenameProjectTarget(project)
+                            }}
+                            className="hidden size-6 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground group-hover/proj:inline-flex"
+                          >
+                            <Pencil className="size-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            title="Delete project"
+                            aria-label="Delete project"
+                            onClick={e => {
+                              e.stopPropagation()
+                              setProjectPickerOpen(false)
+                              setDeleteProjectTarget(project)
+                            }}
+                            className="hidden size-6 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/15 hover:text-destructive group-hover/proj:inline-flex"
+                          >
+                            <Trash2 className="size-3.5" />
+                          </button>
+                        </>
                       )}
                     </div>
                   )
@@ -237,36 +316,109 @@ export function Sidebar() {
             icon={<Bot className="size-5" />}
             label="Harnesses"
             active={view === "harnesses"}
-            onClick={() => setView("harnesses")}
+            onClick={() => switchView("harnesses")}
           />
           <ActivityButton
             icon={<FolderOpen className="size-5" />}
             label="Files"
             active={view === "files"}
-            onClick={() => setView("files")}
+            onClick={() => switchView("files")}
           />
           <ActivityButton
             icon={<Users className="size-5" />}
             label="Members"
             active={view === "members"}
-            onClick={() => setView("members")}
+            onClick={() => switchView("members")}
           />
+
+          <div className="mt-auto flex flex-col gap-1">
+            <div ref={userMenuRef} className="relative">
+              {userMenuOpen && (
+                <div className="absolute bottom-0 left-full z-30 ml-1 min-w-44 overflow-hidden rounded-md border bg-popover text-sm shadow-md">
+                  <div className="border-b px-2.5 py-2">
+                    <div className="flex items-center gap-2">
+                      <span className="min-w-0 flex-1 truncate text-xs font-medium">{user?.username ?? "-"}</span>
+                      {user?.is_admin && (
+                        <Badge variant="secondary" className="h-4 shrink-0 px-1.5 text-[10px] font-normal">admin</Badge>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    className="flex h-8 w-full cursor-pointer items-center gap-2 px-2.5 text-left hover:bg-muted"
+                    onClick={() => { setUserMenuOpen(false); setChangePasswordOpen(true) }}
+                  >
+                    <KeyRound className="size-3.5 text-muted-foreground" />
+                    Change password
+                  </button>
+                  <button
+                    className="flex h-8 w-full cursor-pointer items-center gap-2 px-2.5 text-left text-destructive hover:bg-muted"
+                    onClick={() => { setUserMenuOpen(false); logout() }}
+                  >
+                    <LogOut className="size-3.5" />
+                    Sign out
+                  </button>
+                </div>
+              )}
+              <RailButton
+                icon={<UserCircle2 className="size-5" />}
+                label="Account"
+                active={userMenuOpen}
+                onClick={() => { setUserMenuOpen(o => !o); setSettingsMenuOpen(false) }}
+              />
+            </div>
+
+            <div ref={settingsMenuRef} className="relative">
+              {settingsMenuOpen && (
+                <div className="absolute bottom-0 left-full z-30 ml-1 min-w-44 overflow-hidden rounded-md border bg-popover text-sm shadow-md">
+                  {user?.is_admin && (
+                    <button
+                      className="flex h-8 w-full cursor-pointer items-center gap-2 px-2.5 text-left hover:bg-muted"
+                      onClick={() => { setSettingsMenuOpen(false); router.push("/admin/users") }}
+                    >
+                      <Shield className="size-3.5 text-muted-foreground" />
+                      User management
+                    </button>
+                  )}
+                  <div className="flex h-8 items-center justify-between gap-2 px-2.5">
+                    <span className="text-muted-foreground">Theme</span>
+                    <ThemeToggle />
+                  </div>
+                </div>
+              )}
+              <RailButton
+                icon={<Settings className="size-5" />}
+                label="Settings"
+                active={settingsMenuOpen}
+                onClick={() => { setSettingsMenuOpen(o => !o); setUserMenuOpen(false) }}
+              />
+            </div>
+          </div>
         </div>
-        {view === "harnesses" ? (
-        <div className="flex min-w-0 flex-1 flex-col">
+        <div className={cn("min-w-0 flex-1 flex-col", view === "harnesses" ? "flex" : "hidden")}>
         {currentProject && (
           <div className="flex h-9 shrink-0 items-center justify-between border-b px-2">
             <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
               Harnesses
             </span>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={() => setCreateHarnessProject(currentProject)}
-              title="New harness"
-            >
-              <Plus />
-            </Button>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={refreshHarnesses}
+                disabled={refreshingHarnesses}
+                title="Refresh harnesses"
+              >
+                <RefreshCw className={refreshingHarnesses ? "animate-spin" : undefined} />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => setCreateHarnessProject(currentProject)}
+                title="New harness"
+              >
+                <Plus />
+              </Button>
+            </div>
           </div>
         )}
         <div className="min-w-0 flex-1 overflow-y-auto">
@@ -302,54 +454,52 @@ export function Sidebar() {
             </div>
           )}
 
-          {harnesses.map(harness => (
-            <HarnessRow
-              key={harness.harness_id}
-              harness={harness}
-              selected={selectedHarnessId === harness.harness_id}
-              selectedSessionId={selectedSessionId}
-              launching={launching}
-              busySessions={busySessions}
-              onToggleExpand={toggleHarnessExpand}
-              onNewSession={handleNewSession}
-              onRouteSession={id => router.push(`/sessions/${id}`)}
-              onRouteHarness={id => router.push(`/harnesses/${id}`)}
-              onRequestDeleteSession={(sess, harnessId) => setDeleteSessionTarget({
+          <Tree
+            items={harnesses.map(harness => buildHarnessNode({
+              harness,
+              selectedHarnessId,
+              selectedSessionId,
+              launching,
+              busySessions,
+              onToggleExpand: toggleHarnessExpand,
+              onNewSession: handleNewSession,
+              onRouteSession: id => router.push(`/sessions/${id}`),
+              onRouteHarness: id => router.push(`/harnesses/${id}`),
+              onRequestDeleteSession: (sess, harnessId) => setDeleteSessionTarget({
                 session_id: sess.session_id,
                 harness_id: harnessId,
                 title: sess.title ?? "New Session",
-              })}
-              onRequestRenameSession={sess => {
+              }),
+              onRequestRenameSession: sess => {
                 setRenameTarget(sess)
                 setRenameOpen(true)
-              }}
-            />
-          ))}
+              },
+            }))}
+          />
         </div>
         </div>
-        ) : view === "files" ? (
-          <div className="min-h-0 flex-1 overflow-hidden">
-            {currentProject ? (
-              <FileBrowserPanel
-                projectId={currentProject.project_id}
-                canWrite={currentProject.access_role !== "viewer"}
-              />
+        <div className={cn("min-h-0 flex-1 overflow-hidden", view === "files" ? "block" : "hidden")}>
+          {visitedViews.has("files") && (
+            currentProject ? (
+              <FileBrowserPanel key={currentProject.project_id} projectId={currentProject.project_id} />
             ) : (
               <NoProjectPlaceholder onCreate={() => setNewProjectOpen(true)} />
-            )}
-          </div>
-        ) : (
-          <div className="min-h-0 flex-1 overflow-hidden">
-            {currentProject ? (
+            )
+          )}
+        </div>
+        <div className={cn("min-h-0 flex-1 overflow-hidden", view === "members" ? "block" : "hidden")}>
+          {visitedViews.has("members") && (
+            currentProject ? (
               <ProjectMembersPanel
+                key={currentProject.project_id}
                 project={currentProject}
                 canManage={currentProject.access_role === "owner"}
               />
             ) : (
               <NoProjectPlaceholder onCreate={() => setNewProjectOpen(true)} />
-            )}
-          </div>
-        )}
+            )
+          )}
+        </div>
         </div>
 
       </aside>
@@ -370,6 +520,14 @@ export function Sidebar() {
           }}
         />
       )}
+
+      <ChangePasswordDialog open={changePasswordOpen} onOpenChange={setChangePasswordOpen} />
+
+      <RenameProjectDialog
+        project={renameProjectTarget}
+        open={renameProjectTarget !== null}
+        onOpenChange={open => { if (!open) setRenameProjectTarget(null) }}
+      />
 
       <RenameSessionDialog
         session={renameTarget}
@@ -441,17 +599,16 @@ function sandboxDot(status: string): string | null {
 }
 
 function canCreateSession(harness: HarnessWithSessions): boolean {
-  return harness.sandbox_status === "ready" && harness.access_role !== "viewer"
+  return harness.sandbox_status === "ready"
 }
 
 function newSessionTitle(harness: HarnessWithSessions): string {
-  if (harness.access_role === "viewer") return "Viewer access"
   return canCreateSession(harness) ? "New session" : "Sandbox is not ready"
 }
 
-function HarnessRow({
+function buildHarnessNode({
   harness,
-  selected,
+  selectedHarnessId,
   selectedSessionId,
   launching,
   busySessions,
@@ -463,7 +620,7 @@ function HarnessRow({
   onRequestRenameSession,
 }: {
   harness: HarnessWithSessions
-  selected: boolean
+  selectedHarnessId: string | null
   selectedSessionId: string | null
   launching: string | null
   busySessions: Set<string>
@@ -473,63 +630,76 @@ function HarnessRow({
   onRouteHarness: (harnessId: string) => void
   onRequestDeleteSession: (sess: Session, harnessId: string) => void
   onRequestRenameSession: (sess: Session) => void
-}) {
-  function handleRowClick() {
-    onToggleExpand(harness.harness_id)
-  }
-
-  function handleChevronClick(e: React.MouseEvent) {
-    e.stopPropagation()
-    onToggleExpand(harness.harness_id)
-  }
-
-  return (
-    <div>
-      <div
-        role="button"
-        className={cn(
-          "group flex h-7 cursor-pointer items-center gap-1.5 px-2 text-xs transition-colors select-none",
-          selected ? "bg-muted text-foreground" : "hover:bg-muted",
+}): TreeNode {
+  const sessions: TreeNode[] = harness.sessions.map(sess => ({
+    id: `s-${sess.session_id}`,
+    expandable: false,
+    selected: selectedSessionId === sess.session_id,
+    onClick: () => onRouteSession(sess.session_id),
+    body: (
+      <>
+        {busySessions.has(sess.session_id) ? (
+          <Loader2 className="size-3 shrink-0 animate-spin text-amber-500" />
+        ) : (
+          <span className={cn("size-1.5 shrink-0 rounded-full", statusDot(sess.status))} />
         )}
-        onClick={handleRowClick}
-        title={harness.expanded ? "Collapse" : "Expand"}
-      >
-        <button
-          type="button"
-          className="-ml-1 flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
-          onClick={handleChevronClick}
-          title={harness.expanded ? "Collapse" : "Expand"}
-          aria-label={harness.expanded ? "Collapse" : "Expand"}
+        <span className="flex-1 truncate">{sess.title ?? "New Session"}</span>
+        <span className="shrink-0 text-[10px] text-muted-foreground/70 group-hover/treerow:hidden">
+          {new Date(sess.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+        </span>
+      </>
+    ),
+    actions: (
+      <>
+        <TreeRowAction
+          title="Rename session"
+          aria-label="Rename session"
+          onClick={e => { e.stopPropagation(); onRequestRenameSession(sess) }}
         >
-          <ChevronRight
-            className={cn(
-              "size-3.5 transition-transform",
-              harness.expanded && "rotate-90",
-            )}
+          <Pencil className="size-3.5" />
+        </TreeRowAction>
+        <TreeRowAction
+          destructive
+          title="Delete session"
+          aria-label="Delete session"
+          onClick={e => { e.stopPropagation(); onRequestDeleteSession(sess, harness.harness_id) }}
+        >
+          <Trash2 className="size-3.5" />
+        </TreeRowAction>
+      </>
+    ),
+  }))
+
+  return {
+    id: `h-${harness.harness_id}`,
+    expandable: true,
+    expanded: harness.expanded,
+    children: sessions,
+    selected: selectedHarnessId === harness.harness_id,
+    onClick: () => onToggleExpand(harness.harness_id),
+    body: (
+      <>
+        {sandboxDot(harness.sandbox_status) && (
+          <span
+            title={`sandbox: ${harness.sandbox_status}`}
+            className={cn("size-1.5 shrink-0 rounded-full", sandboxDot(harness.sandbox_status))}
           />
-        </button>
-        <div className="flex h-full min-w-0 flex-1 items-center gap-1.5">
-          {sandboxDot(harness.sandbox_status) && (
-            <span
-              title={`sandbox: ${harness.sandbox_status}`}
-              className={cn("size-1.5 shrink-0 rounded-full", sandboxDot(harness.sandbox_status))}
-            />
-          )}
-          <HarnessIcon id={harness.type} className="size-3.5 shrink-0 text-muted-foreground" />
-          <span className="min-w-0 flex-1 truncate">{harness.harness_name ?? "Untitled"}</span>
-          <Badge
-            variant="secondary"
-            className="h-4 shrink-0 px-1.5 text-[10px] font-normal group-hover:hidden"
-          >
-            {harness.access_role === "owner" ? TYPE_LABELS[harness.type] ?? harness.type : harness.access_role}
-          </Badge>
-        </div>
-        <button
+        )}
+        <HarnessIcon id={harness.type} className="size-3.5 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 flex-1 truncate">{harness.harness_name ?? "Untitled"}</span>
+        <Badge
+          variant="secondary"
+          className="h-4 shrink-0 px-1.5 text-[10px] font-normal group-hover/treerow:hidden"
+        >
+          {harness.access_role === "owner" ? TYPE_LABELS[harness.type] ?? harness.type : harness.access_role}
+        </Badge>
+      </>
+    ),
+    actions: (
+      <>
+        <TreeRowAction
           className={cn(
-            "hidden size-5 items-center justify-center rounded transition-colors focus-visible:inline-flex group-hover:inline-flex disabled:cursor-not-allowed disabled:opacity-40",
-            canCreateSession(harness)
-              ? "cursor-pointer text-muted-foreground hover:bg-foreground/10 hover:text-foreground"
-              : "cursor-not-allowed text-muted-foreground/40 hover:bg-transparent hover:text-muted-foreground/40",
+            !canCreateSession(harness) && "cursor-not-allowed text-muted-foreground/40 hover:bg-transparent hover:text-muted-foreground/40",
           )}
           title={newSessionTitle(harness)}
           disabled={launching === harness.harness_id || !canCreateSession(harness)}
@@ -538,76 +708,21 @@ function HarnessRow({
           {launching === harness.harness_id
             ? <Loader2 className="size-3.5 animate-spin" />
             : <Plus className="size-3.5" />}
-        </button>
-        <button
-          className="hidden size-5 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus-visible:inline-flex group-hover:inline-flex"
+        </TreeRowAction>
+        <TreeRowAction
           title="Harness info"
           onClick={e => { e.stopPropagation(); onRouteHarness(harness.harness_id) }}
         >
           <Info className="size-3.5" />
-        </button>
+        </TreeRowAction>
+      </>
+    ),
+    subline: harness.access_role !== "owner" ? (
+      <div className="ml-8 truncate text-[10px] text-muted-foreground/70">
+        {harness.owner_username} · {harness.access_role}
       </div>
-
-      {harness.access_role !== "owner" && (
-        <div className="ml-8 truncate text-[10px] text-muted-foreground/70">
-          {harness.owner_username} · {harness.access_role}
-        </div>
-      )}
-
-      {harness.expanded && harness.sessions.length > 0 && (
-        <div>
-          {harness.sessions.map(sess => (
-              <div
-                key={sess.session_id}
-                className={cn(
-                  "group/sess flex h-7 w-full cursor-pointer items-center gap-2 pl-7 pr-2 text-xs transition-colors",
-                  "text-muted-foreground hover:bg-muted hover:text-foreground",
-                  selectedSessionId === sess.session_id && "bg-muted font-medium text-foreground",
-                )}
-                onClick={() => onRouteSession(sess.session_id)}
-              >
-                {busySessions.has(sess.session_id) ? (
-                  <Loader2 className="size-3 shrink-0 animate-spin text-amber-500" />
-                ) : (
-                  <span className={cn("size-1.5 shrink-0 rounded-full", statusDot(sess.status))} />
-                )}
-                <span className="flex-1 truncate">{sess.title ?? "New Session"}</span>
-                <span className="shrink-0 text-[10px] text-muted-foreground/70 group-hover/sess:hidden">
-                  {new Date(sess.created_at).toLocaleDateString(undefined, {
-                    month: "short",
-                    day: "numeric",
-                  })}
-                </span>
-                <button
-                  type="button"
-                  title="Rename session"
-                  aria-label="Rename session"
-                  onClick={e => {
-                    e.stopPropagation()
-                    onRequestRenameSession(sess)
-                  }}
-                  className="hidden size-5 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground group-hover/sess:inline-flex"
-                >
-                  <Pencil className="size-3" />
-                </button>
-                <button
-                  type="button"
-                  title="Delete session"
-                  aria-label="Delete session"
-                  onClick={e => {
-                    e.stopPropagation()
-                    onRequestDeleteSession(sess, harness.harness_id)
-                  }}
-                  className="hidden size-5 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/15 hover:text-destructive group-hover/sess:inline-flex"
-                >
-                  <Trash2 className="size-3" />
-                </button>
-              </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
+    ) : undefined,
+  }
 }
 
 function NoProjectPlaceholder({ onCreate }: { onCreate: () => void }) {
@@ -657,5 +772,36 @@ function ActivityButton({
         {icon}
       </button>
     </div>
+  )
+}
+
+// RailButton — bottom-of-rail toggle (account/settings). Same footprint as
+// ActivityButton but no view-active indicator bar; `active` just reflects
+// whether its popover is open.
+function RailButton({
+  icon,
+  label,
+  active,
+  onClick,
+}: {
+  icon: React.ReactNode
+  label: string
+  active: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+      aria-pressed={active}
+      className={cn(
+        "flex h-10 w-full cursor-pointer items-center justify-center transition-colors",
+        active ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+      )}
+    >
+      {icon}
+    </button>
   )
 }

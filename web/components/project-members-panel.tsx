@@ -2,12 +2,12 @@
 
 // ProjectMembersPanel — sidebar view for project membership. Shape mirrors
 // the harness panel: h-9 title bar ("MEMBERS" + add button), then a body
-// that lists the project owner (read-only, always first) followed by the
-// collaborators (role inline-switchable by owners). Adding a member is a
-// modal flow off the + button rather than an inline form.
+// that lists the project owner (always first) followed by the members. Every
+// member has full access; only the owner can add/remove members. Adding a
+// member is a modal flow off the + button rather than an inline form.
 
 import { useEffect, useState } from "react"
-import { Loader2, Plus, Trash2 } from "lucide-react"
+import { Loader2, Plus, RefreshCw, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -22,11 +22,12 @@ import {
   deleteProjectMember,
   listProjectMembers,
   searchUsers,
-  updateProjectMember,
   type Project,
   type ProjectMember,
   type UserSummary,
 } from "@/lib/api"
+
+const MIN_REFRESH_SPIN_MS = 1000
 
 interface Props {
   project: Project
@@ -39,6 +40,24 @@ export function ProjectMembersPanel({ project, canManage }: Props) {
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [addOpen, setAddOpen] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
+
+  async function refreshMembers() {
+    setRefreshing(true)
+    const startedAt = Date.now()
+    setLoading(true)
+    setError(null)
+    try {
+      setMembers(await listProjectMembers(project.project_id))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "failed to load members")
+    } finally {
+      setLoading(false)
+      const remaining = MIN_REFRESH_SPIN_MS - (Date.now() - startedAt)
+      if (remaining > 0) await new Promise(resolve => setTimeout(resolve, remaining))
+      setRefreshing(false)
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -53,19 +72,6 @@ export function ProjectMembersPanel({ project, canManage }: Props) {
     })
     return () => { cancelled = true }
   }, [project.project_id])
-
-  async function changeRole(member: ProjectMember, nextRole: "viewer" | "editor") {
-    setBusy(member.user_id)
-    setError(null)
-    try {
-      const updated = await updateProjectMember(project.project_id, member.user_id, { role: nextRole })
-      setMembers(list => list.map(m => m.user_id === updated.user_id ? updated : m))
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "update failed")
-    } finally {
-      setBusy(null)
-    }
-  }
 
   async function removeMember(member: ProjectMember) {
     setBusy(member.user_id)
@@ -91,22 +97,33 @@ export function ProjectMembersPanel({ project, canManage }: Props) {
         <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
           Members
         </span>
-        {canManage && (
+        <div className="flex items-center gap-1">
           <Button
             variant="ghost"
             size="icon-sm"
-            onClick={() => setAddOpen(true)}
-            title="Add member"
+            onClick={() => void refreshMembers()}
+            disabled={refreshing}
+            title="Refresh members"
           >
-            <Plus />
+            <RefreshCw className={refreshing ? "animate-spin" : undefined} />
           </Button>
-        )}
+          {canManage && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => setAddOpen(true)}
+              title="Add member"
+            >
+              <Plus />
+            </Button>
+          )}
+        </div>
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto">
         <MemberRow
           name={project.owner_username}
-          role="owner"
+          isOwner={true}
           busy={false}
           canManage={false}
         />
@@ -119,10 +136,9 @@ export function ProjectMembersPanel({ project, canManage }: Props) {
             <MemberRow
               key={member.user_id}
               name={member.username}
-              role={member.role as "viewer" | "editor"}
+              isOwner={false}
               busy={busy === member.user_id}
               canManage={canManage}
-              onChangeRole={next => changeRole(member, next)}
               onRemove={() => removeMember(member)}
             />
           ))
@@ -143,45 +159,35 @@ export function ProjectMembersPanel({ project, canManage }: Props) {
 
 function MemberRow({
   name,
-  role,
+  isOwner,
   busy,
   canManage,
-  onChangeRole,
   onRemove,
 }: {
   name: string
-  role: "owner" | "viewer" | "editor"
+  isOwner: boolean
   busy: boolean
   canManage: boolean
-  onChangeRole?: (next: "viewer" | "editor") => void
   onRemove?: () => void
 }) {
-  const isOwner = role === "owner"
   return (
     <div className="group flex h-7 cursor-pointer items-center gap-1.5 px-2 hover:bg-muted/60">
       <span className="min-w-0 flex-1 truncate">{name}</span>
       {isOwner ? (
         <span className="text-[10px] uppercase tracking-wide text-muted-foreground">owner</span>
       ) : canManage ? (
-        <>
-          <RoleSelect
-            value={role}
-            disabled={busy}
-            onChange={next => onChangeRole?.(next)}
-          />
-          <button
-            type="button"
-            className="inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-40"
-            disabled={busy}
-            onClick={onRemove}
-            title="Remove"
-            aria-label="Remove"
-          >
-            {busy ? <Loader2 className="size-3 animate-spin" /> : <Trash2 className="size-3" />}
-          </button>
-        </>
+        <button
+          type="button"
+          className="inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-40"
+          disabled={busy}
+          onClick={onRemove}
+          title="Remove"
+          aria-label="Remove"
+        >
+          {busy ? <Loader2 className="size-3 animate-spin" /> : <Trash2 className="size-3" />}
+        </button>
       ) : (
-        <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{role}</span>
+        <span className="text-[10px] uppercase tracking-wide text-muted-foreground">member</span>
       )}
     </div>
   )
@@ -204,24 +210,24 @@ function AddMemberDialog({
   const [candidates, setCandidates] = useState<UserSummary[]>([])
   const [selectedUser, setSelectedUser] = useState<UserSummary | null>(null)
   const [searching, setSearching] = useState(false)
-  const [role, setRole] = useState<"viewer" | "editor">("editor")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!open) {
-      setQuery("")
-      setCandidates([])
-      setSelectedUser(null)
-      setRole("editor")
-      setBusy(false)
-      setError(null)
+      queueMicrotask(() => {
+        setQuery("")
+        setCandidates([])
+        setSelectedUser(null)
+        setBusy(false)
+        setError(null)
+      })
     }
   }, [open])
 
   useEffect(() => {
     if (!open || selectedUser) {
-      setCandidates([])
+      queueMicrotask(() => setCandidates([]))
       return
     }
     let cancelled = false
@@ -249,7 +255,6 @@ function AddMemberDialog({
     try {
       const member = await createProjectMember(project.project_id, {
         username: selectedUser.username,
-        role,
       })
       onAdded(member)
       onOpenChange(false)
@@ -311,10 +316,6 @@ function AddMemberDialog({
               </div>
             )}
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">Role</span>
-            <RoleSelect value={role} disabled={busy} onChange={setRole} />
-          </div>
           {error && <div className="text-xs text-destructive">{error}</div>}
         </div>
         <DialogFooter>
@@ -328,27 +329,5 @@ function AddMemberDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  )
-}
-
-function RoleSelect({
-  value,
-  disabled,
-  onChange,
-}: {
-  value: "viewer" | "editor"
-  disabled?: boolean
-  onChange: (value: "viewer" | "editor") => void
-}) {
-  return (
-    <select
-      value={value}
-      disabled={disabled}
-      onChange={e => onChange(e.target.value as "viewer" | "editor")}
-      className="h-7 shrink-0 rounded border bg-background px-1.5 text-xs text-foreground disabled:opacity-50"
-    >
-      <option value="editor">editor</option>
-      <option value="viewer">viewer</option>
-    </select>
   )
 }

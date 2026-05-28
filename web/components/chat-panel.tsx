@@ -50,7 +50,6 @@ export function ChatPanel({ session, harness }: Props) {
   const loadHistory = useChatStreamStore(state => state.loadHistory)
   const sendMessage = useChatStreamStore(state => state.sendMessage)
   const stopSession = useChatStreamStore(state => state.stopSession)
-  const canWrite = harness.access_role !== "viewer"
 
   const isNearBottom = useCallback((): boolean => {
     const el = scrollRef.current
@@ -95,7 +94,7 @@ export function ChatPanel({ session, harness }: Props) {
   }
 
   async function handleSend() {
-    if (!input.trim() || sending || !canWrite) return
+    if (!input.trim() || sending) return
     const text = input.trim()
     setInput("")
     void sendMessage(session.session_id, text)
@@ -143,7 +142,7 @@ export function ChatPanel({ session, harness }: Props) {
               </div>
             )}
             {bubbles.map((b) => (
-              <BubbleRow key={b.id} bubble={b} sessionId={session.session_id} canWrite={canWrite} />
+              <BubbleRow key={b.id} bubble={b} sessionId={session.session_id} />
             ))}
             {sending && (
               // Persistent loader anchored below the last message — stays until
@@ -191,7 +190,7 @@ export function ChatPanel({ session, harness }: Props) {
               className="w-full resize-none border-0 bg-transparent dark:bg-transparent disabled:bg-transparent dark:disabled:bg-transparent min-h-[52px] max-h-48 px-4 pt-3 pb-1 text-base md:text-sm shadow-none focus-visible:ring-0 focus-visible:border-0 outline-none [field-sizing:content]"
               rows={1}
               value={input}
-              disabled={session.status !== "ready" || sending || !canWrite}
+              disabled={session.status !== "ready" || sending}
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => {
                 if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -210,7 +209,7 @@ export function ChatPanel({ session, harness }: Props) {
                 <span>Newline</span>
                 <span className="text-muted-foreground/40">·</span>
                 <span className="font-mono font-medium text-[10px]">
-                  {canWrite ? harness.model : "viewer access"}
+                  {harness.model}
                 </span>
               </span>
               {sending ? (
@@ -226,7 +225,7 @@ export function ChatPanel({ session, harness }: Props) {
               ) : (
                 <Button
                   size="icon-sm"
-                  disabled={session.status !== "ready" || !input.trim() || !canWrite}
+                  disabled={session.status !== "ready" || !input.trim()}
                   onClick={handleSend}
                   title="Send"
                   className="rounded-full"
@@ -267,9 +266,9 @@ function ThinkingBubble({ bubble }: { bubble: Bubble }) {
   )
 }
 
-function BubbleRow({ bubble, sessionId, canWrite }: { bubble: Bubble; sessionId: string; canWrite: boolean }) {
+function BubbleRow({ bubble, sessionId }: { bubble: Bubble; sessionId: string }) {
   if (bubble.kind === "question") {
-    return <QuestionBubble bubble={bubble} sessionId={sessionId} canWrite={canWrite} />
+    return <QuestionBubble bubble={bubble} sessionId={sessionId} />
   }
 
   if (bubble.kind === "thinking") {
@@ -499,7 +498,7 @@ function ToolStatusIcon({ status }: { status?: "pending" | "running" | "complete
   return <Loader2 className="size-3.5 text-muted-foreground shrink-0" />
 }
 
-function QuestionBubble({ bubble, sessionId, canWrite }: { bubble: Bubble; sessionId: string; canWrite: boolean }) {
+function QuestionBubble({ bubble, sessionId }: { bubble: Bubble; sessionId: string }) {
   const questions = bubble.questions ?? []
   const answered = !!bubble.questionAnswers
   const appendQuestionAnswer = useChatStreamStore(state => state.appendQuestionAnswer)
@@ -522,7 +521,7 @@ function QuestionBubble({ bubble, sessionId, canWrite }: { bubble: Bubble; sessi
   }
 
   async function submit(): Promise<void> {
-    if (submitting || answered || !canWrite) return
+    if (submitting || answered) return
     const ready = questions.every((q, i) => selected[i].length >= (q.multiSelect ? 1 : 1))
     if (!ready) return
     setSubmitting(true)
@@ -566,7 +565,7 @@ function QuestionBubble({ bubble, sessionId, canWrite }: { bubble: Bubble; sessi
                       <button
                         key={oIdx}
                         type="button"
-                        disabled={answered || submitting || !canWrite}
+                        disabled={answered || submitting}
                         onClick={() => toggle(qIdx, opt.label, !!q.multiSelect)}
                         className={cn(
                           "text-left rounded border px-2.5 py-1.5 text-xs transition-colors cursor-pointer",
@@ -599,7 +598,7 @@ function QuestionBubble({ bubble, sessionId, canWrite }: { bubble: Bubble; sessi
             <Button
               size="sm"
               onClick={submit}
-              disabled={submitting || !canWrite || selected.some(row => row.length === 0)}
+              disabled={submitting || selected.some(row => row.length === 0)}
               className="w-full"
             >
               {submitting ? <Loader2 className="size-3 animate-spin" /> : "Submit"}

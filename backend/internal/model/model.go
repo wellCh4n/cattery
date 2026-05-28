@@ -12,8 +12,7 @@ const (
 	ProviderOpenAI    = "openai"
 
 	AccessOwner  = "owner"
-	AccessViewer = "viewer"
-	AccessEditor = "editor"
+	AccessMember = "member"
 )
 
 type Harness struct {

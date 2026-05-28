@@ -204,15 +204,6 @@ func (h *ProjectHandler) ListMembers(c echo.Context) error {
 
 type memberRequest struct {
 	Username string `json:"username"`
-	Role     string `json:"role"`
-}
-
-type updateMemberRequest struct {
-	Role string `json:"role"`
-}
-
-func validMemberRole(role string) bool {
-	return role == model.AccessViewer || role == model.AccessEditor
 }
 
 func (h *ProjectHandler) CreateMember(c echo.Context) error {
@@ -224,9 +215,6 @@ func (h *ProjectHandler) CreateMember(c echo.Context) error {
 	if err := c.Bind(&req); err != nil {
 		return echo.ErrBadRequest
 	}
-	if !validMemberRole(req.Role) {
-		return echo.NewHTTPError(http.StatusBadRequest, "invalid member role")
-	}
 	user, err := h.users.GetByUsername(c.Request().Context(), req.Username)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusNotFound, "user not found")
@@ -234,37 +222,11 @@ func (h *ProjectHandler) CreateMember(c echo.Context) error {
 	if user.UserID == access.Project.OwnerUserID {
 		return echo.NewHTTPError(http.StatusBadRequest, "owner already has access")
 	}
-	member, err := h.members.Upsert(c.Request().Context(), access.Project.ProjectID, user.UserID, req.Role)
+	member, err := h.members.Upsert(c.Request().Context(), access.Project.ProjectID, user.UserID, model.AccessMember)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	return c.JSON(http.StatusCreated, member)
-}
-
-func (h *ProjectHandler) UpdateMember(c echo.Context) error {
-	access, err := requireManageableProject(c, h.projects)
-	if err != nil {
-		return err
-	}
-	userID, err := uuid.Parse(c.Param("user_id"))
-	if err != nil {
-		return echo.NewHTTPError(http.StatusNotFound, "member not found")
-	}
-	var req updateMemberRequest
-	if err := c.Bind(&req); err != nil {
-		return echo.ErrBadRequest
-	}
-	if !validMemberRole(req.Role) {
-		return echo.NewHTTPError(http.StatusBadRequest, "invalid member role")
-	}
-	member, err := h.members.UpdateRole(c.Request().Context(), access.Project.ProjectID, userID, req.Role)
-	if err != nil {
-		if errors.Is(err, db.ErrMemberNotFound) {
-			return echo.NewHTTPError(http.StatusNotFound, "member not found")
-		}
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-	return c.JSON(http.StatusOK, member)
 }
 
 func (h *ProjectHandler) DeleteMember(c echo.Context) error {

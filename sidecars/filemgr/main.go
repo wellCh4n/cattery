@@ -59,6 +59,7 @@ func main() {
 	mux.HandleFunc("/upload", handleUpload)
 	mux.HandleFunc("/delete", handleDelete)
 	mux.HandleFunc("/rename", handleRename)
+	mux.HandleFunc("/mkdir", handleMkdir)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
@@ -452,6 +453,68 @@ func handleRename(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]interface{}{
 		"path": filepath.ToSlash(filepath.Join(relParent, cleanedTo)),
 		"name": cleanedTo,
+	})
+}
+
+// handleMkdir creates a directory ?name= inside ?path= (the parent dir).
+// "name" must be a bare base name; refuses to overwrite an existing entry.
+func handleMkdir(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	parent, err := resolve(r.URL.Query().Get("path"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	info, err := os.Stat(parent)
+	if err != nil {
+		if os.IsNotExist(err) {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !info.IsDir() {
+		http.Error(w, "path is not a directory", http.StatusBadRequest)
+		return
+	}
+	name := r.URL.Query().Get("name")
+	cleaned := filepath.Base(filepath.Clean("/" + name))
+	if cleaned == "" || cleaned == "." || cleaned == "/" || strings.ContainsAny(name, "/\\") {
+		http.Error(w, "invalid 'name'", http.StatusBadRequest)
+		return
+	}
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	dest := filepath.Join(parent, cleaned)
+	if dest != rootAbs && !strings.HasPrefix(dest, rootAbs+string(os.PathSeparator)) {
+		http.Error(w, "path escapes root", http.StatusBadRequest)
+		return
+	}
+	if _, err := os.Lstat(dest); err == nil {
+		http.Error(w, "destination already exists", http.StatusConflict)
+		return
+	} else if !os.IsNotExist(err) {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := os.Mkdir(dest, 0o755); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	relParent := strings.TrimPrefix(parent, rootAbs)
+	if relParent == "" {
+		relParent = "/"
+	}
+	writeJSON(w, map[string]interface{}{
+		"path": filepath.ToSlash(filepath.Join(relParent, cleaned)),
+		"name": cleaned,
 	})
 }
 

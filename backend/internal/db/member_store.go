@@ -63,28 +63,6 @@ func (s *MemberStore) Upsert(ctx context.Context, projectID, userID uuid.UUID, r
 	return &member, nil
 }
 
-func (s *MemberStore) UpdateRole(ctx context.Context, projectID, userID uuid.UUID, role string) (*model.ProjectMember, error) {
-	row := s.db.QueryRowxContext(ctx, `
-		UPDATE project_members SET role=$1
-		WHERE project_id=$2 AND user_id=$3
-		RETURNING project_id, user_id, role, created_at`,
-		role, projectID, userID,
-	)
-	var member model.ProjectMember
-	if err := row.Scan(&member.ProjectID, &member.UserID, &member.Role, &member.CreatedAt); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, ErrMemberNotFound
-		}
-		return nil, err
-	}
-	var username string
-	if err := s.db.GetContext(ctx, &username, `SELECT username FROM users WHERE user_id=$1`, userID); err != nil {
-		return nil, err
-	}
-	member.Username = username
-	return &member, nil
-}
-
 func (s *MemberStore) Delete(ctx context.Context, projectID, userID uuid.UUID) error {
 	res, err := s.db.ExecContext(ctx,
 		`DELETE FROM project_members WHERE project_id=$1 AND user_id=$2`,

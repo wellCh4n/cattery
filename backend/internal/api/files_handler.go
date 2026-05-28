@@ -182,6 +182,21 @@ func (h *FilesHandler) Rename(c echo.Context) error {
 	return forward(c, req)
 }
 
+// Mkdir proxies POST /projects/:id/files/mkdir?path=...&name=... where `name`
+// is a base name created inside the parent dir `path`. Writers only.
+func (h *FilesHandler) Mkdir(c echo.Context) error {
+	base, err := h.requireFileMgrURL(c, true)
+	if err != nil {
+		return err
+	}
+	target := base + "/mkdir?" + c.Request().URL.RawQuery
+	req, err := http.NewRequestWithContext(c.Request().Context(), http.MethodPost, target, nil)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	return forward(c, req)
+}
+
 func (h *FilesHandler) proxyGET(c echo.Context, sidecarPath string) error {
 	return h.proxyGETRawQuery(c, sidecarPath, c.Request().URL.RawQuery)
 }

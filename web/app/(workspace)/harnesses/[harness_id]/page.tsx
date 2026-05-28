@@ -87,7 +87,7 @@ export default function HarnessPage({ params }: { params: Promise<PageParams> })
   }, [harness, loadProjects, loaded])
 
   async function handleNewSession(h: HarnessWithSessions) {
-    if (h.sandbox_status !== "ready" || h.access_role === "viewer") return
+    if (h.sandbox_status !== "ready") return
     setLaunching(true)
     try {
       const theme = document.documentElement.classList.contains("dark") ? "dark" : "light"
@@ -145,7 +145,7 @@ export default function HarnessPage({ params }: { params: Promise<PageParams> })
   }
 
   const sessions = harness.sessions.filter(s => s.status !== "dead")
-  const canCreate = harness.sandbox_status === "ready" && harness.access_role !== "viewer"
+  const canCreate = harness.sandbox_status === "ready"
   const isOwner = harness.access_role === "owner"
 
   const envCount = Object.keys(harness.env_vars ?? {}).length
@@ -223,7 +223,7 @@ export default function HarnessPage({ params }: { params: Promise<PageParams> })
               size="sm"
               disabled={!canCreate || launching}
               onClick={() => handleNewSession(harness)}
-              title={harness.access_role === "viewer" ? "Viewer access" : harness.sandbox_status === "ready" ? "New session" : "Sandbox is not ready"}
+              title={harness.sandbox_status === "ready" ? "New session" : "Sandbox is not ready"}
               className="max-[420px]:w-full"
             >
               {launching ? <Loader2 className="size-3.5 animate-spin" /> : <Play className="size-3.5" />}

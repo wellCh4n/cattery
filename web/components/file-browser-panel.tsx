@@ -1,20 +1,20 @@
 "use client"
 
-// FileBrowserPanel — read-only directory tree of /work inside the sandbox.
-// Listing comes from the filemgr sidecar via the backend proxy. Clicking a
-// directory navigates in; clicking a file opens it in a large modal viewer
-// (uses the existing FileViewer with shiki highlighting). Toolbar has "up"
-// (parent dir), refresh, upload; each file row reveals a download icon on
-// hover.
+// FileBrowserPanel — lazy-loaded tree of /work inside the sandbox. Listing
+// comes from the filemgr sidecar via the backend proxy. Folders expand/collapse
+// in place (children fetched on first expand); clicking a file opens it in a
+// large modal viewer (uses the existing FileViewer with shiki highlighting).
+// Per-row hover actions: folders reveal rename/upload/delete (upload writes
+// directly into that folder), files reveal rename/delete. Rename and new-folder
+// both go through dialogs for consistency. Drag-drop onto a folder row uploads
+// into that folder; drop on blank space uploads to root.
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import {
-  ArrowLeft,
-  Check,
-  ChevronRight,
   Download,
   File as FileIcon,
   Folder,
+  FolderPlus,
   Loader2,
   Maximize2,
   Minimize2,
@@ -22,15 +22,25 @@ import {
   RefreshCw,
   Trash2,
   Upload,
-  X,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/confirm-dialog"
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { FileViewer } from "@/components/file-viewer"
+import { Input } from "@/components/ui/input"
 import { Markdown } from "@/components/markdown"
+import { Tree, type TreeNode } from "@/components/tree"
+import { TreeRowAction } from "@/components/tree-row"
 import { cn } from "@/lib/utils"
 import {
+  createFolder,
   deleteFile,
   downloadFileURL,
   rawFilePathURL,
@@ -42,6 +52,8 @@ import {
   type FileEntry,
   type FileReadResponse,
 } from "@/lib/api"
+
+const MIN_REFRESH_SPIN_MS = 1000
 
 const IMAGE_EXTS = new Set([
   "png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico", "avif",
@@ -69,7 +81,6 @@ function isMarkdownPath(path: string): boolean {
 
 interface Props {
   projectId: string
-  canWrite: boolean
 }
 
 // Opened file is either a text read result (already fetched into memory) or
@@ -83,58 +94,80 @@ type OpenedFile =
 
 type PreviewMode = "preview" | "source"
 
-export function FileBrowserPanel({ projectId, canWrite }: Props) {
-  const [dir, setDir] = useState("/")
-  const [entries, setEntries] = useState<FileEntry[] | null>(null)
+function joinPath(parent: string, name: string): string {
+  return parent === "/" ? `/${name}` : `${parent}/${name}`
+}
+
+function parentOf(path: string): string {
+  const parts = path.split("/").filter(Boolean)
+  parts.pop()
+  return parts.length === 0 ? "/" : "/" + parts.join("/")
+}
+
+// Folders first, then files; alphabetical within each group.
+function sortEntries(entries: FileEntry[]): FileEntry[] {
+  return [...entries].sort((a, b) => {
+    if (a.type !== b.type) return a.type === "dir" ? -1 : 1
+    return a.name.localeCompare(b.name)
+  })
+}
+
+export function FileBrowserPanel({ projectId }: Props) {
+  const [childrenByPath, setChildrenByPath] = useState<Record<string, FileEntry[]>>({})
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
+  const [loadingPaths, setLoadingPaths] = useState<Set<string>>(() => new Set())
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
   const [opened, setOpened] = useState<OpenedFile | null>(null)
   const [openLoading, setOpenLoading] = useState(false)
-  const [uploading, setUploading] = useState(false)
+  const [uploading, setUploading] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
-  const [deleteTarget, setDeleteTarget] = useState<FileEntry | null>(null)
+  const [newFolderDir, setNewFolderDir] = useState<string | null>(null)
+  const [renameTarget, setRenameTarget] = useState<{ entry: FileEntry; path: string } | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<{ entry: FileEntry; path: string } | null>(null)
   const dragDepthRef = useRef(0)
+  const uploadDirRef = useRef<string>("/")
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const load = useCallback(async (path: string) => {
-    setLoading(true)
+  const loadDir = useCallback(async (path: string) => {
+    setLoadingPaths(prev => new Set(prev).add(path))
     setError(null)
     try {
       const list = await listFiles(projectId, path)
-      setEntries(list)
+      setChildrenByPath(prev => ({ ...prev, [path]: sortEntries(list) }))
     } catch (e) {
-      setEntries(null)
       setError(e instanceof Error ? e.message : "failed to load")
     } finally {
-      setLoading(false)
+      setLoadingPaths(prev => {
+        const next = new Set(prev)
+        next.delete(path)
+        return next
+      })
     }
   }, [projectId])
 
   useEffect(() => {
     let cancelled = false
     queueMicrotask(() => {
-      if (cancelled) return
-      load(dir)
+      if (!cancelled) void loadDir("/")
     })
     return () => { cancelled = true }
-  }, [dir, load])
+  }, [loadDir])
 
-  function goInto(name: string) {
-    const next = dir === "/" ? `/${name}` : `${dir}/${name}`
-    setDir(next)
-    setOpened(null)
+  function toggleExpand(path: string) {
+    setExpanded(prev => {
+      const next = new Set(prev)
+      if (next.has(path)) {
+        next.delete(path)
+      } else {
+        next.add(path)
+        if (!childrenByPath[path]) void loadDir(path)
+      }
+      return next
+    })
   }
 
-  function goUp() {
-    if (dir === "/") return
-    const parts = dir.split("/").filter(Boolean)
-    parts.pop()
-    setDir(parts.length === 0 ? "/" : "/" + parts.join("/"))
-    setOpened(null)
-  }
-
-  async function openFile(name: string) {
-    const path = dir === "/" ? `/${name}` : `${dir}/${name}`
+  async function openFile(path: string) {
     if (isImagePath(path)) {
       setOpened({ kind: "image", path })
       return
@@ -167,28 +200,29 @@ export function FileBrowserPanel({ projectId, canWrite }: Props) {
     }
   }
 
-  async function uploadFiles(files: File[]) {
-    if (!canWrite || files.length === 0) return
-    setUploading(true)
+  async function uploadFiles(targetDir: string, files: File[]) {
+    if (files.length === 0) return
+    setUploading(targetDir)
     try {
       for (const file of files) {
-        await uploadFile(projectId, dir, file)
+        await uploadFile(projectId, targetDir, file)
       }
-      await load(dir)
+      setExpanded(prev => targetDir === "/" ? prev : new Set(prev).add(targetDir))
+      await loadDir(targetDir)
     } catch (err) {
       setError(err instanceof Error ? err.message : "upload failed")
     } finally {
-      setUploading(false)
+      setUploading(null)
     }
   }
 
-  async function commitRename(entry: FileEntry, nextName: string): Promise<boolean> {
+  async function commitRename(path: string, nextName: string): Promise<boolean> {
     const trimmed = nextName.trim()
-    if (!trimmed || trimmed === entry.name) return false
-    const from = dir === "/" ? `/${entry.name}` : `${dir}/${entry.name}`
+    const name = path.split("/").pop() ?? ""
+    if (!trimmed || trimmed === name) return false
     try {
-      await renameFile(projectId, from, trimmed)
-      await load(dir)
+      await renameFile(projectId, path, trimmed)
+      await loadDir(parentOf(path))
       return true
     } catch (err) {
       setError(err instanceof Error ? err.message : "rename failed")
@@ -196,116 +230,169 @@ export function FileBrowserPanel({ projectId, canWrite }: Props) {
     }
   }
 
-  async function confirmDelete(entry: FileEntry) {
-    const target = dir === "/" ? `/${entry.name}` : `${dir}/${entry.name}`
-    await deleteFile(projectId, target)
-    await load(dir)
+  async function confirmDelete(path: string) {
+    await deleteFile(projectId, path)
+    await loadDir(parentOf(path))
+  }
+
+  async function afterFolderCreated(dir: string) {
+    setExpanded(prev => dir === "/" ? prev : new Set(prev).add(dir))
+    await loadDir(dir)
+  }
+
+  async function refresh() {
+    setRefreshing(true)
+    const startedAt = Date.now()
+    try {
+      await Promise.all([
+        loadDir("/"),
+        ...Array.from(expanded)
+          .filter(path => path !== "/")
+          .map(path => loadDir(path)),
+      ])
+    } finally {
+      const remaining = MIN_REFRESH_SPIN_MS - (Date.now() - startedAt)
+      if (remaining > 0) await new Promise(resolve => setTimeout(resolve, remaining))
+      setRefreshing(false)
+    }
   }
 
   async function onUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? [])
     e.target.value = "" // allow re-selecting the same file later
-    await uploadFiles(files)
+    await uploadFiles(uploadDirRef.current, files)
+  }
+
+  function triggerUpload(dir: string) {
+    uploadDirRef.current = dir
+    fileInputRef.current?.click()
   }
 
   function onDragEnter(e: React.DragEvent<HTMLDivElement>) {
-    if (!canWrite) return
     e.preventDefault()
     dragDepthRef.current += 1
     setDragging(true)
   }
 
   function onDragOver(e: React.DragEvent<HTMLDivElement>) {
-    if (!canWrite) return
     e.preventDefault()
     e.dataTransfer.dropEffect = "copy"
   }
 
   function onDragLeave(e: React.DragEvent<HTMLDivElement>) {
-    if (!canWrite) return
     e.preventDefault()
     dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
     if (dragDepthRef.current === 0) setDragging(false)
   }
 
   async function onDrop(e: React.DragEvent<HTMLDivElement>) {
-    if (!canWrite) return
     e.preventDefault()
     dragDepthRef.current = 0
     setDragging(false)
     const files = Array.from(e.dataTransfer.files)
-    await uploadFiles(files)
+    await uploadFiles("/", files)
   }
 
-  // Breadcrumb segments — clicking a segment jumps directly there
-  const segments = dir === "/" ? [] : dir.split("/").filter(Boolean)
+  const rootChildren = childrenByPath["/"]
+  const rootBusy = loadingPaths.has("/")
+
+  function buildFileNode(entry: FileEntry, path: string): TreeNode {
+    const isDir = entry.type === "dir"
+    const isExpanded = isDir && expanded.has(path)
+    const childEntries = isExpanded ? childrenByPath[path] : undefined
+    return {
+      id: path,
+      expandable: isDir,
+      expanded: isExpanded,
+      loadingChildren: loadingPaths.has(path),
+      children: isDir
+        ? (childEntries ? childEntries.map(c => buildFileNode(c, joinPath(path, c.name))) : undefined)
+        : undefined,
+      onClick: () => isDir ? toggleExpand(path) : void openFile(path),
+      onFilesDropped: isDir ? files => uploadFiles(path, files) : undefined,
+      body: (
+        <>
+          {!isDir && <FileIcon className="size-3.5 shrink-0 text-muted-foreground/70" />}
+          <span className="truncate flex-1">{entry.name}</span>
+          {!isDir && (
+            <span className="hidden sm:inline text-[10px] text-muted-foreground/60 shrink-0 group-hover/treerow:hidden">
+              {formatSize(entry.size)}
+            </span>
+          )}
+        </>
+      ),
+      actions: (
+        <>
+          <TreeRowAction
+            onClick={e => { e.stopPropagation(); setRenameTarget({ entry, path }) }}
+            title="Rename"
+            aria-label="Rename"
+          >
+            <Pencil className="size-3.5" />
+          </TreeRowAction>
+          {isDir && (
+            <TreeRowAction
+              onClick={e => { e.stopPropagation(); setNewFolderDir(path) }}
+              title="New folder"
+              aria-label="New folder"
+            >
+              <FolderPlus className="size-3.5" />
+            </TreeRowAction>
+          )}
+          {isDir && (
+            <TreeRowAction
+              onClick={e => { e.stopPropagation(); triggerUpload(path) }}
+              disabled={uploading === path}
+              title="Upload here"
+              aria-label="Upload here"
+            >
+              {uploading === path ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />}
+            </TreeRowAction>
+          )}
+          <TreeRowAction
+            destructive
+            onClick={e => { e.stopPropagation(); setDeleteTarget({ entry, path }) }}
+            title="Delete"
+            aria-label="Delete"
+          >
+            <Trash2 className="size-3.5" />
+          </TreeRowAction>
+        </>
+      ),
+    }
+  }
 
   return (
     <div className="flex h-full flex-col text-xs">
-      <div className="flex h-9 shrink-0 items-center gap-1 border-b px-2">
-        <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+      <div className="flex h-9 shrink-0 items-center justify-between border-b px-2">
+        <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
           Files
         </span>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-6 shrink-0"
-          onClick={goUp}
-          disabled={dir === "/"}
-          title="Up"
-        >
-          <ArrowLeft className="size-3.5" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-6 shrink-0"
-          onClick={() => load(dir)}
-          disabled={loading}
-          title="Refresh"
-        >
-          <RefreshCw className={cn("size-3.5", loading && "animate-spin")} />
-        </Button>
-        <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto">
-          <button
-            onClick={() => { setDir("/"); setOpened(null) }}
-            className="text-muted-foreground hover:text-foreground cursor-pointer"
-          >
-            /
-          </button>
-          {segments.map((seg, i) => {
-            const target = "/" + segments.slice(0, i + 1).join("/")
-            return (
-              <span key={target} className="flex items-center gap-0.5">
-                <ChevronRight className="size-3 text-muted-foreground/50" />
-                <button
-                  onClick={() => { setDir(target); setOpened(null) }}
-                  className="text-muted-foreground hover:text-foreground truncate cursor-pointer"
-                  title={target}
-                >
-                  {seg}
-                </button>
-              </span>
-            )
-          })}
-        </div>
         <input
           ref={fileInputRef}
           type="file"
           className="hidden"
           onChange={onUpload}
         />
-        {canWrite && (
+        <div className="flex items-center gap-1">
           <Button
             variant="ghost"
             size="icon-sm"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-            title="Upload to this folder"
+            onClick={() => void refresh()}
+            disabled={refreshing}
+            title="Refresh files"
           >
-            {uploading ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />}
+            <RefreshCw className={refreshing ? "animate-spin" : undefined} />
           </Button>
-        )}
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => setNewFolderDir("/")}
+            title="New folder in /"
+          >
+            <FolderPlus />
+          </Button>
+        </div>
       </div>
 
       <div
@@ -321,43 +408,58 @@ export function FileBrowserPanel({ projectId, canWrite }: Props) {
         {error && (
           <div className="p-4 text-destructive">{error}</div>
         )}
-        {!error && entries === null && loading && (
+        {!error && rootChildren === undefined && rootBusy && (
           <div className="flex min-h-full items-center justify-center text-muted-foreground">
             <Loader2 className="size-4 animate-spin" />
           </div>
         )}
-        {!error && entries && entries.length === 0 && (
+        {!error && rootChildren !== undefined && rootChildren.length === 0 && !rootBusy && (
           <div className="flex h-full flex-col items-center justify-center px-4 text-center">
             <Folder className="size-8 text-muted-foreground/50" />
             <p className="mt-2 text-xs text-muted-foreground">No files</p>
-            {canWrite && (
+            <div className="mt-3 flex w-32 flex-col gap-2">
               <Button
                 variant="outline"
                 size="sm"
-                className="mt-3"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={uploading}
+                className="w-full"
+                onClick={() => triggerUpload("/")}
+                disabled={uploading !== null}
               >
-                {uploading ? <Loader2 className="animate-spin" /> : <Upload />}
+                {uploading !== null ? <Loader2 className="animate-spin" /> : <Upload />}
                 Upload
               </Button>
-            )}
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full"
+                onClick={() => setNewFolderDir("/")}
+              >
+                <FolderPlus />
+                New folder
+              </Button>
+            </div>
           </div>
         )}
-        {entries && entries.map(entry => (
-          <FileRow
-            key={entry.name}
-            entry={entry}
-            dir={dir}
-            projectId={projectId}
-            canWrite={canWrite}
-            onOpenFile={openFile}
-            onEnterDir={goInto}
-            onRename={nextName => commitRename(entry, nextName)}
-            onRequestDelete={() => setDeleteTarget(entry)}
-          />
-        ))}
+        {!error && rootChildren && rootChildren.length > 0 && (
+          <Tree items={rootChildren.map(entry => buildFileNode(entry, joinPath("/", entry.name)))} />
+        )}
       </div>
+
+      <NewFolderDialog
+        projectId={projectId}
+        dir={newFolderDir}
+        onOpenChange={open => { if (!open) setNewFolderDir(null) }}
+        onCreated={afterFolderCreated}
+      />
+
+      <RenameDialog
+        target={renameTarget}
+        onOpenChange={open => { if (!open) setRenameTarget(null) }}
+        onCommit={async name => {
+          if (!renameTarget) return false
+          return commitRename(renameTarget.path, name)
+        }}
+      />
 
       <FileViewerDialog
         projectId={projectId}
@@ -369,23 +471,95 @@ export function FileBrowserPanel({ projectId, canWrite }: Props) {
       <ConfirmDialog
         open={deleteTarget !== null}
         onOpenChange={open => { if (!open) setDeleteTarget(null) }}
-        title={deleteTarget?.type === "dir" ? "Delete folder?" : "Delete file?"}
+        title={deleteTarget?.entry.type === "dir" ? "Delete folder?" : "Delete file?"}
         description={
           <>
-            {deleteTarget?.type === "dir"
+            {deleteTarget?.entry.type === "dir"
               ? "Recursively delete "
               : "Delete "}
-            <span className="font-mono text-foreground">{deleteTarget?.name}</span>
+            <span className="font-mono text-foreground">{deleteTarget?.entry.name}</span>
             ? This cannot be undone.
           </>
         }
         confirmLabel="Delete"
         destructive
         onConfirm={async () => {
-          if (deleteTarget) await confirmDelete(deleteTarget)
+          if (deleteTarget) await confirmDelete(deleteTarget.path)
         }}
       />
     </div>
+  )
+}
+
+function NewFolderDialog({
+  projectId,
+  dir,
+  onOpenChange,
+  onCreated,
+}: {
+  projectId: string
+  dir: string | null
+  onOpenChange: (open: boolean) => void
+  onCreated: (dir: string) => void | Promise<void>
+}) {
+  const [name, setName] = useState("")
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function commit() {
+    const trimmed = name.trim()
+    if (!trimmed || busy || !dir) return
+    setBusy(true)
+    setError(null)
+    try {
+      await createFolder(projectId, dir, trimmed)
+      await onCreated(dir)
+      onOpenChange(false)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "create folder failed")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Dialog
+      open={dir !== null}
+      onOpenChange={o => {
+        if (busy) return
+        if (o) { setName(""); setError(null) }
+        onOpenChange(o)
+      }}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>New folder</DialogTitle>
+          <DialogDescription>
+            Create a folder in <span className="font-mono text-foreground">{dir ?? ""}</span>.
+          </DialogDescription>
+        </DialogHeader>
+        <Input
+          value={name}
+          disabled={busy}
+          onChange={e => setName(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter") void commit() }}
+          autoFocus
+          autoComplete="off"
+          spellCheck={false}
+          placeholder="Folder name"
+        />
+        {error && <div className="text-xs text-destructive">{error}</div>}
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
+            Cancel
+          </Button>
+          <Button onClick={commit} disabled={busy || !name.trim()}>
+            {busy ? <Loader2 className="size-3.5 animate-spin" /> : null}
+            Create
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -532,152 +706,90 @@ function FileViewerDialog({
   )
 }
 
-function FileRow({
-  entry,
-  dir,
-  projectId,
-  canWrite,
-  onOpenFile,
-  onEnterDir,
-  onRename,
-  onRequestDelete,
+// RenameDialog — dialog-based rename for files and folders. Mirrors
+// NewFolderDialog's shape so the two stay visually consistent.
+function RenameDialog({
+  target,
+  onOpenChange,
+  onCommit,
 }: {
-  entry: FileEntry
-  dir: string
-  projectId: string
-  canWrite: boolean
-  onOpenFile: (name: string) => void
-  onEnterDir: (name: string) => void
-  onRename: (nextName: string) => Promise<boolean>
-  onRequestDelete: () => void
+  target: { entry: FileEntry; path: string } | null
+  onOpenChange: (open: boolean) => void
+  onCommit: (name: string) => Promise<boolean>
 }) {
-  const isDir = entry.type === "dir"
-  const fullPath = dir === "/" ? `/${entry.name}` : `${dir}/${entry.name}`
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(entry.name)
+  const [name, setName] = useState("")
   const [busy, setBusy] = useState(false)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!editing) return
-    inputRef.current?.focus()
-    inputRef.current?.select()
-  }, [editing])
-
-  function startEdit(e: React.MouseEvent) {
-    e.stopPropagation()
-    setDraft(entry.name)
-    setEditing(true)
-  }
+    if (!target) return
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
+      setName(target.entry.name)
+      setError(null)
+    })
+    return () => { cancelled = true }
+  }, [target])
 
   async function commit() {
-    if (busy) return
+    const trimmed = name.trim()
+    if (!trimmed || busy || !target) return
+    if (trimmed === target.entry.name) {
+      onOpenChange(false)
+      return
+    }
     setBusy(true)
+    setError(null)
     try {
-      const ok = await onRename(draft)
-      // On success the parent reloads the list and this row unmounts; either
-      // way close the editor.
-      setEditing(false)
-      return ok
+      const ok = await onCommit(trimmed)
+      if (ok) onOpenChange(false)
+      else setError("rename failed")
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "rename failed")
     } finally {
       setBusy(false)
     }
   }
 
-  function cancel() {
-    setDraft(entry.name)
-    setEditing(false)
-  }
-
-  if (editing) {
-    return (
-      <div className="flex items-center gap-1.5 px-2 h-7 bg-muted/40">
-        {isDir
-          ? <Folder className="size-3.5 text-muted-foreground shrink-0" />
-          : <FileIcon className="size-3.5 text-muted-foreground/70 shrink-0" />}
-        <input
-          ref={inputRef}
-          value={draft}
-          disabled={busy}
-          onChange={e => setDraft(e.target.value)}
-          onClick={e => e.stopPropagation()}
-          onKeyDown={e => {
-            if (e.key === "Enter") { e.preventDefault(); void commit() }
-            else if (e.key === "Escape") { e.preventDefault(); cancel() }
-          }}
-          className="flex-1 min-w-0 h-5 rounded border bg-background px-1 text-xs outline-none focus:ring-1 focus:ring-ring"
-        />
-        <button
-          type="button"
-          onClick={e => { e.stopPropagation(); void commit() }}
-          disabled={busy}
-          className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-          title="Save"
-          aria-label="Save rename"
-        >
-          {busy ? <Loader2 className="size-3 animate-spin" /> : <Check className="size-3" />}
-        </button>
-        <button
-          type="button"
-          onClick={e => { e.stopPropagation(); cancel() }}
-          disabled={busy}
-          className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-          title="Cancel"
-          aria-label="Cancel rename"
-        >
-          <X className="size-3" />
-        </button>
-      </div>
-    )
-  }
-
+  const isDir = target?.entry.type === "dir"
   return (
-    <div
-      onClick={() => isDir ? onEnterDir(entry.name) : onOpenFile(entry.name)}
-      className="group flex items-center gap-1.5 px-2 h-7 cursor-pointer hover:bg-muted/60"
+    <Dialog
+      open={target !== null}
+      onOpenChange={o => {
+        if (busy) return
+        onOpenChange(o)
+      }}
     >
-      {isDir
-        ? <Folder className="size-3.5 text-muted-foreground shrink-0" />
-        : <FileIcon className="size-3.5 text-muted-foreground/70 shrink-0" />}
-      <span className="truncate flex-1">{entry.name}</span>
-      {!isDir && (
-        <span className="hidden sm:inline text-[10px] text-muted-foreground/60 shrink-0 group-hover:hidden">
-          {formatSize(entry.size)}
-        </span>
-      )}
-      {!isDir && (
-        <a
-          href={downloadFileURL(projectId, fullPath)}
-          onClick={e => e.stopPropagation()}
-          className="hidden group-hover:inline-flex text-muted-foreground hover:text-foreground shrink-0"
-          title="Download"
-        >
-          <Download className="size-3" />
-        </a>
-      )}
-      {canWrite && (
-        <>
-          <button
-            type="button"
-            onClick={startEdit}
-            className="hidden group-hover:inline-flex text-muted-foreground hover:text-foreground shrink-0"
-            title="Rename"
-            aria-label="Rename"
-          >
-            <Pencil className="size-3" />
-          </button>
-          <button
-            type="button"
-            onClick={e => { e.stopPropagation(); onRequestDelete() }}
-            className="hidden group-hover:inline-flex text-muted-foreground hover:text-destructive shrink-0"
-            title="Delete"
-            aria-label="Delete"
-          >
-            <Trash2 className="size-3" />
-          </button>
-        </>
-      )}
-    </div>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{isDir ? "Rename folder" : "Rename file"}</DialogTitle>
+          <DialogDescription>
+            Rename <span className="font-mono text-foreground">{target?.entry.name ?? ""}</span>.
+          </DialogDescription>
+        </DialogHeader>
+        <Input
+          value={name}
+          disabled={busy}
+          onChange={e => setName(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter") void commit() }}
+          autoFocus
+          autoComplete="off"
+          spellCheck={false}
+          placeholder={isDir ? "Folder name" : "File name"}
+        />
+        {error && <div className="text-xs text-destructive">{error}</div>}
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
+            Cancel
+          </Button>
+          <Button onClick={commit} disabled={busy || !name.trim()}>
+            {busy ? <Loader2 className="size-3.5 animate-spin" /> : null}
+            Rename
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 

@@ -29,15 +29,10 @@ func requireReadableProject(c echo.Context, store *db.ProjectStore) (*model.Proj
 	return access, nil
 }
 
+// requireWritableProject — any member can write; only project deletion and
+// membership changes are owner-gated (see requireManageableProject).
 func requireWritableProject(c echo.Context, store *db.ProjectStore) (*model.ProjectAccess, error) {
-	access, err := requireReadableProject(c, store)
-	if err != nil {
-		return nil, err
-	}
-	if access.AccessRole != model.AccessOwner && access.AccessRole != model.AccessEditor {
-		return nil, echo.NewHTTPError(http.StatusForbidden, "editor access required")
-	}
-	return access, nil
+	return requireReadableProject(c, store)
 }
 
 func requireManageableProject(c echo.Context, store *db.ProjectStore) (*model.ProjectAccess, error) {
@@ -72,14 +67,7 @@ func requireReadableHarness(c echo.Context, store *db.HarnessStore) (*model.Harn
 }
 
 func requireWritableHarness(c echo.Context, store *db.HarnessStore) (*model.HarnessAccess, error) {
-	access, err := requireReadableHarness(c, store)
-	if err != nil {
-		return nil, err
-	}
-	if access.AccessRole != model.AccessOwner && access.AccessRole != model.AccessEditor {
-		return nil, echo.NewHTTPError(http.StatusForbidden, "editor access required")
-	}
-	return access, nil
+	return requireReadableHarness(c, store)
 }
 
 func requireManageableHarness(c echo.Context, store *db.HarnessStore) (*model.HarnessAccess, error) {
@@ -125,12 +113,5 @@ func requireWritableSession(
 	sessions *db.SessionStore,
 	harnesses *db.HarnessStore,
 ) (*model.Session, *model.HarnessAccess, error) {
-	sess, access, err := requireReadableSession(c, sessions, harnesses)
-	if err != nil {
-		return nil, nil, err
-	}
-	if access.AccessRole != model.AccessOwner && access.AccessRole != model.AccessEditor {
-		return nil, nil, echo.NewHTTPError(http.StatusForbidden, "editor access required")
-	}
-	return sess, access, nil
+	return requireReadableSession(c, sessions, harnesses)
 }

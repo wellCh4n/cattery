@@ -125,7 +125,6 @@ func NewRouter(
 	projects.POST("/:project_id/harnesses", harnessH.Create)
 	projects.GET("/:project_id/members", projectH.ListMembers)
 	projects.POST("/:project_id/members", projectH.CreateMember)
-	projects.PATCH("/:project_id/members/:user_id", projectH.UpdateMember)
 	projects.DELETE("/:project_id/members/:user_id", projectH.DeleteMember)
 	projects.GET("/:project_id/files/list", filesH.List)
 	projects.GET("/:project_id/files/read", filesH.Read)
@@ -135,6 +134,7 @@ func NewRouter(
 	projects.POST("/:project_id/files/upload", filesH.Upload)
 	projects.DELETE("/:project_id/files/delete", filesH.Delete)
 	projects.POST("/:project_id/files/rename", filesH.Rename)
+	projects.POST("/:project_id/files/mkdir", filesH.Mkdir)
 
 	harnesses := protected.Group("/harnesses")
 	harnesses.GET("/:harness_id", harnessH.Get)

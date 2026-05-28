@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { Loader2, AlertTriangle, Bot } from "lucide-react"
+import { Loader2, AlertTriangle } from "lucide-react"
 import { Terminal } from "@xterm/xterm"
 import { FitAddon } from "@xterm/addon-fit"
 import "@xterm/xterm/css/xterm.css"
@@ -30,7 +30,6 @@ export function TerminalView({ session, harness }: Props) {
   const stateRef = useRef<{ disposed: boolean; term: Terminal | null }>({ disposed: false, term: null })
   const isDarkRef = useRef(false)
   const [isDark, setIsDark] = useState(false)
-  const canWrite = harness.access_role !== "viewer"
 
   useEffect(() => {
     const root = document.documentElement
@@ -57,7 +56,7 @@ export function TerminalView({ session, harness }: Props) {
     const localState = stateRef.current
     localState.disposed = false
 
-    if (!canWrite || session.status !== "ready" || !session.harness_session_id) return
+    if (session.status !== "ready" || !session.harness_session_id) return
 
     const term = new Terminal({
       // The unicode-range-pinned families ("Cattery Braille Mono",
@@ -159,7 +158,7 @@ export function TerminalView({ session, harness }: Props) {
       try { ws.close() } catch { /* already closed */ }
       term.dispose()
     }
-  }, [canWrite, session.session_id, session.status, session.harness_session_id, isDark])
+  }, [session.session_id, session.status, session.harness_session_id, isDark])
 
   let body: React.ReactNode
   if (session.status === "failed") {
@@ -177,16 +176,6 @@ export function TerminalView({ session, harness }: Props) {
       <div className="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground">
         <Loader2 className="size-5 animate-spin" />
         <p className="text-xs">{session.phase ?? "starting sandbox…"}</p>
-      </div>
-    )
-  } else if (!canWrite) {
-    body = (
-      <div className="flex h-full flex-col items-center justify-center text-center px-6">
-        <div className="rounded-full bg-muted p-4 mb-4">
-          <Bot className="size-7 text-muted-foreground" />
-        </div>
-        <p className="text-sm font-medium">Viewer access</p>
-        <p className="text-xs text-muted-foreground mt-1">Terminal sessions require editor access.</p>
       </div>
     )
   } else {

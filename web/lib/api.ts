@@ -28,7 +28,7 @@ export interface Project {
   project_id: string
   owner_user_id: string
   project_name: string | null
-  access_role: "owner" | "viewer" | "editor"
+  access_role: "owner" | "member"
   owner_username: string
   created_at: string
 }
@@ -40,7 +40,7 @@ export interface Harness {
   model: string
   type: string
   transport_kind: TransportKind
-  access_role: "owner" | "viewer" | "editor"
+  access_role: "owner" | "member"
   owner_username: string
   env_vars: Record<string, string>
   sandbox_status: string
@@ -141,7 +141,7 @@ export interface ProjectMember {
   project_id: string
   user_id: string
   username: string
-  role: "viewer" | "editor"
+  role: "member"
   created_at: string
 }
 
@@ -165,7 +165,7 @@ export async function searchUsers(query: string): Promise<UserSummary[]> {
 
 export async function createProjectMember(
   projectId: string,
-  data: { username: string; role: "viewer" | "editor" },
+  data: { username: string },
 ): Promise<ProjectMember> {
   const res = await authedFetch(`${API_BASE}/api/v1/projects/${projectId}/members`, {
     method: "POST",
@@ -173,20 +173,6 @@ export async function createProjectMember(
     body: JSON.stringify(data),
   })
   if (!res.ok) throw new Error(await readErrorMessage(res, `add member failed (${res.status})`))
-  return res.json()
-}
-
-export async function updateProjectMember(
-  projectId: string,
-  userId: string,
-  data: { role: "viewer" | "editor" },
-): Promise<ProjectMember> {
-  const res = await authedFetch(`${API_BASE}/api/v1/projects/${projectId}/members/${userId}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  })
-  if (!res.ok) throw new Error(await readErrorMessage(res, `update member failed (${res.status})`))
   return res.json()
 }
 
@@ -369,6 +355,15 @@ export async function renameFile(projectId: string, from: string, toName: string
   const res = await authedFetch(url, { method: "POST" })
   if (!res.ok) {
     throw new Error(await readErrorMessage(res, `rename failed (${res.status})`))
+  }
+  return res.json()
+}
+
+export async function createFolder(projectId: string, dir: string, name: string): Promise<{ path: string; name: string }> {
+  const url = `${API_BASE}/api/v1/projects/${projectId}/files/mkdir?path=${encodeURIComponent(dir)}&name=${encodeURIComponent(name)}`
+  const res = await authedFetch(url, { method: "POST" })
+  if (!res.ok) {
+    throw new Error(await readErrorMessage(res, `create folder failed (${res.status})`))
   }
   return res.json()
 }
