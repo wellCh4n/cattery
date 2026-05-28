@@ -59,6 +59,7 @@ func main() {
 	mux.HandleFunc("/upload", handleUpload)
 	mux.HandleFunc("/delete", handleDelete)
 	mux.HandleFunc("/rename", handleRename)
+	mux.HandleFunc("/move", handleMove)
 	mux.HandleFunc("/mkdir", handleMkdir)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -453,6 +454,102 @@ func handleRename(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]interface{}{
 		"path": filepath.ToSlash(filepath.Join(relParent, cleanedTo)),
 		"name": cleanedTo,
+	})
+}
+
+// handleMove moves ?from= into the directory ?to= (a destination dir under
+// root), keeping the source's base name. Refuses to overwrite an existing
+// entry, to move root, or to move a directory into itself or its descendants.
+func handleMove(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	from, err := resolve(r.URL.Query().Get("from"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if from == rootAbs {
+		http.Error(w, "cannot move root", http.StatusBadRequest)
+		return
+	}
+	toDir, err := resolve(r.URL.Query().Get("to"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	info, err := os.Stat(toDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			http.Error(w, "destination not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !info.IsDir() {
+		http.Error(w, "destination is not a directory", http.StatusBadRequest)
+		return
+	}
+	srcInfo, err := os.Lstat(from)
+	if err != nil {
+		if os.IsNotExist(err) {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// No-op: source already lives in the destination directory.
+	if filepath.Dir(from) == toDir {
+		relSelf := strings.TrimPrefix(from, rootAbs)
+		if relSelf == "" {
+			relSelf = "/"
+		}
+		writeJSON(w, map[string]interface{}{
+			"path": filepath.ToSlash(relSelf),
+			"name": filepath.Base(from),
+		})
+		return
+	}
+	// Refuse to move a directory into itself or any of its descendants —
+	// os.Rename would happily produce a cycle and orphan the subtree.
+	if srcInfo.IsDir() {
+		if toDir == from || strings.HasPrefix(toDir, from+string(os.PathSeparator)) {
+			http.Error(w, "cannot move a folder into itself", http.StatusBadRequest)
+			return
+		}
+	}
+	name := filepath.Base(from)
+	dest := filepath.Join(toDir, name)
+	if dest != rootAbs && !strings.HasPrefix(dest, rootAbs+string(os.PathSeparator)) {
+		http.Error(w, "path escapes root", http.StatusBadRequest)
+		return
+	}
+	if _, err := os.Lstat(dest); err == nil {
+		http.Error(w, "destination already exists", http.StatusConflict)
+		return
+	} else if !os.IsNotExist(err) {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := os.Rename(from, dest); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	relDest := strings.TrimPrefix(dest, rootAbs)
+	if relDest == "" {
+		relDest = "/"
+	}
+	writeJSON(w, map[string]interface{}{
+		"path": filepath.ToSlash(relDest),
+		"name": name,
 	})
 }
 

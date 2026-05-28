@@ -21,6 +21,10 @@ const BASE_PX = 8
 const CHEVRON_PX = 16
 const CHEVRON_CENTER_PX = CHEVRON_PX / 2
 
+// Internal drag MIME — distinguishes a tree-item drag from an OS file drag.
+// Browsers force MIME types to lowercase, so keep this lowercase.
+const TREE_ITEM_MIME = "application/x-cattery-tree-item"
+
 export interface TreeNode {
   // Stable across renders; used as the React key.
   id: string
@@ -44,10 +48,16 @@ export interface TreeNode {
   // Click on the row body. Expandable rows usually pass their toggle here
   // so clicking anywhere on the row expands; leaf rows can route or open.
   onClick?: () => void
-  // If defined, the row becomes a drop target for files. Drop highlight is
-  // managed internally so consumers don't reimplement dragenter/leave
-  // depth-counting per row.
+  // If defined, the row becomes a drop target for OS files (browser
+  // dataTransfer.files). Drop highlight is managed internally so consumers
+  // don't reimplement dragenter/leave depth-counting per row.
   onFilesDropped?: (files: File[]) => Promise<void> | void
+  // Internal drag-and-drop. If `dragId` is set the row becomes draggable —
+  // dropping it on another row whose `onItemDropped` is set fires that
+  // callback with the source's id. Use this to move entries between
+  // folders without reimplementing drag mechanics per tree.
+  dragId?: string
+  onItemDropped?: (sourceId: string) => Promise<void> | void
   // If set, replaces the row body entirely (used for inline rename).
   editing?: ReactNode
 }
@@ -74,20 +84,32 @@ function TreeItemView({ node, depth }: { node: TreeNode; depth: number }) {
   const indent = depth * INDENT_PX + BASE_PX
   const contentIndent = node.expandable ? indent : leafContentIndent(depth)
 
-  const dropHandlers = node.onFilesDropped
+  const acceptsFiles = !!node.onFilesDropped
+  const acceptsItems = !!node.onItemDropped
+  const isDraggable = !!node.dragId
+
+  const dropHandlers = (acceptsFiles || acceptsItems)
     ? {
         onDragEnter(e: React.DragEvent<HTMLDivElement>) {
-          if (!e.dataTransfer.types.includes("Files")) return
+          const types = e.dataTransfer.types
+          const isItem = acceptsItems && types.includes(TREE_ITEM_MIME)
+          const isFile = acceptsFiles && types.includes("Files")
+          if (!isItem && !isFile) return
+          // Don't highlight self when an internal drag hovers its own row.
+          if (isItem && node.dragId && e.dataTransfer.getData(TREE_ITEM_MIME) === node.dragId) return
           e.preventDefault()
           e.stopPropagation()
           dropDepthRef.current += 1
           setDropTarget(true)
         },
         onDragOver(e: React.DragEvent<HTMLDivElement>) {
-          if (!e.dataTransfer.types.includes("Files")) return
+          const types = e.dataTransfer.types
+          const isItem = acceptsItems && types.includes(TREE_ITEM_MIME)
+          const isFile = acceptsFiles && types.includes("Files")
+          if (!isItem && !isFile) return
           e.preventDefault()
           e.stopPropagation()
-          e.dataTransfer.dropEffect = "copy"
+          e.dataTransfer.dropEffect = isItem ? "move" : "copy"
         },
         onDragLeave(e: React.DragEvent<HTMLDivElement>) {
           e.preventDefault()
@@ -100,8 +122,31 @@ function TreeItemView({ node, depth }: { node: TreeNode; depth: number }) {
           e.stopPropagation()
           dropDepthRef.current = 0
           setDropTarget(false)
-          const files = Array.from(e.dataTransfer.files)
-          await node.onFilesDropped!(files)
+          // Internal item drag wins over file drag (a Chrome quirk: even an
+          // internal drag may carry an empty Files array).
+          const itemId = acceptsItems ? e.dataTransfer.getData(TREE_ITEM_MIME) : ""
+          if (itemId && node.onItemDropped) {
+            if (itemId === node.dragId) return
+            await node.onItemDropped(itemId)
+            return
+          }
+          if (acceptsFiles) {
+            const files = Array.from(e.dataTransfer.files)
+            if (files.length > 0) await node.onFilesDropped!(files)
+          }
+        },
+      }
+    : undefined
+
+  const dragHandlers = isDraggable
+    ? {
+        draggable: true,
+        onDragStart(e: React.DragEvent<HTMLDivElement>) {
+          e.stopPropagation()
+          e.dataTransfer.effectAllowed = "move"
+          e.dataTransfer.setData(TREE_ITEM_MIME, node.dragId!)
+          // Some browsers refuse to start a drag without text/plain set.
+          e.dataTransfer.setData("text/plain", node.dragId!)
         },
       }
     : undefined
@@ -123,6 +168,7 @@ function TreeItemView({ node, depth }: { node: TreeNode; depth: number }) {
           onClick={node.onClick}
           style={{ paddingLeft: contentIndent, paddingRight: BASE_PX }}
           className={cn("relative", dropTarget && "bg-primary/10 ring-1 ring-inset ring-primary")}
+          {...dragHandlers}
           {...dropHandlers}
         >
           <GuideLines depth={depth} />

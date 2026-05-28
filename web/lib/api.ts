@@ -359,6 +359,17 @@ export async function renameFile(projectId: string, from: string, toName: string
   return res.json()
 }
 
+// moveFile moves an entry from `from` into the directory `toDir`, keeping its
+// base name. Backend rejects moves that would overwrite or create a cycle.
+export async function moveFile(projectId: string, from: string, toDir: string): Promise<{ path: string; name: string }> {
+  const url = `${API_BASE}/api/v1/projects/${projectId}/files/move?from=${encodeURIComponent(from)}&to=${encodeURIComponent(toDir)}`
+  const res = await authedFetch(url, { method: "POST" })
+  if (!res.ok) {
+    throw new Error(await readErrorMessage(res, `move failed (${res.status})`))
+  }
+  return res.json()
+}
+
 export async function createFolder(projectId: string, dir: string, name: string): Promise<{ path: string; name: string }> {
   const url = `${API_BASE}/api/v1/projects/${projectId}/files/mkdir?path=${encodeURIComponent(dir)}&name=${encodeURIComponent(name)}`
   const res = await authedFetch(url, { method: "POST" })

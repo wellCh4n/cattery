@@ -6,8 +6,9 @@
 // large modal viewer (uses the existing FileViewer with shiki highlighting).
 // Per-row hover actions: folders reveal rename/upload/delete (upload writes
 // directly into that folder), files reveal rename/delete. Rename and new-folder
-// both go through dialogs for consistency. Drag-drop onto a folder row uploads
-// into that folder; drop on blank space uploads to root.
+// both go through dialogs for consistency. Two drag flows: dropping OS files
+// on a folder (or on blank space, for root) uploads; dragging an existing
+// entry onto another folder moves it there.
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import {
@@ -45,6 +46,7 @@ import {
   downloadFileURL,
   rawFilePathURL,
   listFiles,
+  moveFile,
   rawFileURL,
   readFile,
   renameFile,
@@ -244,6 +246,31 @@ export function FileBrowserPanel({ projectId }: Props) {
     await loadDir(parentOf(path))
   }
 
+  // moveEntry moves `from` into directory `toDir`. Refuses no-ops and the
+  // obvious cycle case (folder into itself or its own descendant) before
+  // hitting the network so the user gets instant feedback.
+  async function moveEntry(from: string, toDir: string) {
+    if (from === toDir) return
+    if (parentOf(from) === toDir) return
+    if (toDir === from || toDir.startsWith(from + "/")) {
+      setError("Can't move a folder into itself")
+      return
+    }
+    try {
+      await moveFile(projectId, from, toDir)
+      const fromParent = parentOf(from)
+      await Promise.all([
+        loadDir(fromParent),
+        loadDir(toDir),
+      ])
+      if (toDir !== "/") {
+        setExpanded(prev => new Set(prev).add(toDir))
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "move failed")
+    }
+  }
+
   async function afterFolderCreated(dir: string) {
     setExpanded(prev => dir === "/" ? prev : new Set(prev).add(dir))
     await loadDir(dir)
@@ -285,7 +312,8 @@ export function FileBrowserPanel({ projectId }: Props) {
 
   function onDragOver(e: React.DragEvent<HTMLDivElement>) {
     e.preventDefault()
-    e.dataTransfer.dropEffect = "copy"
+    const isItem = e.dataTransfer.types.includes("application/x-cattery-tree-item")
+    e.dataTransfer.dropEffect = isItem ? "move" : "copy"
   }
 
   function onDragLeave(e: React.DragEvent<HTMLDivElement>) {
@@ -298,8 +326,15 @@ export function FileBrowserPanel({ projectId }: Props) {
     e.preventDefault()
     dragDepthRef.current = 0
     setDragging(false)
+    // Internal item drag → move into root. Row-level handlers stop propagation
+    // so this only fires when dropped on the empty area (or root listing).
+    const itemPath = e.dataTransfer.getData("application/x-cattery-tree-item")
+    if (itemPath) {
+      await moveEntry(itemPath, "/")
+      return
+    }
     const files = Array.from(e.dataTransfer.files)
-    await uploadFiles("/", files)
+    if (files.length > 0) await uploadFiles("/", files)
   }
 
   const rootChildren = childrenByPath["/"]
@@ -319,6 +354,8 @@ export function FileBrowserPanel({ projectId }: Props) {
         : undefined,
       onClick: () => isDir ? toggleExpand(path) : void openFile(path),
       onFilesDropped: isDir ? files => uploadFiles(path, files) : undefined,
+      dragId: path,
+      onItemDropped: isDir ? sourcePath => moveEntry(sourcePath, path) : undefined,
       body: (
         <>
           {!isDir && <FileIcon className="size-3.5 shrink-0 text-muted-foreground/70" />}

@@ -134,6 +134,7 @@ func NewRouter(
 	projects.POST("/:project_id/files/upload", filesH.Upload)
 	projects.DELETE("/:project_id/files/delete", filesH.Delete)
 	projects.POST("/:project_id/files/rename", filesH.Rename)
+	projects.POST("/:project_id/files/move", filesH.Move)
 	projects.POST("/:project_id/files/mkdir", filesH.Mkdir)
 
 	harnesses := protected.Group("/harnesses")
