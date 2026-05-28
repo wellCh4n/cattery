@@ -3,7 +3,7 @@
 // /list /read /download /upload over FileMgrPort. The Pod is created when the
 // project is created; this handler also lazy-creates it as a fallback so
 // existing projects (or recovered ones) get a filemgr the first time a file
-// API is hit. Frontend reaches the sidecar through this proxy so it never
+// API is hit. Frontend reaches the Pod through this proxy so it never
 // needs the in-cluster Pod IP.
 package api
 
@@ -98,7 +98,7 @@ func (h *FilesHandler) Download(c echo.Context) error {
 }
 
 // Raw proxies GET /projects/:id/files/raw?path=... for inline media preview
-// (images, etc.). Same as Download except the sidecar sets a sniffed
+// (images, etc.). Same as Download except filemgr sets a sniffed
 // Content-Type and omits Content-Disposition.
 func (h *FilesHandler) Raw(c echo.Context) error {
 	return h.proxyGET(c, "/raw")
@@ -130,7 +130,7 @@ func (h *FilesHandler) RawPath(c echo.Context) error {
 }
 
 // Upload proxies POST /projects/:id/files/upload?path=... with the original
-// multipart body. We forward Content-Type so the sidecar can parse the
+// multipart body. We forward Content-Type so filemgr can parse the
 // multipart boundary the client picked.
 func (h *FilesHandler) Upload(c echo.Context) error {
 	base, err := h.requireFileMgrURL(c, true)
@@ -197,16 +197,16 @@ func (h *FilesHandler) Mkdir(c echo.Context) error {
 	return forward(c, req)
 }
 
-func (h *FilesHandler) proxyGET(c echo.Context, sidecarPath string) error {
-	return h.proxyGETRawQuery(c, sidecarPath, c.Request().URL.RawQuery)
+func (h *FilesHandler) proxyGET(c echo.Context, mgrPath string) error {
+	return h.proxyGETRawQuery(c, mgrPath, c.Request().URL.RawQuery)
 }
 
-func (h *FilesHandler) proxyGETRawQuery(c echo.Context, sidecarPath string, rawQuery string) error {
+func (h *FilesHandler) proxyGETRawQuery(c echo.Context, mgrPath string, rawQuery string) error {
 	base, err := h.requireFileMgrURL(c, false)
 	if err != nil {
 		return err
 	}
-	target := base + sidecarPath
+	target := base + mgrPath
 	if rawQuery != "" {
 		target += "?" + rawQuery
 	}

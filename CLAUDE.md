@@ -20,8 +20,8 @@ make build                        # compile Go server to backend/bin/server
 make stop                         # kill :8080 and :3000
 make build-harness                # build all four harness images
 make build-harness HARNESS=codex  # build a single harness (opencode | claude-code | codex | hermes)
-make build-sidecar                # build all sidecar images (currently just filemgr)
-make build-sidecar SIDECAR=filemgr
+make build-pod                    # build all standalone Pod images (currently just filemgr)
+make build-pod POD=filemgr        # build a single Pod image
 ```
 
 Go binary lives at `/usr/local/go/bin/go`; PATH typically does not include it, so prefer `make` targets or call the absolute path directly. Same for bun at `~/.bun/bin/bun`.
@@ -116,9 +116,14 @@ The response is itself an SSE stream; the frontend reads it directly from the `f
 
 `web/components/chat-panel.tsx` is the single point that consumes platform events. It maintains a `Bubble[]` list keyed by `partId` / `toolId`. **Do not** branch on harness-specific event types here — if you need new behavior, extend the platform protocol and update the translators.
 
-### Sidecars in the sandbox pod
+### The filemgr Pod (per-project file manager)
 
-The Sandbox CR launches the harness container alongside one or more sidecars defined in `sidecars/` (currently just `filemgr` — the file browser/upload backend that powers `web/components/file-browser-panel.tsx`). When changing the pod shape, update both the Sandbox manifest construction in `backend/internal/sandbox/` and the sidecar image build under `sidecars/<name>/`.
+`filemgr` is the file browser/upload backend that powers `web/components/file-browser-panel.tsx`. It is **not** a sidecar in the Sandbox CR — it runs as its own standalone Pod, one per project, named `cattery-filemgr-<projectID>` (`EnsureFileMgrPod` in `backend/internal/k8s/client.go`). Its image lives under `pods/filemgr/` and is built with `make build-pod`.
+
+- **Lifecycle is tied to the project, not the sandbox.** The Pod (and the workspace PVC) is created when the project is created (`project_handler.go`), so file browse/upload works even when no harness sandbox is running. `files_handler.go` also lazy-creates it as a fallback on the first `/files` request, for recovered or pre-existing projects.
+- It mounts the project's workspace PVC at `/work` — the same PVC the harness sandbox reuses, but a separate Pod.
+- The backend proxies `/projects/:id/files/*` to the Pod IP on `FileMgrPort`, so the frontend never needs the in-cluster IP (`files_handler.go`).
+- When changing it, update the Pod spec in `backend/internal/k8s/client.go` (and `backend/internal/sandbox/manager.go` for names/ports/image) plus the image build under `pods/filemgr/`.
 
 ### Notes for the frontend
 

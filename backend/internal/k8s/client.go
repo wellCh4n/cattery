@@ -68,21 +68,9 @@ type SandboxSpec struct {
 	ContainerPort int
 	Env           map[string]string
 	WorkspacePVC  string
-	// Sidecars contains additional containers that share a workspace volume
-	// (mounted at WorkVolumeMount, default /work) with the harness container.
-	Sidecars []SidecarSpec
-	// WorkVolumeMount is the path mounted into the harness and all sidecars
-	// as the shared workspace. Defaults to "/work" when zero.
+	// WorkVolumeMount is the path the workspace volume is mounted at in the
+	// harness container. Defaults to "/work" when zero.
 	WorkVolumeMount string
-}
-
-// SidecarSpec describes one additional container to colocate with the harness.
-// The shared workspace volume is automatically mounted at WorkVolumeMount.
-type SidecarSpec struct {
-	Name          string
-	Image         string
-	ContainerPort int
-	Env           map[string]string
 }
 
 func (c *Client) RunTask(ctx context.Context, spec SandboxSpec) error {
@@ -111,25 +99,6 @@ func (c *Client) RunTask(ctx context.Context, spec SandboxSpec) error {
 			"env":          envList,
 			"volumeMounts": volumeMounts,
 		},
-	}
-
-	for _, sc := range spec.Sidecars {
-		sEnv := make([]interface{}, 0, len(sc.Env))
-		for k, v := range sc.Env {
-			sEnv = append(sEnv, map[string]interface{}{"name": k, "value": v})
-		}
-		container := map[string]interface{}{
-			"name":         sc.Name,
-			"image":        sc.Image,
-			"env":          sEnv,
-			"volumeMounts": volumeMounts,
-		}
-		if sc.ContainerPort > 0 {
-			container["ports"] = []interface{}{
-				map[string]interface{}{"containerPort": int64(sc.ContainerPort)},
-			}
-		}
-		containers = append(containers, container)
 	}
 
 	labels := map[string]interface{}{

@@ -4,9 +4,9 @@ backend/bin/
 *.test
 *.out
 
-# Sidecar binaries (produced by `go build` inside each sidecar dir; the
-# Docker build does its own multi-stage compile and doesn't need these).
-sidecars/*/filemgr
+# Pod binaries (produced by `go build` inside each pod dir; the Docker
+# build does its own multi-stage compile and doesn't need these).
+pods/*/filemgr
 
 # Node / bun
 web/node_modules/

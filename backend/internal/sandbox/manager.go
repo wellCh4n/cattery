@@ -24,7 +24,7 @@ const Port = 1114
 // 的 filemgr Pod 挂载 project PVC，后端 /files 路由把请求转发到这个端口。
 const FileMgrPort = 1115
 
-// FileMgrImage 是 filemgr 镜像。`make build-sidecar` 构建。
+// FileMgrImage 是 filemgr 镜像。`make build-pod` 构建。
 const FileMgrImage = "cattery-filemgr:dev"
 
 func FileMgrPodNameForProject(projectID uuid.UUID) string {

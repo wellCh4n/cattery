@@ -286,7 +286,7 @@ export function termURL(sessionId: string): string {
   return appendToken(url)
 }
 
-// ---- filemgr (sidecar in each harness Pod, proxied through backend) ----
+// ---- filemgr (standalone per-project Pod, proxied through backend) ----
 
 export interface FileEntry {
   name: string

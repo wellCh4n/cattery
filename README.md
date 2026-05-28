@@ -10,7 +10,7 @@ The platform is harness-agnostic. Two transports are supported:
 ```
 web (Next.js + shadcn)   →   backend (Go + Echo)   →   K8s
                                                        ├─ Project Pod    (filemgr — shared workspace PVC)
-                                                       └─ Harness Pod    (harness container + sidecars)
+                                                       └─ Harness Pod    (harness container)
                                                                          └─ external model API (anthropic/openai-compatible)
 ```
 
@@ -95,7 +95,7 @@ automatically by the backend on startup using `goose`.
 | `make build`        | Compile the Go server to `backend/bin/server`                      |
 | `make stop`         | Kill processes on `:8080` and `:3000`                              |
 | `make build-harness`| Build all harness Docker images; pass `HARNESS=<name>` to build one |
-| `make build-sidecar`| Build all sidecar images (currently `filemgr`); pass `SIDECAR=<name>` to build one |
+| `make build-pod`    | Build all standalone Pod images (currently `filemgr`); pass `POD=<name>` to build one |
 
 ## Configuration
 

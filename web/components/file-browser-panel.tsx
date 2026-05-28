@@ -1,7 +1,7 @@
 "use client"
 
-// FileBrowserPanel — lazy-loaded tree of /work inside the sandbox. Listing
-// comes from the filemgr sidecar via the backend proxy. Folders expand/collapse
+// FileBrowserPanel — lazy-loaded tree of the project's /work workspace. Listing
+// comes from the per-project filemgr Pod via the backend proxy. Folders expand/collapse
 // in place (children fetched on first expand); clicking a file opens it in a
 // large modal viewer (uses the existing FileViewer with shiki highlighting).
 // Per-row hover actions: folders reveal rename/upload/delete (upload writes

@@ -1,5 +1,5 @@
-// filemgr: tiny HTTP file API served as a sidecar inside the harness Pod.
-// Shares /work with the harness container via emptyDir. Internal-only —
+// filemgr: tiny HTTP file API served by a standalone per-project Pod.
+// Mounts the project's workspace PVC at /work. Internal-only —
 // reached through the backend proxy, never exposed externally.
 package main
 
