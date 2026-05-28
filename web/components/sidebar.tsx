@@ -216,26 +216,37 @@ export function Sidebar() {
           <Cat className="size-4 shrink-0 text-foreground" />
           <span className="font-heading shrink-0 text-base font-semibold tracking-tight">Cattery</span>
           <div ref={projectPickerRef} className="relative min-w-0 flex-1">
-            <button
-              type="button"
-              onClick={() => setProjectPickerOpen(o => !o)}
-              className={cn(
-                "flex h-7 w-full cursor-pointer items-center gap-1.5 rounded-md border border-border px-2 text-xs transition-colors",
-                "hover:bg-muted",
-                projectPickerOpen && "bg-muted",
-              )}
-              title="Switch project"
-            >
-              <span className="min-w-0 flex-1 truncate text-left text-sm font-semibold text-foreground">
-                {currentProject?.project_name ?? (projects.length === 0 ? "No project" : "Untitled")}
-              </span>
-              <ChevronsUpDown className="size-3 shrink-0 text-muted-foreground" />
-            </button>
+            {projects.length === 0 ? (
+              <button
+                type="button"
+                onClick={() => setNewProjectOpen(true)}
+                className="flex h-7 w-full cursor-pointer items-center gap-1.5 rounded-md border border-dashed border-border px-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                title="Create your first project"
+              >
+                <Plus className="size-3 shrink-0" />
+                <span className="min-w-0 flex-1 truncate text-left text-sm font-medium">
+                  Create project
+                </span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setProjectPickerOpen(o => !o)}
+                className={cn(
+                  "flex h-7 w-full cursor-pointer items-center gap-1.5 rounded-md border border-border px-2 text-xs transition-colors",
+                  "hover:bg-muted",
+                  projectPickerOpen && "bg-muted",
+                )}
+                title="Switch project"
+              >
+                <span className="min-w-0 flex-1 truncate text-left text-sm font-semibold text-foreground">
+                  {currentProject?.project_name ?? "Untitled"}
+                </span>
+                <ChevronsUpDown className="size-3 shrink-0 text-muted-foreground" />
+              </button>
+            )}
             {projectPickerOpen && (
               <div className="absolute left-0 top-full z-30 mt-1 w-max min-w-full max-w-[320px] max-h-[60vh] overflow-y-auto rounded-md border bg-popover text-sm shadow-md">
-                {projects.length === 0 && (
-                  <div className="px-3 py-2 text-xs text-muted-foreground">No projects yet</div>
-                )}
                 {projects.map(project => {
                   const active = project.project_id === currentProjectId
                   const ownsProject = project.access_role === "owner"
@@ -305,7 +316,7 @@ export function Sidebar() {
                   }}
                 >
                   <Plus className="size-3.5 text-muted-foreground" />
-                  New project
+                  Create project
                 </button>
               </div>
             )}
@@ -435,7 +446,7 @@ export function Sidebar() {
                 onClick={() => setNewProjectOpen(true)}
               >
                 <Plus />
-                New project
+                Create project
               </Button>
             </div>
           )}
@@ -738,7 +749,7 @@ function NoProjectPlaceholder({ onCreate }: { onCreate: () => void }) {
       <p className="mt-2 text-xs text-muted-foreground">No project selected</p>
       <Button variant="outline" size="sm" className="mt-3" onClick={onCreate}>
         <Plus />
-        New project
+        Create project
       </Button>
     </div>
   )

@@ -61,10 +61,38 @@ const defaultForm = {
 
 export function CreateHarnessDialog({ onCreated, projectId, open: controlledOpen, onOpenChange }: Props) {
   const [internalOpen, setInternalOpen] = useState(false)
-  const [loading, setLoading] = useState(false)
-  const [form, setForm] = useState(defaultForm)
   const open = controlledOpen ?? internalOpen
   const setOpen = onOpenChange ?? setInternalOpen
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      {controlledOpen === undefined && (
+        <DialogTrigger asChild>
+          <Button variant="ghost" size="icon-sm" title="New harness"><Plus /></Button>
+        </DialogTrigger>
+      )}
+      {open && (
+        <CreateHarnessForm
+          projectId={projectId}
+          onCreated={onCreated}
+          onClose={() => setOpen(false)}
+        />
+      )}
+    </Dialog>
+  )
+}
+
+function CreateHarnessForm({
+  projectId,
+  onCreated,
+  onClose,
+}: {
+  projectId: string
+  onCreated: (harness: Harness) => void
+  onClose: () => void
+}) {
+  const [loading, setLoading] = useState(false)
+  const [form, setForm] = useState(defaultForm)
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -85,21 +113,14 @@ export function CreateHarnessDialog({ onCreated, projectId, open: controlledOpen
         env_vars,
       })
       onCreated(harness)
-      setForm(defaultForm)
-      setOpen(false)
+      onClose()
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      {controlledOpen === undefined && (
-        <DialogTrigger asChild>
-          <Button variant="ghost" size="icon-sm" title="New harness"><Plus /></Button>
-        </DialogTrigger>
-      )}
-      <DialogContent className="sm:max-w-[620px]">
+    <DialogContent className="sm:max-w-[620px]">
         <DialogHeader>
           <DialogTitle>Create Harness</DialogTitle>
           <DialogDescription>
@@ -231,6 +252,5 @@ export function CreateHarnessDialog({ onCreated, projectId, open: controlledOpen
           </Button>
         </DialogFooter>
       </DialogContent>
-    </Dialog>
   )
 }

@@ -31,11 +31,13 @@ export function NewProjectDialog({ open, onOpenChange, onCreated }: Props) {
         onOpenChange(next)
       }}
     >
-      <NewProjectForm
-        savingRef={savingRef}
-        onOpenChange={onOpenChange}
-        onCreated={onCreated}
-      />
+      {open && (
+        <NewProjectForm
+          savingRef={savingRef}
+          onOpenChange={onOpenChange}
+          onCreated={onCreated}
+        />
+      )}
     </Dialog>
   )
 }
@@ -74,7 +76,7 @@ function NewProjectForm({
   return (
     <DialogContent>
       <DialogHeader>
-        <DialogTitle>New project</DialogTitle>
+        <DialogTitle>Create project</DialogTitle>
         <DialogDescription>
           A workspace volume is provisioned the moment the project is created. Leave the name blank to use the default.
         </DialogDescription>
