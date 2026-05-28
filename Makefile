@@ -1,7 +1,8 @@
-.PHONY: dev dev-front dev-back build stop build-harness build-sidecar
+.PHONY: dev dev-front dev-back build stop docker-up docker-db docker-down docker-reset-db build-harness build-sidecar
 
 GO = $(shell which go)
 BUN = $(shell which bun)
+COMPOSE = docker compose -f docker/docker-compose.yml
 
 PORT = 8080
 K8S_NS = default
@@ -30,6 +31,24 @@ build:
 stop:
 	@lsof -ti :$(PORT) | xargs kill -9 2>/dev/null && echo "killed :$(PORT)" || echo "nothing on :$(PORT)"
 	@lsof -ti :3000  | xargs kill -9 2>/dev/null && echo "killed :3000"  || echo "nothing on :3000"
+
+# Docker compose helpers
+docker-up:
+	@echo "→ starting docker compose stack"
+	@$(COMPOSE) up -d
+
+docker-db:
+	@echo "→ starting postgres"
+	@$(COMPOSE) up -d postgres
+
+docker-down:
+	@echo "→ stopping docker compose stack"
+	@$(COMPOSE) down
+
+docker-reset-db:
+	@echo "→ resetting postgres volume"
+	@$(COMPOSE) down -v
+	@$(COMPOSE) up -d postgres
 
 # make build-harness HARNESS=opencode      — build one harness
 # make build-harness HARNESS=claude-code    — build one harness
