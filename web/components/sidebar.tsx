@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { usePathname, useRouter } from "next/navigation"
 import {
   Bot,
@@ -79,6 +79,8 @@ export function Sidebar() {
   const deleteProject = useWorkspaceStore(state => state.deleteProject)
 
   const [launching, setLaunching] = useState<string | null>(null)
+  const [autoOpenHarness, setAutoOpenHarness] = useState<string | null>(null)
+  const autoOpenedRef = useRef<string | null>(null)
   const [newProjectOpen, setNewProjectOpen] = useState(false)
   const [createHarnessProject, setCreateHarnessProject] = useState<ProjectWithHarnesses | null>(null)
   const [deleteSessionTarget, setDeleteSessionTarget] = useState<{ session_id: string; harness_id: string; title: string } | null>(null)
@@ -178,7 +180,7 @@ export function Sidebar() {
     return () => clearInterval(timer)
   }, [pollHarnesses, pollingKey])
 
-  async function handleNewSession(harness: HarnessWithSessions) {
+  const handleNewSession = useCallback(async (harness: HarnessWithSessions) => {
     if (!canCreateSession(harness)) return
     setLaunching(harness.harness_id)
     try {
@@ -188,7 +190,20 @@ export function Sidebar() {
     } finally {
       setLaunching(null)
     }
-  }
+  }, [createSession, router])
+
+  // A freshly created harness has a sandbox that is still starting, so a session
+  // can't be created yet. Wait for the sandbox to reach a terminal state via
+  // polling: once ready, auto-create the first session and open it; if it fails,
+  // just stop. The ref guarantees we act at most once per harness.
+  useEffect(() => {
+    if (!autoOpenHarness || autoOpenedRef.current === autoOpenHarness) return
+    const harness = projects.flatMap(p => p.harnesses).find(h => h.harness_id === autoOpenHarness)
+    if (!harness) return
+    if (harness.sandbox_status !== "ready" && harness.sandbox_status !== "failed") return
+    autoOpenedRef.current = autoOpenHarness
+    if (harness.sandbox_status === "ready") queueMicrotask(() => void handleNewSession(harness))
+  }, [autoOpenHarness, projects, handleNewSession])
 
   async function refreshHarnesses() {
     setRefreshingHarnesses(true)
@@ -530,6 +545,7 @@ export function Sidebar() {
           onCreated={harness => {
             addHarness(harness)
             setCreateHarnessProject(null)
+            setAutoOpenHarness(harness.harness_id)
           }}
         />
       )}

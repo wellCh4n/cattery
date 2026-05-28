@@ -72,7 +72,13 @@ export function TerminalView({ session }: Props) {
       cursorBlink: true,
       cursorStyle: "block",
       convertEol: true,
-      scrollback: 10000,
+      // 0, deliberately: this is a tmux PTY bridge with tmux mouse mode on, so
+      // wheel scrolling is forwarded to tmux and history lives in tmux copy-mode.
+      // xterm's own scrollback would be redundant — and any non-zero value makes
+      // FitAddon reserve a 14px scrollbar gutter on the right, leaving a blank
+      // margin the terminal never fills. Keeping it 0 lets the grid span the
+      // full width.
+      scrollback: 0,
       allowProposedApi: true,
       // codex 用 truecolor 画输入框背景，主题里改 ANSI black 管不到它；
       // 这里让 xterm 在前景与背景对比度不足时自动调整前景，保证文字可读。
@@ -112,8 +118,22 @@ export function TerminalView({ session }: Props) {
       lastSentSize = { cols: term.cols, rows: term.rows }
       ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }))
     }
+    // Fit to the full host, then center the sub-cell leftover. FitAddon floors
+    // cols/rows, so the grid is almost never an exact pixel multiple of the host
+    // — the remainder (< 1 cell on each axis) would otherwise pile up on the
+    // right and bottom edges and look misaligned. Reset host padding to 0 so the
+    // fit measures the full area, read the actual grid size off `.xterm-screen`,
+    // then pad the host by half the leftover per side so the grid sits centered
+    // and the panel reads as "evenly filled" instead of "flush top-left".
     const refit = () => {
+      host.style.padding = "0px"
       try { fit.fit() } catch { /* terminal disposed */ }
+      const screen = host.querySelector<HTMLElement>(".xterm-screen")
+      if (screen) {
+        const padX = Math.max(0, (host.clientWidth - screen.offsetWidth) / 2)
+        const padY = Math.max(0, (host.clientHeight - screen.offsetHeight) / 2)
+        host.style.padding = `${padY}px ${padX}px`
+      }
       sendResize()
     }
 
@@ -121,8 +141,12 @@ export function TerminalView({ session }: Props) {
     const rafId = requestAnimationFrame(refit)
     void document.fonts?.ready.then(() => { if (!localState.disposed) refit() })
 
+    // Observe the wrapper (host's parent), not the host itself: refit() writes
+    // padding onto the host, and a host-targeted observer would see its own
+    // content-box change and loop. The wrapper's size only moves on real layout
+    // changes.
     const ro = new ResizeObserver(refit)
-    ro.observe(host)
+    ro.observe(host.parentElement ?? host)
 
     ws.addEventListener("open", () => {
       if (localState.disposed) {
