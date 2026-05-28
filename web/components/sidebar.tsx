@@ -12,11 +12,13 @@ import {
   KeyRound,
   Loader2,
   LogOut,
+  MessageSquare,
   Pencil,
   Plus,
   RefreshCw,
   Settings,
   Shield,
+  Terminal,
   Trash2,
   UserCircle2,
   Users,
@@ -585,10 +587,13 @@ export function Sidebar() {
   )
 }
 
-function statusDot(status: string) {
-  if (status === "ready") return "bg-emerald-500"
-  if (status === "failed") return "bg-destructive"
-  return "bg-amber-400 animate-pulse"
+// Session leading glyph carries two signals: shape = transport kind
+// (chat vs terminal), color = status (failed/starting stand out, ready stays
+// muted). Busy sessions show a spinner instead (see buildHarnessNode).
+function sessionIconColor(status: string): string {
+  if (status === "failed") return "text-destructive"
+  if (status !== "ready") return "text-amber-500 animate-pulse"
+  return "text-muted-foreground"
 }
 
 function sandboxDot(status: string): string | null {
@@ -631,6 +636,7 @@ function buildHarnessNode({
   onRequestDeleteSession: (sess: Session, harnessId: string) => void
   onRequestRenameSession: (sess: Session) => void
 }): TreeNode {
+  const SessionIcon = harness.transport_kind === "terminal" ? Terminal : MessageSquare
   const sessions: TreeNode[] = harness.sessions.map(sess => ({
     id: `s-${sess.session_id}`,
     expandable: false,
@@ -641,7 +647,7 @@ function buildHarnessNode({
         {busySessions.has(sess.session_id) ? (
           <Loader2 className="size-3 shrink-0 animate-spin text-amber-500" />
         ) : (
-          <span className={cn("size-1.5 shrink-0 rounded-full", statusDot(sess.status))} />
+          <SessionIcon className={cn("size-3.5 shrink-0", sessionIconColor(sess.status))} />
         )}
         <span className="flex-1 truncate">{sess.title ?? "New Session"}</span>
         <span className="shrink-0 text-[10px] text-muted-foreground/70 group-hover/treerow:hidden">

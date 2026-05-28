@@ -25,7 +25,7 @@ interface Props {
 
 // TerminalView 把 sandbox tmux PTY 字节流直接渲染到 xterm.js。
 // 不解析任何内容、不维护消息列表 —— 这是给 codex/hermes 这种 TUI harness 用的视图。
-export function TerminalView({ session, harness }: Props) {
+export function TerminalView({ session }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const stateRef = useRef<{ disposed: boolean; term: Terminal | null }>({ disposed: false, term: null })
   const isDarkRef = useRef(false)
@@ -83,7 +83,6 @@ export function TerminalView({ session, harness }: Props) {
     const fit = new FitAddon()
     term.loadAddon(fit)
     term.open(host)
-    fit.fit()
 
     // Without this, right-clicking on a Shift-selected region clears the
     // selection: xterm.js sees the button=2 mousedown and (because tmux mouse
@@ -99,8 +98,31 @@ export function TerminalView({ session, harness }: Props) {
     const ws = new WebSocket(termURL(session.session_id))
     ws.binaryType = "arraybuffer"
 
-    let cleanupResize = () => {}
+    // Fit xterm to the host, then report the size so tmux (and the TUI inside)
+    // grow to fill the panel instead of staying at the 120x32 the session was
+    // created at. A single mount-time fit can land before the flex layout
+    // settles or before web fonts swap in, leaving the grid narrower/shorter
+    // than its container — the leftover shows as blank margin on the right and
+    // bottom. Re-fit on host resize, on the next frame, and once fonts are
+    // ready so the terminal always covers the full panel.
     let lastSentSize: { cols: number; rows: number } | null = null
+    const sendResize = () => {
+      if (ws.readyState !== ws.OPEN) return
+      if (lastSentSize?.cols === term.cols && lastSentSize.rows === term.rows) return
+      lastSentSize = { cols: term.cols, rows: term.rows }
+      ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }))
+    }
+    const refit = () => {
+      try { fit.fit() } catch { /* terminal disposed */ }
+      sendResize()
+    }
+
+    refit()
+    const rafId = requestAnimationFrame(refit)
+    void document.fonts?.ready.then(() => { if (!localState.disposed) refit() })
+
+    const ro = new ResizeObserver(refit)
+    ro.observe(host)
 
     ws.addEventListener("open", () => {
       if (localState.disposed) {
@@ -108,21 +130,7 @@ export function TerminalView({ session, harness }: Props) {
         return
       }
       ws.send(JSON.stringify({ type: "theme", theme: isDarkRef.current ? "dark" : "light" }))
-      // Tell the bridge our current viewport so tmux can size the PTY.
-      const sendResize = () => {
-        if (ws.readyState !== ws.OPEN) return
-        if (lastSentSize?.cols === term.cols && lastSentSize.rows === term.rows) return
-        lastSentSize = { cols: term.cols, rows: term.rows }
-        ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }))
-      }
       sendResize()
-
-      const ro = new ResizeObserver(() => {
-        try { fit.fit() } catch { /* terminal disposed */ }
-        sendResize()
-      })
-      ro.observe(host)
-      cleanupResize = () => ro.disconnect()
 
       // Forward keystrokes as binary bytes.
       term.onData((data) => {
@@ -153,7 +161,8 @@ export function TerminalView({ session, harness }: Props) {
     return () => {
       localState.disposed = true
       localState.term = null
-      cleanupResize()
+      cancelAnimationFrame(rafId)
+      ro.disconnect()
       host.removeEventListener("mousedown", interceptRightClick, true)
       try { ws.close() } catch { /* already closed */ }
       term.dispose()

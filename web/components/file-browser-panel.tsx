@@ -79,6 +79,10 @@ function isMarkdownPath(path: string): boolean {
   return MARKDOWN_EXTS.has(path.slice(dot + 1).toLowerCase())
 }
 
+function isPdfPath(path: string): boolean {
+  return path.toLowerCase().endsWith(".pdf")
+}
+
 interface Props {
   projectId: string
 }
@@ -89,6 +93,7 @@ interface Props {
 type OpenedFile =
   | { kind: "text"; path: string; data: FileReadResponse }
   | { kind: "image"; path: string }
+  | { kind: "pdf"; path: string }
   | { kind: "html"; path: string; data: FileReadResponse }
   | { kind: "markdown"; path: string; data: FileReadResponse }
 
@@ -170,6 +175,10 @@ export function FileBrowserPanel({ projectId }: Props) {
   async function openFile(path: string) {
     if (isImagePath(path)) {
       setOpened({ kind: "image", path })
+      return
+    }
+    if (isPdfPath(path)) {
+      setOpened({ kind: "pdf", path })
       return
     }
     setOpenLoading(true)
@@ -371,6 +380,7 @@ export function FileBrowserPanel({ projectId }: Props) {
         <input
           ref={fileInputRef}
           type="file"
+          multiple
           className="hidden"
           onChange={onUpload}
         />
@@ -673,6 +683,12 @@ function FileViewerDialog({
                     className="max-w-full max-h-full object-contain"
                   />
                 </div>
+              ) : opened.kind === "pdf" ? (
+                <iframe
+                  src={rawFilePathURL(projectId, opened.path)}
+                  title={opened.path}
+                  className="h-full w-full border-0 bg-muted"
+                />
               ) : opened.kind === "html" && mode === "preview" ? (
                 <iframe
                   src={rawFilePathURL(projectId, opened.path)}

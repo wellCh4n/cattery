@@ -18,8 +18,8 @@ const TYPE_LABELS: Record<string, string> = {
   "hermes":      "Hermes",
 }
 
-function statusDot(status: string): string {
-  if (status === "ready") return "bg-emerald-500"
+function statusDot(status: string): string | null {
+  if (status === "ready") return null
   if (status === "failed") return "bg-destructive"
   return "bg-amber-400"
 }
@@ -91,7 +91,9 @@ export function StatusBar() {
             </span>
             {session && (
               <>
-                <span className={cn("ml-1 size-1.5 shrink-0 rounded-full", statusDot(session.status))} />
+                {statusDot(session.status) && (
+                  <span className={cn("ml-1 size-1.5 shrink-0 rounded-full", statusDot(session.status))} />
+                )}
                 <span className="shrink-0 text-muted-foreground">{session.status}</span>
                 <ExportMenu sessionId={session.session_id} />
                 <HarnessInfoButton harness={harness} session={session} />

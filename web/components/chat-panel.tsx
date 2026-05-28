@@ -42,7 +42,10 @@ export function ChatPanel({ session, harness }: Props) {
   const [input, setInput] = useState("")
   const [showJumpToBottom, setShowJumpToBottom] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const stickToBottomRef = useRef(true)
+  const lastScrollTopRef = useRef(0)
   const chat = useChatStreamStore(state => state.sessions[session.session_id])
   const bubbles = chat?.bubbles ?? EMPTY_BUBBLES
   const sending = chat?.sending ?? false
@@ -57,23 +60,55 @@ export function ChatPanel({ session, harness }: Props) {
     return el.scrollHeight - el.scrollTop - el.clientHeight < 96
   }, [])
 
-  const updateJumpVisibility = useCallback(() => {
-    setShowJumpToBottom(!isNearBottom())
+  const updateJumpVisibility = useCallback((event?: React.UIEvent<HTMLDivElement>) => {
+    const el = event?.currentTarget ?? scrollRef.current
+    if (!el) return
+
+    const nearBottom = isNearBottom()
+    const scrollingUp = el.scrollTop < lastScrollTopRef.current
+    lastScrollTopRef.current = el.scrollTop
+
+    if (scrollingUp) {
+      stickToBottomRef.current = false
+      setShowJumpToBottom(!nearBottom)
+      return
+    }
+
+    stickToBottomRef.current = nearBottom
+    setShowJumpToBottom(!nearBottom)
   }, [isNearBottom])
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     bottomRef.current?.scrollIntoView({ behavior })
+    requestAnimationFrame(() => {
+      const el = scrollRef.current
+      if (el) lastScrollTopRef.current = el.scrollTop
+    })
+    stickToBottomRef.current = true
+    setShowJumpToBottom(false)
   }, [])
 
   useEffect(() => {
     requestAnimationFrame(() => {
-      if (isNearBottom()) {
-        scrollToBottom("smooth")
+      if (stickToBottomRef.current) {
+        scrollToBottom("auto")
       } else {
         setShowJumpToBottom(true)
       }
     })
-  }, [bubbles, isNearBottom, scrollToBottom, sending])
+  }, [bubbles, scrollToBottom, sending])
+
+  useEffect(() => {
+    const el = contentRef.current
+    if (!el) return
+
+    const observer = new ResizeObserver(() => {
+      if (!stickToBottomRef.current) return
+      requestAnimationFrame(() => scrollToBottom("auto"))
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [scrollToBottom])
 
   useEffect(() => {
     if (session.status !== "ready") return
@@ -98,6 +133,7 @@ export function ChatPanel({ session, harness }: Props) {
     const text = input.trim()
     setInput("")
     void sendMessage(session.session_id, text)
+    requestAnimationFrame(() => scrollToBottom("auto"))
   }
 
   function phaseLabel(phase: string | null): string {
@@ -117,7 +153,7 @@ export function ChatPanel({ session, harness }: Props) {
           onScroll={updateJumpVisibility}
           className="h-full overflow-y-auto px-4 md:px-8 py-6"
         >
-          <div className="max-w-3xl mx-auto space-y-4">
+          <div ref={contentRef} className="max-w-3xl mx-auto space-y-4">
             {session.status === "creating" && (
               <div className="flex items-center gap-2 rounded-lg border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
                 <Loader2 className="size-4 animate-spin" />
@@ -218,7 +254,7 @@ export function ChatPanel({ session, harness }: Props) {
                   size="icon-sm"
                   onClick={handleStop}
                   title="Stop"
-                  className="rounded-full"
+                  className="size-9 rounded-full [&_svg]:size-[18px]"
                 >
                   <Square />
                 </Button>
@@ -228,7 +264,7 @@ export function ChatPanel({ session, harness }: Props) {
                   disabled={session.status !== "ready" || !input.trim()}
                   onClick={handleSend}
                   title="Send"
-                  className="rounded-full"
+                  className="size-9 rounded-full [&_svg]:size-5"
                 >
                   <ArrowUp />
                 </Button>
@@ -287,13 +323,14 @@ function BubbleRow({ bubble, sessionId }: { bubble: Bubble; sessionId: string })
   }
 
   if (bubble.kind === "tool") {
-    const read = bubble.toolName === "read" ? (bubble.toolParsed as ParsedFileRead | undefined) : undefined
-    const glob = bubble.toolName === "glob" ? (bubble.toolParsed as ParsedGlob | undefined) : undefined
-    const header = formatToolInput(bubble.toolName, bubble.content)
+    const toolKey = bubble.toolName?.toLowerCase()
+    const read = toolKey === "read" ? (bubble.toolParsed as ParsedFileRead | undefined) : undefined
+    const glob = toolKey === "glob" ? (bubble.toolParsed as ParsedGlob | undefined) : undefined
+    const header = formatToolInput(toolKey, bubble.content)
     const primary = read?.path ?? header.primary
     const secondaryPath = header.path
-    const primaryIsPath = !!read || bubble.toolName === "read" || bubble.toolName === "write" ||
-                          bubble.toolName === "edit" || bubble.toolName === "list"
+    const primaryIsPath = !!read || toolKey === "read" || toolKey === "write" ||
+                          toolKey === "edit" || toolKey === "list"
     const headerMeta =
       read ? `${read.totalLines} lines` :
       glob ? `${glob.paths.length} matches` :
@@ -305,18 +342,18 @@ function BubbleRow({ bubble, sessionId }: { bubble: Bubble; sessionId: string })
           <div className="flex items-center gap-2 px-3 py-1.5 bg-muted/40">
             <ToolStatusIcon status={bubble.toolStatus} />
             <Wrench className="size-3 text-muted-foreground shrink-0" />
-            <span className="font-mono text-xs font-semibold shrink-0">{bubble.toolName}</span>
+            <span className="font-mono text-xs font-semibold shrink-0 [font-variant-ligatures:none] [font-feature-settings:'liga'_0,'calt'_0]">{bubble.toolName}</span>
             {primaryIsPath ? (
               <span
                 dir="rtl"
-                className="font-mono text-xs text-muted-foreground truncate min-w-0"
+                className="font-mono text-xs text-muted-foreground truncate min-w-0 [font-variant-ligatures:none] [font-feature-settings:'liga'_0,'calt'_0]"
                 title={primary}
               >
                 <bdi>{primary}</bdi>
               </span>
             ) : (
               <span
-                className="font-mono text-xs text-muted-foreground shrink-0"
+                className="font-mono text-xs text-muted-foreground truncate min-w-0 [font-variant-ligatures:none] [font-feature-settings:'liga'_0,'calt'_0]"
                 title={primary}
               >
                 {primary}
@@ -325,7 +362,7 @@ function BubbleRow({ bubble, sessionId }: { bubble: Bubble; sessionId: string })
             {secondaryPath && (
               <span
                 dir="rtl"
-                className="font-mono text-xs text-muted-foreground/60 truncate min-w-0"
+                className="font-mono text-xs text-muted-foreground/60 truncate min-w-0 [font-variant-ligatures:none] [font-feature-settings:'liga'_0,'calt'_0]"
                 title={secondaryPath}
               >
                 <bdi>{secondaryPath}</bdi>
@@ -346,7 +383,7 @@ function BubbleRow({ bubble, sessionId }: { bubble: Bubble; sessionId: string })
               <GlobMatches paths={glob.paths} />
             </div>
           ) : bubble.toolOutput ? (
-            <pre className="max-h-40 overflow-y-auto px-3 py-2 text-[11px] font-mono text-muted-foreground whitespace-pre-wrap border-t">
+            <pre className="max-h-40 overflow-auto px-3 py-2 text-[11px] font-mono text-muted-foreground whitespace-pre border-t [font-variant-ligatures:none] [font-feature-settings:'liga'_0,'calt'_0]">
               {bubble.toolOutput}
             </pre>
           ) : null}
@@ -427,7 +464,7 @@ function formatToolInput(tool: string | undefined, raw: string): ToolHeader {
       case "read":
       case "write":
       case "edit": {
-        const fp = str("filePath") ?? str("path")
+        const fp = str("file_path")
         if (fp) return { primary: fp }
         break
       }

@@ -9,10 +9,12 @@ import {
   Clock,
   Cable,
   Loader2,
+  MessageSquare,
   MessagesSquare,
   Pencil,
   Play,
   Shield,
+  Terminal,
   Trash2,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
@@ -29,7 +31,7 @@ import {
 import { HarnessIcon } from "@/components/harness-icon"
 import { ModelIcon } from "@/components/model-icon"
 import { RenameSessionDialog } from "@/components/rename-session-dialog"
-import { type Session } from "@/lib/api"
+import { type Session, type TransportKind } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { type HarnessWithSessions, useWorkspaceStore } from "@/lib/workspace-store"
 
@@ -241,6 +243,7 @@ export default function HarnessPage({ params }: { params: Promise<PageParams> })
           <div className="max-h-[40vh] overflow-y-auto rounded-md border">
             <SessionsList
               sessions={sessions}
+              transportKind={harness.transport_kind}
               onOpenSession={id => router.push(`/sessions/${id}`)}
               onRenameSession={sess => {
                 setRenameSessionTarget(sess)
@@ -329,21 +332,25 @@ function SandboxBadge({ status }: { status: string }) {
   return <Badge variant="secondary" className="h-5 text-[10px]">{status}</Badge>
 }
 
-function statusDot(status: string) {
-  if (status === "ready") return "bg-emerald-500"
-  if (status === "failed") return "bg-destructive"
-  return "bg-amber-400"
+// Color for the session type icon: failed/starting stand out, ready stays muted.
+function sessionIconColor(status: string): string {
+  if (status === "failed") return "text-destructive"
+  if (status !== "ready") return "text-amber-500 animate-pulse"
+  return "text-muted-foreground"
 }
 
 function SessionsList({
   sessions,
+  transportKind,
   onOpenSession,
   onRenameSession,
 }: {
   sessions: HarnessWithSessions["sessions"]
+  transportKind: TransportKind
   onOpenSession: (sessionId: string) => void
   onRenameSession: (session: Session) => void
 }) {
+  const SessionIcon = transportKind === "terminal" ? Terminal : MessageSquare
   if (sessions.length === 0) {
     return (
       <div className="flex min-h-32 flex-col items-center justify-center text-muted-foreground">
@@ -363,7 +370,7 @@ function SessionsList({
           onClick={() => onOpenSession(session.session_id)}
           onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpenSession(session.session_id) } }}
         >
-          <span className={cn("size-2 shrink-0 rounded-full", statusDot(session.status))} />
+          <SessionIcon className={cn("size-4 shrink-0", sessionIconColor(session.status))} />
           <div className="min-w-0 flex-1">
             <div className="truncate text-xs">{session.title ?? "New Session"}</div>
             <div className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground">
