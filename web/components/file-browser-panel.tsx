@@ -310,7 +310,7 @@ export function FileBrowserPanel({ projectId, canWrite }: Props) {
 
       <div
         className={cn(
-          "relative flex-1 min-h-0 overflow-y-auto px-1.5 py-1.5 transition-colors",
+          "relative flex-1 min-h-0 overflow-y-auto transition-colors",
           dragging && "bg-muted/30 ring-1 ring-inset ring-ring"
         )}
         onDragEnter={onDragEnter}
@@ -327,9 +327,21 @@ export function FileBrowserPanel({ projectId, canWrite }: Props) {
           </div>
         )}
         {!error && entries && entries.length === 0 && (
-          <div className="flex min-h-full flex-col items-center justify-center gap-2 px-4 py-10 text-muted-foreground">
-            <Folder className="size-5 opacity-70" />
-            <span>No files</span>
+          <div className="flex h-full flex-col items-center justify-center px-4 text-center">
+            <Folder className="size-8 text-muted-foreground/50" />
+            <p className="mt-2 text-xs text-muted-foreground">No files</p>
+            {canWrite && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-3"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+              >
+                {uploading ? <Loader2 className="animate-spin" /> : <Upload />}
+                Upload
+              </Button>
+            )}
           </div>
         )}
         {entries && entries.map(entry => (
@@ -579,7 +591,7 @@ function FileRow({
 
   if (editing) {
     return (
-      <div className="flex items-center gap-1.5 px-2 h-6 bg-muted/40">
+      <div className="flex items-center gap-1.5 px-2 h-7 bg-muted/40">
         {isDir
           ? <Folder className="size-3.5 text-muted-foreground shrink-0" />
           : <FileIcon className="size-3.5 text-muted-foreground/70 shrink-0" />}
@@ -622,7 +634,7 @@ function FileRow({
   return (
     <div
       onClick={() => isDir ? onEnterDir(entry.name) : onOpenFile(entry.name)}
-      className="group flex items-center gap-1.5 px-2 h-6 cursor-pointer hover:bg-muted/60"
+      className="group flex items-center gap-1.5 px-2 h-7 cursor-pointer hover:bg-muted/60"
     >
       {isDir
         ? <Folder className="size-3.5 text-muted-foreground shrink-0" />

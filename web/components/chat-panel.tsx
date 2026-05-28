@@ -2,7 +2,6 @@
 
 import { useCallback, useState, useEffect, useRef } from "react"
 import {
-  Bot,
   ArrowUp,
   ArrowDown,
   Square,
@@ -17,16 +16,14 @@ import {
   ChevronDown,
   Copy,
   Check,
-  Download,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Markdown } from "@/components/markdown"
 import { FileViewer } from "@/components/file-viewer"
-import { HarnessInfoButton } from "@/components/harness-info-button"
 import { cn } from "@/lib/utils"
-import { answerSession, exportSessionURL, type Session, type Harness, type QuestionAnswer } from "@/lib/api"
+import { answerSession, type Session, type Harness, type QuestionAnswer } from "@/lib/api"
 import {
   useChatStreamStore,
   type Bubble,
@@ -53,8 +50,6 @@ export function ChatPanel({ session, harness }: Props) {
   const loadHistory = useChatStreamStore(state => state.loadHistory)
   const sendMessage = useChatStreamStore(state => state.sendMessage)
   const stopSession = useChatStreamStore(state => state.stopSession)
-  const title = session.title
-  const harnessName = harness.harness_name ?? "Untitled"
   const canWrite = harness.access_role !== "viewer"
 
   const isNearBottom = useCallback((): boolean => {
@@ -106,12 +101,6 @@ export function ChatPanel({ session, harness }: Props) {
     void sendMessage(session.session_id, text)
   }
 
-  function statusVariant(s: string): "default" | "secondary" | "destructive" {
-    if (s === "ready") return "default"
-    if (s === "failed") return "destructive"
-    return "secondary"
-  }
-
   function phaseLabel(phase: string | null): string {
     switch (phase) {
       case "handshake":       return "Connecting to agent"
@@ -123,22 +112,6 @@ export function ChatPanel({ session, harness }: Props) {
 
   return (
     <div className="flex flex-col h-full bg-background">
-      <header className="border-b px-4 h-12 flex items-center gap-3 shrink-0">
-        <Bot className="size-4 text-muted-foreground shrink-0" />
-        <div className="flex items-center gap-2 min-w-0 flex-1">
-          <span className="text-sm font-medium truncate">{title ?? "New Session"}</span>
-          <span className="text-muted-foreground/50 shrink-0">/</span>
-          <span className="text-xs text-muted-foreground truncate min-w-0">
-            {harnessName}
-          </span>
-        </div>
-        <ExportMenu sessionId={session.session_id} />
-        <Badge variant={statusVariant(session.status)} className="text-[10px] h-5">
-          {session.status}
-        </Badge>
-        <HarnessInfoButton harness={harness} session={session} />
-      </header>
-
       <div className="relative flex-1 min-h-0">
         <div
           ref={scrollRef}
@@ -265,66 +238,6 @@ export function ChatPanel({ session, harness }: Props) {
           </div>
         </div>
       </div>
-    </div>
-  )
-}
-
-function ExportMenu({ sessionId }: { sessionId: string }) {
-  const [open, setOpen] = useState(false)
-  const wrapRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    function onPointerDown(e: PointerEvent) {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
-        setOpen(false)
-      }
-    }
-    document.addEventListener("pointerdown", onPointerDown)
-    return () => document.removeEventListener("pointerdown", onPointerDown)
-  }, [open])
-
-  return (
-    <div ref={wrapRef} className="relative shrink-0">
-      <button
-        type="button"
-        title="Export transcript"
-        aria-label="Export transcript"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => setOpen(o => !o)}
-        className={cn(
-          "flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors cursor-pointer hover:bg-muted hover:text-foreground",
-          open && "bg-muted text-foreground"
-        )}
-      >
-        <Download className="size-3.5" />
-      </button>
-      {open && (
-        <div
-          role="menu"
-          className="absolute right-0 top-full z-20 mt-1 w-56 overflow-hidden rounded-md border bg-popover text-sm shadow-md"
-        >
-          <a
-            href={exportSessionURL(sessionId, "md")}
-            download
-            onClick={() => setOpen(false)}
-            className="grid h-9 cursor-pointer grid-cols-[3rem_1fr] items-center px-3 hover:bg-muted"
-          >
-            <span className="text-[10px] font-medium text-muted-foreground">MD</span>
-            <span className="whitespace-nowrap">Markdown transcript</span>
-          </a>
-          <a
-            href={exportSessionURL(sessionId, "json")}
-            download
-            onClick={() => setOpen(false)}
-            className="grid h-9 cursor-pointer grid-cols-[3rem_1fr] items-center px-3 hover:bg-muted"
-          >
-            <span className="text-[10px] font-medium text-muted-foreground">JSON</span>
-            <span className="whitespace-nowrap">Raw history</span>
-          </a>
-        </div>
-      )}
     </div>
   )
 }

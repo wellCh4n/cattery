@@ -10,20 +10,14 @@ import {
   ChevronsUpDown,
   FolderOpen,
   Info,
-  KeyRound,
   Loader2,
-  LogOut,
-  MessagesSquare,
   Pencil,
   Plus,
-  Shield,
   Trash2,
-  UserCircle2,
   Users,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { ChangePasswordDialog } from "@/components/change-password-dialog"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { CreateHarnessDialog } from "@/components/create-harness-dialog"
 import { FileBrowserPanel } from "@/components/file-browser-panel"
@@ -31,12 +25,10 @@ import { HarnessIcon } from "@/components/harness-icon"
 import { NewProjectDialog } from "@/components/new-project-dialog"
 import { ProjectMembersPanel } from "@/components/project-members-panel"
 import { RenameSessionDialog } from "@/components/rename-session-dialog"
-import { ThemeToggle } from "@/components/theme-toggle"
 import { cn } from "@/lib/utils"
 import { useResizable } from "@/lib/use-resizable"
 import { type Session } from "@/lib/api"
 import { type HarnessWithSessions, type ProjectWithHarnesses, useWorkspaceStore } from "@/lib/workspace-store"
-import { useAuthStore } from "@/lib/auth-store"
 
 type SidebarView = "harnesses" | "files" | "members"
 const VIEW_STORAGE_KEY = "cattery:sidebar:view"
@@ -76,12 +68,6 @@ export function Sidebar() {
   const [deleteProjectTarget, setDeleteProjectTarget] = useState<ProjectWithHarnesses | null>(null)
   const projectPickerRef = useRef<HTMLDivElement>(null)
 
-  const user = useAuthStore(s => s.user)
-  const logout = useAuthStore(s => s.logout)
-  const [userMenuOpen, setUserMenuOpen] = useState(false)
-  const [changePasswordOpen, setChangePasswordOpen] = useState(false)
-  const userMenuRef = useRef<HTMLDivElement>(null)
-
   const [view, setView] = useState<SidebarView>("harnesses")
   useEffect(() => {
     const saved = localStorage.getItem(VIEW_STORAGE_KEY)
@@ -90,17 +76,6 @@ export function Sidebar() {
   useEffect(() => {
     localStorage.setItem(VIEW_STORAGE_KEY, view)
   }, [view])
-
-  useEffect(() => {
-    if (!userMenuOpen) return
-    function onPointerDown(e: PointerEvent) {
-      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
-        setUserMenuOpen(false)
-      }
-    }
-    document.addEventListener("pointerdown", onPointerDown)
-    return () => document.removeEventListener("pointerdown", onPointerDown)
-  }, [userMenuOpen])
 
   useEffect(() => {
     if (!projectPickerOpen) return
@@ -185,7 +160,7 @@ export function Sidebar() {
               )}
               title="Switch project"
             >
-              <span className="min-w-0 flex-1 truncate text-left text-foreground/90">
+              <span className="min-w-0 flex-1 truncate text-left text-sm font-semibold text-foreground">
                 {currentProject?.project_name ?? (projects.length === 0 ? "No project" : "Untitled")}
               </span>
               <ChevronsUpDown className="size-3 shrink-0 text-muted-foreground" />
@@ -279,11 +254,11 @@ export function Sidebar() {
         </div>
         {view === "harnesses" ? (
         <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex h-9 shrink-0 items-center justify-between border-b px-2">
-          <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-            Harnesses
-          </span>
-          {currentProject && (
+        {currentProject && (
+          <div className="flex h-9 shrink-0 items-center justify-between border-b px-2">
+            <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+              Harnesses
+            </span>
             <Button
               variant="ghost"
               size="icon-sm"
@@ -292,22 +267,38 @@ export function Sidebar() {
             >
               <Plus />
             </Button>
-          )}
-        </div>
-        <div className="min-w-0 flex-1 overflow-y-auto px-1.5 py-1.5">
+          </div>
+        )}
+        <div className="min-w-0 flex-1 overflow-y-auto">
           {!currentProject && (
-            <div className="px-4 py-8 text-center">
-              <Shield className="mx-auto size-8 text-muted-foreground/50" />
+            <div className="flex h-full flex-col items-center justify-center px-4 text-center">
+              <FolderOpen className="size-8 text-muted-foreground/50" />
               <p className="mt-2 text-xs text-muted-foreground">No project selected</p>
-              <p className="mt-0.5 text-[11px] text-muted-foreground/70">Pick or create one above</p>
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-3"
+                onClick={() => setNewProjectOpen(true)}
+              >
+                <Plus />
+                New project
+              </Button>
             </div>
           )}
 
           {currentProject && harnesses.length === 0 && (
-            <div className="px-4 py-8 text-center">
-              <Bot className="mx-auto size-8 text-muted-foreground/50" />
-              <p className="mt-2 text-xs text-muted-foreground">No harnesses yet</p>
-              <p className="mt-0.5 text-[11px] text-muted-foreground/70">Create one to get started</p>
+            <div className="flex h-full flex-col items-center justify-center px-4 text-center">
+              <Bot className="size-8 text-muted-foreground/50" />
+              <p className="mt-2 text-xs text-muted-foreground">No harnesses</p>
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-3"
+                onClick={() => setCreateHarnessProject(currentProject)}
+              >
+                <Plus />
+                New harness
+              </Button>
             </div>
           )}
 
@@ -344,7 +335,7 @@ export function Sidebar() {
                 canWrite={currentProject.access_role !== "viewer"}
               />
             ) : (
-              <NoProjectPlaceholder />
+              <NoProjectPlaceholder onCreate={() => setNewProjectOpen(true)} />
             )}
           </div>
         ) : (
@@ -355,57 +346,12 @@ export function Sidebar() {
                 canManage={currentProject.access_role === "owner"}
               />
             ) : (
-              <NoProjectPlaceholder />
+              <NoProjectPlaceholder onCreate={() => setNewProjectOpen(true)} />
             )}
           </div>
         )}
         </div>
 
-        <div ref={userMenuRef} className="relative shrink-0 border-t">
-          {userMenuOpen && (
-            <div className="absolute bottom-full left-1.5 right-1.5 mb-1 overflow-hidden rounded-md border bg-popover text-sm shadow-md">
-              <button
-                className="flex h-8 w-full cursor-pointer items-center gap-2 px-2.5 text-left hover:bg-muted"
-                onClick={() => { setUserMenuOpen(false); setChangePasswordOpen(true) }}
-              >
-                <KeyRound className="size-3.5 text-muted-foreground" />
-                Change password
-              </button>
-              {user?.is_admin && (
-                <button
-                  className="flex h-8 w-full cursor-pointer items-center gap-2 px-2.5 text-left hover:bg-muted"
-                  onClick={() => { setUserMenuOpen(false); router.push("/admin/users") }}
-                >
-                  <Shield className="size-3.5 text-muted-foreground" />
-                  User management
-                </button>
-              )}
-              <button
-                className="flex h-8 w-full cursor-pointer items-center gap-2 px-2.5 text-left text-destructive hover:bg-muted"
-                onClick={() => { setUserMenuOpen(false); logout() }}
-              >
-                <LogOut className="size-3.5" />
-                Sign out
-              </button>
-            </div>
-          )}
-          <div className="flex h-10 items-center gap-1 pr-1.5">
-            <button
-              className={cn(
-                "flex h-10 min-w-0 flex-1 cursor-pointer items-center gap-2 px-2.5 transition-colors hover:bg-muted",
-                userMenuOpen && "bg-muted",
-              )}
-              onClick={() => setUserMenuOpen(o => !o)}
-            >
-              <UserCircle2 className="size-4 shrink-0 text-muted-foreground" />
-              <span className="min-w-0 flex-1 truncate text-left text-xs text-foreground/90">{user?.username ?? "-"}</span>
-              {user?.is_admin && (
-                <Badge variant="secondary" className="h-4 shrink-0 px-1.5 text-[10px] font-normal">admin</Badge>
-              )}
-            </button>
-            <ThemeToggle />
-          </div>
-        </div>
       </aside>
 
       <NewProjectDialog
@@ -424,8 +370,6 @@ export function Sidebar() {
           }}
         />
       )}
-
-      <ChangePasswordDialog open={changePasswordOpen} onOpenChange={setChangePasswordOpen} />
 
       <RenameSessionDialog
         session={renameTarget}
@@ -540,11 +484,11 @@ function HarnessRow({
   }
 
   return (
-    <div className="mb-1">
+    <div>
       <div
         role="button"
         className={cn(
-          "group flex h-7 cursor-pointer items-center gap-1.5 rounded-md px-2 text-xs transition-colors select-none",
+          "group flex h-7 cursor-pointer items-center gap-1.5 px-2 text-xs transition-colors select-none",
           selected ? "bg-muted text-foreground" : "hover:bg-muted",
         )}
         onClick={handleRowClick}
@@ -605,24 +549,18 @@ function HarnessRow({
       </div>
 
       {harness.access_role !== "owner" && (
-        <div className="mb-1 ml-8 truncate text-[10px] text-muted-foreground/70">
+        <div className="ml-8 truncate text-[10px] text-muted-foreground/70">
           {harness.owner_username} · {harness.access_role}
         </div>
       )}
 
-      {harness.expanded && (
-        <div className="ml-3.5 mt-0.5 space-y-0.5 border-l border-border/60 pl-1.5">
-          {harness.sessions.length === 0 ? (
-            <div className="flex h-7 items-center gap-2 rounded-md px-2 text-xs text-muted-foreground">
-              <MessagesSquare className="size-3" />
-              <span>No sessions</span>
-            </div>
-          ) : (
-            harness.sessions.map(sess => (
+      {harness.expanded && harness.sessions.length > 0 && (
+        <div>
+          {harness.sessions.map(sess => (
               <div
                 key={sess.session_id}
                 className={cn(
-                  "group/sess flex h-7 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-xs transition-colors",
+                  "group/sess flex h-7 w-full cursor-pointer items-center gap-2 pl-7 pr-2 text-xs transition-colors",
                   "text-muted-foreground hover:bg-muted hover:text-foreground",
                   selectedSessionId === sess.session_id && "bg-muted font-medium text-foreground",
                 )}
@@ -665,20 +603,22 @@ function HarnessRow({
                   <Trash2 className="size-3" />
                 </button>
               </div>
-            ))
-          )}
+          ))}
         </div>
       )}
     </div>
   )
 }
 
-function NoProjectPlaceholder() {
+function NoProjectPlaceholder({ onCreate }: { onCreate: () => void }) {
   return (
-    <div className="px-4 py-8 text-center">
-      <Shield className="mx-auto size-8 text-muted-foreground/50" />
+    <div className="flex h-full flex-col items-center justify-center px-4 text-center">
+      <FolderOpen className="size-8 text-muted-foreground/50" />
       <p className="mt-2 text-xs text-muted-foreground">No project selected</p>
-      <p className="mt-0.5 text-[11px] text-muted-foreground/70">Pick or create one above</p>
+      <Button variant="outline" size="sm" className="mt-3" onClick={onCreate}>
+        <Plus />
+        New project
+      </Button>
     </div>
   )
 }

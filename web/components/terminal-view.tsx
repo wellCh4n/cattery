@@ -17,8 +17,6 @@ import "@xterm/xterm/css/xterm.css"
 // actually forces the browser to use our self-hosted woff2s for those blocks.
 import "@fontsource/noto-sans-symbols-2/symbols-400.css"
 import { termURL, type Session, type Harness } from "@/lib/api"
-import { Badge } from "@/components/ui/badge"
-import { HarnessInfoButton } from "@/components/harness-info-button"
 
 interface Props {
   session: Session
@@ -163,15 +161,6 @@ export function TerminalView({ session, harness }: Props) {
     }
   }, [canWrite, session.session_id, session.status, session.harness_session_id, isDark])
 
-  const title = session.title ?? "New Session"
-  const harnessName = harness.harness_name ?? "Untitled"
-
-  function statusVariant(s: string): "default" | "secondary" | "destructive" {
-    if (s === "ready") return "default"
-    if (s === "failed") return "destructive"
-    return "secondary"
-  }
-
   let body: React.ReactNode
   if (session.status === "failed") {
     body = (
@@ -210,25 +199,6 @@ export function TerminalView({ session, harness }: Props) {
 
   return (
     <div className="flex flex-col h-full bg-background">
-      <header className="border-b px-4 h-12 flex items-center gap-3 shrink-0">
-        <Bot className="size-4 text-muted-foreground shrink-0" />
-        <div className="flex items-center gap-2 min-w-0 flex-1">
-          <span className="text-sm font-medium truncate">{title}</span>
-          <span className="text-muted-foreground/50 shrink-0">/</span>
-          <span className="text-xs text-muted-foreground truncate min-w-0">
-            {harnessName}
-          </span>
-        </div>
-        <span className="hidden sm:inline-flex items-center gap-1 text-[11px] text-muted-foreground/70 select-none shrink-0">
-          Hold
-          <kbd className="font-mono px-1 py-px rounded border border-border bg-muted/50 text-[10px] leading-none">⇧ Shift</kbd>
-          to select
-        </span>
-        <Badge variant={statusVariant(session.status)} className="text-[10px] h-5">
-          {session.status}
-        </Badge>
-        <HarnessInfoButton harness={harness} session={session} />
-      </header>
       <div className="flex-1 min-h-0">{body}</div>
     </div>
   )

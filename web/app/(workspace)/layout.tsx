@@ -4,6 +4,7 @@ import { useEffect } from "react"
 import { usePathname, useRouter } from "next/navigation"
 import { Loader2 } from "lucide-react"
 import { Sidebar } from "@/components/sidebar"
+import { StatusBar } from "@/components/status-bar"
 import { useAuthStore } from "@/lib/auth-store"
 
 export default function WorkspaceLayout({ children }: { children: React.ReactNode }) {
@@ -44,9 +45,12 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
-      <Sidebar />
-      <main className="flex-1 overflow-hidden">{children}</main>
+    <div className="flex h-screen flex-col overflow-hidden bg-background">
+      <div className="flex min-h-0 flex-1">
+        <Sidebar />
+        <main className="flex-1 overflow-hidden">{children}</main>
+      </div>
+      <StatusBar />
     </div>
   )
 }

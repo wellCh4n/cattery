@@ -103,7 +103,7 @@ export function ProjectMembersPanel({ project, canManage }: Props) {
         )}
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto px-1.5 py-1.5 space-y-0.5">
+      <div className="flex-1 min-h-0 overflow-y-auto">
         <MemberRow
           name={project.owner_username}
           role="owner"
@@ -158,7 +158,7 @@ function MemberRow({
 }) {
   const isOwner = role === "owner"
   return (
-    <div className="group flex items-center gap-1.5 rounded-md px-2 py-1 hover:bg-muted/60">
+    <div className="group flex h-7 cursor-pointer items-center gap-1.5 px-2 hover:bg-muted/60">
       <span className="min-w-0 flex-1 truncate">{name}</span>
       {isOwner ? (
         <span className="text-[10px] uppercase tracking-wide text-muted-foreground">owner</span>
