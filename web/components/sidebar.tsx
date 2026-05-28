@@ -76,6 +76,7 @@ export function Sidebar() {
   const addHarness = useWorkspaceStore(state => state.addHarness)
   const createSession = useWorkspaceStore(state => state.createSession)
   const deleteSession = useWorkspaceStore(state => state.deleteSession)
+  const deleteHarness = useWorkspaceStore(state => state.deleteHarness)
   const deleteProject = useWorkspaceStore(state => state.deleteProject)
 
   const [launching, setLaunching] = useState<string | null>(null)
@@ -84,6 +85,7 @@ export function Sidebar() {
   const [newProjectOpen, setNewProjectOpen] = useState(false)
   const [createHarnessProject, setCreateHarnessProject] = useState<ProjectWithHarnesses | null>(null)
   const [deleteSessionTarget, setDeleteSessionTarget] = useState<{ session_id: string; harness_id: string; title: string } | null>(null)
+  const [deleteHarnessTarget, setDeleteHarnessTarget] = useState<HarnessWithSessions | null>(null)
   const [renameTarget, setRenameTarget] = useState<Session | null>(null)
   const [renameOpen, setRenameOpen] = useState(false)
   const [projectPickerOpen, setProjectPickerOpen] = useState(false)
@@ -493,6 +495,7 @@ export function Sidebar() {
               onNewSession: handleNewSession,
               onRouteSession: id => router.push(`/sessions/${id}`),
               onRouteHarness: id => router.push(`/harnesses/${id}`),
+              onRequestDeleteHarness: setDeleteHarnessTarget,
               onRequestDeleteSession: (sess, harnessId) => setDeleteSessionTarget({
                 session_id: sess.session_id,
                 harness_id: harnessId,
@@ -587,6 +590,31 @@ export function Sidebar() {
       />
 
       <ConfirmDialog
+        open={deleteHarnessTarget !== null}
+        onOpenChange={open => { if (!open) setDeleteHarnessTarget(null) }}
+        title="Delete harness?"
+        description={
+          <>
+            <span className="font-medium text-foreground">{deleteHarnessTarget?.harness_name ?? "Untitled"}</span>
+            {" "}and all its sessions will be permanently deleted, along with its sandbox. This cannot be undone.
+          </>
+        }
+        confirmLabel="Delete"
+        destructive
+        onConfirm={async () => {
+          if (!deleteHarnessTarget) return
+          const target = deleteHarnessTarget
+          await deleteHarness(target.harness_id)
+          if (selectedHarnessId === target.harness_id) {
+            router.push("/")
+          }
+          if (selectedSessionId && target.sessions.some(s => s.session_id === selectedSessionId)) {
+            router.push("/")
+          }
+        }}
+      />
+
+      <ConfirmDialog
         open={deleteProjectTarget !== null}
         onOpenChange={open => { if (!open) setDeleteProjectTarget(null) }}
         title="Delete project?"
@@ -639,6 +667,7 @@ function buildHarnessNode({
   onNewSession,
   onRouteSession,
   onRouteHarness,
+  onRequestDeleteHarness,
   onRequestDeleteSession,
   onRequestRenameSession,
 }: {
@@ -651,6 +680,7 @@ function buildHarnessNode({
   onNewSession: (harness: HarnessWithSessions) => void
   onRouteSession: (sessionId: string) => void
   onRouteHarness: (harnessId: string) => void
+  onRequestDeleteHarness: (harness: HarnessWithSessions) => void
   onRequestDeleteSession: (sess: Session, harnessId: string) => void
   onRequestRenameSession: (sess: Session) => void
 }): TreeNode {
@@ -742,6 +772,16 @@ function buildHarnessNode({
         >
           <Info className="size-3.5" />
         </TreeRowAction>
+        {harness.access_role === "owner" && (
+          <TreeRowAction
+            destructive
+            title="Delete harness"
+            aria-label="Delete harness"
+            onClick={e => { e.stopPropagation(); onRequestDeleteHarness(harness) }}
+          >
+            <Trash2 className="size-3.5" />
+          </TreeRowAction>
+        )}
       </>
     ),
     subline: harness.access_role !== "owner" ? (
