@@ -71,6 +71,13 @@ type SandboxSpec struct {
 	// WorkVolumeMount is the path the workspace volume is mounted at in the
 	// harness container. Defaults to "/work" when zero.
 	WorkVolumeMount string
+	// SkillsPVC, when non-empty, mounts the global skills PVC read-only into the
+	// harness container at SkillsMount. Empty = no skills volume (e.g. harnesses
+	// that don't consume skills). The PVC is shared with the skillmgr Pod; on a
+	// single node RWO permits both mounts, multi-node needs the PVC reprovisioned
+	// as RWX.
+	SkillsPVC   string
+	SkillsMount string
 }
 
 func (c *Client) RunTask(ctx context.Context, spec SandboxSpec) error {
@@ -85,8 +92,18 @@ func (c *Client) RunTask(ctx context.Context, spec SandboxSpec) error {
 		envList = append(envList, map[string]interface{}{"name": k, "value": v})
 	}
 
+	const skillsVolumeName = "skills"
+	mountSkills := spec.SkillsPVC != "" && spec.SkillsMount != ""
+
 	volumeMounts := []interface{}{
 		map[string]interface{}{"name": workVolumeName, "mountPath": workMount},
+	}
+	if mountSkills {
+		volumeMounts = append(volumeMounts, map[string]interface{}{
+			"name":      skillsVolumeName,
+			"mountPath": spec.SkillsMount,
+			"readOnly":  true,
+		})
 	}
 
 	containers := []interface{}{
@@ -118,6 +135,17 @@ func (c *Client) RunTask(ctx context.Context, spec SandboxSpec) error {
 		}
 	}
 
+	volumes := []interface{}{workspaceVolume}
+	if mountSkills {
+		volumes = append(volumes, map[string]interface{}{
+			"name": skillsVolumeName,
+			"persistentVolumeClaim": map[string]interface{}{
+				"claimName": spec.SkillsPVC,
+				"readOnly":  true,
+			},
+		})
+	}
+
 	sandbox := &unstructured.Unstructured{
 		Object: map[string]interface{}{
 			"apiVersion": "agents.x-k8s.io/v1alpha1",
@@ -141,9 +169,7 @@ func (c *Client) RunTask(ctx context.Context, spec SandboxSpec) error {
 						"securityContext": map[string]interface{}{
 							"fsGroup": int64(1000),
 						},
-						"volumes": []interface{}{
-							workspaceVolume,
-						},
+						"volumes":    volumes,
 						"containers": containers,
 					},
 				},
