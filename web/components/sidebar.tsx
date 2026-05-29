@@ -22,6 +22,7 @@ import {
   Trash2,
   UserCircle2,
   Users,
+  Wand2,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -34,6 +35,7 @@ import { NewProjectDialog } from "@/components/new-project-dialog"
 import { ProjectMembersPanel } from "@/components/project-members-panel"
 import { RenameProjectDialog } from "@/components/rename-project-dialog"
 import { RenameSessionDialog } from "@/components/rename-session-dialog"
+import { SkillBrowserPanel } from "@/components/skill-browser-panel"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { Tree, type TreeNode } from "@/components/tree"
 import { TreeRowAction } from "@/components/tree-row"
@@ -43,14 +45,14 @@ import { type Session } from "@/lib/api"
 import { type HarnessWithSessions, type ProjectWithHarnesses, useWorkspaceStore } from "@/lib/workspace-store"
 import { useAuthStore } from "@/lib/auth-store"
 
-type SidebarView = "harnesses" | "files" | "members"
+type SidebarView = "harnesses" | "files" | "members" | "skills"
 const VIEW_STORAGE_KEY = "cattery:sidebar:view"
 const MIN_REFRESH_SPIN_MS = 1000
 
 function readSidebarView(): SidebarView {
   if (typeof window === "undefined") return "harnesses"
   const saved = localStorage.getItem(VIEW_STORAGE_KEY)
-  return saved === "files" || saved === "members" || saved === "harnesses" ? saved : "harnesses"
+  return saved === "files" || saved === "members" || saved === "harnesses" || saved === "skills" ? saved : "harnesses"
 }
 
 const TYPE_LABELS: Record<string, string> = {
@@ -370,6 +372,12 @@ export function Sidebar() {
             active={view === "members"}
             onClick={() => switchView("members")}
           />
+          <ActivityButton
+            icon={<Wand2 className="size-5" />}
+            label="Skills"
+            active={view === "skills"}
+            onClick={() => switchView("skills")}
+          />
 
           <div className="mt-auto flex flex-col gap-1">
             <div ref={userMenuRef} className="relative">
@@ -540,6 +548,9 @@ export function Sidebar() {
               <NoProjectPlaceholder onCreate={() => setNewProjectOpen(true)} />
             )
           )}
+        </div>
+        <div className={cn("min-h-0 flex-1 overflow-hidden", view === "skills" ? "block" : "hidden")}>
+          {visitedViews.has("skills") && <SkillBrowserPanel />}
         </div>
         </div>
 

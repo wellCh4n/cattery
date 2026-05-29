@@ -78,14 +78,19 @@ _build-harness-hermes:
 	@docker build -t hermes-sandbox:dev harnesses/hermes/
 
 # Standalone Pod images (run as their own Pod, not as harness sidecars).
-# make build-pod              — build all pod images (currently: filemgr)
+# make build-pod              — build all pod images
 # make build-pod POD=filemgr  — build one
+# make build-pod POD=skillmgr — build one
 POD ?=
 build-pod:
 	$(if $(POD), \
 		$(MAKE) _build-pod-$(POD), \
-		$(MAKE) _build-pod-filemgr)
+		$(MAKE) _build-pod-filemgr _build-pod-skillmgr)
 
 _build-pod-filemgr:
 	@echo "→ building cattery-filemgr:dev"
 	@docker build -t cattery-filemgr:dev pods/filemgr/
+
+_build-pod-skillmgr:
+	@echo "→ building cattery-skillmgr:dev"
+	@docker build -t cattery-skillmgr:dev pods/skillmgr/

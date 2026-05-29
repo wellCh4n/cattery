@@ -48,11 +48,12 @@ func main() {
 	harnessH := api.NewHarnessHandler(harnessStore, projectStore, sandboxMgr)
 	sessionH := api.NewSessionHandler(sessionStore, harnessStore, harnessClient, sandboxMgr)
 	filesH := api.NewFilesHandler(projectStore, k8s)
+	skillsH := api.NewSkillsHandler(k8s)
 	authH := api.NewAuthHandler(userStore, signer)
 	adminH := api.NewAdminHandler(userStore, harnessStore, projectStore, sandboxMgr)
 	usersH := api.NewUsersHandler(userStore)
 
-	router := api.NewRouter(database, harnessH, projectH, sessionH, filesH, authH, adminH, usersH, signer)
+	router := api.NewRouter(database, harnessH, projectH, sessionH, filesH, skillsH, authH, adminH, usersH, signer)
 	log.Printf("starting server on :%s", cfg.Port)
 	log.Fatal(router.Start(":" + cfg.Port))
 }

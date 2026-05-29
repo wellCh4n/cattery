@@ -380,6 +380,62 @@ export async function createFolder(projectId: string, dir: string, name: string)
   return res.json()
 }
 
+// ---- skillmgr (single global Pod, proxied through backend) ----
+//
+// Narrow API for the global skill library. Skills are managed as folders under
+// /skills, with ZIP upload as the only upload path.
+
+const SKILLS_BASE = `${API_BASE}/api/v1/skills`
+
+export async function listSkills(path: string): Promise<FileEntry[]> {
+  const res = await authedFetch(`${SKILLS_BASE}/list?path=${encodeURIComponent(path)}`, { cache: "no-store" })
+  if (!res.ok) throw new Error(`list skills failed: ${res.status}`)
+  return res.json()
+}
+
+export async function readSkillFile(path: string): Promise<FileReadResponse> {
+  const res = await authedFetch(`${SKILLS_BASE}/read?path=${encodeURIComponent(path)}`, { cache: "no-store" })
+  if (!res.ok) throw new Error(`read skill file failed: ${res.status}`)
+  return res.json()
+}
+
+// uploadSkillZip uploads a ZIP archive and asks skillmgr to extract it under
+// `dir`. Used by the SKILLS panel as the only upload affordance — the user
+// zips a `<slug>/SKILL.md (+assets)` folder locally and drops the zip,
+// landing the entire tree in one shot.
+export async function uploadSkillZip(dir: string, file: File): Promise<{ path: string; dirs: number; files: number }> {
+  const fd = new FormData()
+  fd.append("file", file)
+  const res = await authedFetch(`${SKILLS_BASE}/upload-zip?path=${encodeURIComponent(dir)}`, { method: "POST", body: fd })
+  if (!res.ok) throw new Error(await readErrorMessage(res, `upload skill zip failed (${res.status})`))
+  return res.json()
+}
+
+export async function deleteSkillFile(path: string): Promise<void> {
+  const res = await authedFetch(`${SKILLS_BASE}/delete?path=${encodeURIComponent(path)}`, { method: "DELETE" })
+  if (!res.ok && res.status !== 204) {
+    throw new Error(await readErrorMessage(res, `delete skill failed (${res.status})`))
+  }
+}
+
+export async function renameSkillFile(from: string, toName: string): Promise<{ path: string; name: string }> {
+  const res = await authedFetch(
+    `${SKILLS_BASE}/rename?from=${encodeURIComponent(from)}&to=${encodeURIComponent(toName)}`,
+    { method: "POST" },
+  )
+  if (!res.ok) throw new Error(await readErrorMessage(res, `rename skill failed (${res.status})`))
+  return res.json()
+}
+
+export async function createSkillFolder(dir: string, name: string): Promise<{ path: string; name: string }> {
+  const res = await authedFetch(
+    `${SKILLS_BASE}/mkdir?path=${encodeURIComponent(dir)}&name=${encodeURIComponent(name)}`,
+    { method: "POST" },
+  )
+  if (!res.ok) throw new Error(await readErrorMessage(res, `create skill folder failed (${res.status})`))
+  return res.json()
+}
+
 // ---- Auth ----
 
 export interface CurrentUser {

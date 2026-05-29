@@ -345,6 +345,72 @@ func (c *Client) EnsureFileMgrPod(ctx context.Context, spec FileMgrPodSpec) erro
 	return err
 }
 
+// SkillMgrPodSpec describes the single, global skillmgr Pod. It mounts the
+// global skills PVC and is not tied to any project.
+type SkillMgrPodSpec struct {
+	Name    string
+	PVCName string
+	Image   string
+	Port    int
+}
+
+// EnsureSkillMgrPod creates the global skillmgr Pod with the global skills PVC
+// mounted at /skills. Idempotent: returns nil if a Pod with
+// the same name already exists. Unlike filemgr there is exactly one of these
+// cluster-wide, so it carries no project label.
+func (c *Client) EnsureSkillMgrPod(ctx context.Context, spec SkillMgrPodSpec) error {
+	if _, err := c.dynamic.Resource(podGVR).Namespace(c.namespace).Get(ctx, spec.Name, metav1.GetOptions{}); err == nil {
+		return nil
+	} else if !apierrors.IsNotFound(err) {
+		return err
+	}
+	pod := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "v1",
+			"kind":       "Pod",
+			"metadata": map[string]interface{}{
+				"name":      spec.Name,
+				"namespace": c.namespace,
+				"labels": map[string]interface{}{
+					LabelComponent: "skillmgr",
+				},
+			},
+			"spec": map[string]interface{}{
+				"restartPolicy": "Always",
+				"securityContext": map[string]interface{}{
+					"fsGroup": int64(1000),
+				},
+				"volumes": []interface{}{
+					map[string]interface{}{
+						"name": "skills",
+						"persistentVolumeClaim": map[string]interface{}{
+							"claimName": spec.PVCName,
+						},
+					},
+				},
+				"containers": []interface{}{
+					map[string]interface{}{
+						"name":  "skillmgr",
+						"image": spec.Image,
+						"ports": []interface{}{
+							map[string]interface{}{"containerPort": int64(spec.Port)},
+						},
+						"env": []interface{}{
+							map[string]interface{}{"name": "SKILLMGR_ROOT", "value": "/skills"},
+							map[string]interface{}{"name": "PORT", "value": fmt.Sprintf("%d", spec.Port)},
+						},
+						"volumeMounts": []interface{}{
+							map[string]interface{}{"name": "skills", "mountPath": "/skills"},
+						},
+					},
+				},
+			},
+		},
+	}
+	_, err := c.dynamic.Resource(podGVR).Namespace(c.namespace).Create(ctx, pod, metav1.CreateOptions{})
+	return err
+}
+
 // WaitPodReady polls until status.podIP is set and the Ready condition is
 // True, then returns the Pod IP. Used for filemgr — sandbox readiness flows
 // through the Sandbox CR instead.

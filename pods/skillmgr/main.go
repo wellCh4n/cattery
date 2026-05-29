@@ -1,14 +1,14 @@
-// filemgr: tiny HTTP file API served by a standalone per-project Pod.
-// Mounts the project's workspace PVC at /work. Internal-only —
-// reached through the backend proxy, never exposed externally.
+// skillmgr: tiny HTTP API for the global skill library.
+// Mounts the skills PVC at /skills. Internal-only; reached through the
+// backend proxy, never exposed externally.
 package main
 
 import (
+	"archive/zip"
 	"encoding/json"
 	"errors"
 	"io"
 	"log"
-	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -18,17 +18,17 @@ import (
 )
 
 const (
-	defaultRoot   = "/work"
-	defaultPort   = "1115"
-	maxReadBytes  = 2 * 1024 * 1024 // 2MB — keeps the frontend snappy
-	dirEntryLimit = 2000            // protect against huge dirs
+	defaultRoot   = "/skills"
+	defaultPort   = "1116"
+	maxReadBytes  = 2 * 1024 * 1024
+	dirEntryLimit = 2000
 )
 
 type entry struct {
 	Name  string `json:"name"`
 	Type  string `json:"type"` // "file" | "dir" | "link"
 	Size  int64  `json:"size"`
-	Mtime int64  `json:"mtime"` // unix seconds
+	Mtime int64  `json:"mtime"`
 }
 
 type readResponse struct {
@@ -42,7 +42,7 @@ type readResponse struct {
 var root string
 
 func main() {
-	root = os.Getenv("FILEMGR_ROOT")
+	root = os.Getenv("SKILLMGR_ROOT")
 	if root == "" {
 		root = defaultRoot
 	}
@@ -54,26 +54,21 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/list", handleList)
 	mux.HandleFunc("/read", handleRead)
-	mux.HandleFunc("/raw", handleRaw)
-	mux.HandleFunc("/download", handleDownload)
-	mux.HandleFunc("/upload", handleUpload)
+	mux.HandleFunc("/upload-zip", handleUploadZip)
 	mux.HandleFunc("/delete", handleDelete)
 	mux.HandleFunc("/rename", handleRename)
-	mux.HandleFunc("/move", handleMove)
 	mux.HandleFunc("/mkdir", handleMkdir)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 
 	addr := "0.0.0.0:" + port
-	log.Printf("filemgr listening on %s, root=%s", addr, root)
+	log.Printf("skillmgr listening on %s, root=%s", addr, root)
 	if err := http.ListenAndServe(addr, mux); err != nil {
 		log.Fatalf("listen: %v", err)
 	}
 }
 
-// resolve cleans the user-supplied relative path and joins it under root,
-// rejecting anything that would escape via .. or absolute symlinks.
 func resolve(rel string) (string, error) {
 	cleaned := filepath.Clean("/" + strings.TrimPrefix(rel, "/"))
 	abs := filepath.Join(root, cleaned)
@@ -110,6 +105,10 @@ func handleList(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not a directory", http.StatusBadRequest)
 		return
 	}
+	if err := cleanupMacJunk(abs); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 
 	dirents, err := os.ReadDir(abs)
 	if err != nil {
@@ -119,6 +118,9 @@ func handleList(w http.ResponseWriter, r *http.Request) {
 
 	out := make([]entry, 0, len(dirents))
 	for i, de := range dirents {
+		if isMacJunkName(de.Name()) {
+			continue
+		}
 		if i >= dirEntryLimit {
 			break
 		}
@@ -138,7 +140,6 @@ func handleList(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, e)
 	}
-	// dirs first, then alpha within each group — matches IDEA / VSCode trees
 	sort.SliceStable(out, func(i, j int) bool {
 		if (out[i].Type == "dir") != (out[j].Type == "dir") {
 			return out[i].Type == "dir"
@@ -208,80 +209,7 @@ func handleRead(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, resp)
 }
 
-// handleRaw streams raw file bytes for inline display in the browser. Unlike
-// /download it sets a sniffed Content-Type (so <img>, <video>, <audio>, PDFs
-// all render in-tab) and does NOT add Content-Disposition. Used by the
-// frontend to preview images/media in the file viewer dialog.
-func handleRaw(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	abs, err := resolve(r.URL.Query().Get("path"))
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	info, err := os.Stat(abs)
-	if err != nil {
-		if os.IsNotExist(err) {
-			http.Error(w, "not found", http.StatusNotFound)
-			return
-		}
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if info.IsDir() {
-		http.Error(w, "is a directory", http.StatusBadRequest)
-		return
-	}
-	// Prefer mime.TypeByExtension for known extensions (covers svg as
-	// image/svg+xml, which DetectContentType reports as text/xml). Fall back
-	// to http.ServeContent's own sniffing when the extension is unknown by
-	// leaving the Content-Type header unset.
-	if ct := mime.TypeByExtension(filepath.Ext(abs)); ct != "" {
-		w.Header().Set("Content-Type", ct)
-	}
-	http.ServeFile(w, r, abs)
-}
-
-// handleDownload streams raw file bytes with Content-Disposition: attachment.
-// Distinct from /read (which returns JSON with a length-limited content field
-// for previewing in the editor) — /download has no size cap and is the path
-// users hit when they want the file on their machine.
-func handleDownload(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	abs, err := resolve(r.URL.Query().Get("path"))
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	info, err := os.Stat(abs)
-	if err != nil {
-		if os.IsNotExist(err) {
-			http.Error(w, "not found", http.StatusNotFound)
-			return
-		}
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if info.IsDir() {
-		http.Error(w, "is a directory", http.StatusBadRequest)
-		return
-	}
-	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Content-Length", strconv.FormatInt(info.Size(), 10))
-	w.Header().Set("Content-Disposition", "attachment; filename="+strconv.Quote(filepath.Base(abs)))
-	http.ServeFile(w, r, abs)
-}
-
-// handleUpload accepts a single multipart "file" field and writes it to ?path=
-// (a directory under root). The file lands at <path>/<original name>; existing
-// files are overwritten. Returns the resolved relative path.
-func handleUpload(w http.ResponseWriter, r *http.Request) {
+func handleUploadZip(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -305,8 +233,6 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 256 MB cap on a single request — both for memory safety on the parser
-	// side and because anything bigger probably belongs to git-lfs / a bucket.
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -318,41 +244,180 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	defer f.Close()
 
-	// strip any directory component the browser might have sent
-	name := filepath.Base(header.Filename)
-	if name == "" || name == "." || name == "/" {
-		http.Error(w, "invalid filename", http.StatusBadRequest)
+	skillDirName, err := skillDirNameFromZip(header.Filename)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	dest := filepath.Join(destDir, name)
-	// final safety check — name shouldn't be able to escape destDir
-	if !strings.HasPrefix(dest, destDir+string(os.PathSeparator)) && dest != destDir {
-		http.Error(w, "invalid filename", http.StatusBadRequest)
+	extractDir := filepath.Join(destDir, skillDirName)
+	if extractDir != destDir && !strings.HasPrefix(extractDir, destDir+string(os.PathSeparator)) {
+		http.Error(w, "zip filename escapes destination", http.StatusBadRequest)
+		return
+	}
+	if err := os.MkdirAll(extractDir, 0o755); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := cleanupMacJunk(extractDir); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	out, err := os.Create(dest)
+	ra, ok := f.(io.ReaderAt)
+	size := header.Size
+	if !ok {
+		tmp, err := os.CreateTemp("", "skillmgr-zip-*")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer os.Remove(tmp.Name())
+		defer tmp.Close()
+		n, err := io.Copy(tmp, f)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		size = n
+		if _, err := tmp.Seek(0, io.SeekStart); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		ra = tmp
+	}
+
+	zr, err := zip.NewReader(ra, size)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "invalid zip: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	defer out.Close()
-	if _, err := io.Copy(out, f); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+
+	dirs, files := 1, 0
+	for _, ze := range zr.File {
+		raw := ze.Name
+		if raw == "" || strings.HasPrefix(raw, "/") || strings.Contains(raw, "\\") {
+			http.Error(w, "invalid entry path: "+raw, http.StatusBadRequest)
+			return
+		}
+		entryRel := cleanZipEntry(raw, skillDirName)
+		if entryRel == "" {
+			continue
+		}
+		if isMacJunkEntry(entryRel) {
+			continue
+		}
+		dest := filepath.Join(extractDir, entryRel)
+		if dest != extractDir && !strings.HasPrefix(dest, extractDir+string(os.PathSeparator)) {
+			http.Error(w, "entry escapes destination: "+raw, http.StatusBadRequest)
+			return
+		}
+
+		mode := ze.Mode()
+		switch {
+		case ze.FileInfo().IsDir():
+			if err := os.MkdirAll(dest, 0o755); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			dirs++
+		case mode&os.ModeSymlink != 0 || !mode.IsRegular():
+			http.Error(w, "unsupported entry type: "+raw, http.StatusBadRequest)
+			return
+		default:
+			if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			rc, err := ze.Open()
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			out, err := os.Create(dest)
+			if err != nil {
+				rc.Close()
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			if _, err := io.Copy(out, rc); err != nil {
+				rc.Close()
+				out.Close()
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			rc.Close()
+			out.Close()
+			files++
+		}
 	}
 
 	relReq := strings.TrimPrefix(r.URL.Query().Get("path"), "/")
 	writeJSON(w, map[string]interface{}{
-		"path": filepath.ToSlash(filepath.Join("/", relReq, name)),
-		"name": name,
-		"size": header.Size,
+		"path":  filepath.ToSlash(filepath.Join("/", relReq, skillDirName)),
+		"dirs":  dirs,
+		"files": files,
 	})
 }
 
-// handleDelete removes the file or directory at ?path=. Directories are
-// removed recursively (rm -rf semantics) — the user explicitly asked for hard
-// delete, no .trash. Refuses to delete the root itself.
+func skillDirNameFromZip(filename string) (string, error) {
+	name := filepath.Base(filename)
+	if strings.EqualFold(filepath.Ext(name), ".zip") {
+		name = strings.TrimSuffix(name, filepath.Ext(name))
+	}
+	name = filepath.Base(filepath.Clean("/" + name))
+	if name == "" || name == "." || name == "/" || strings.ContainsAny(name, `/\`) {
+		return "", errors.New("invalid zip filename")
+	}
+	return name, nil
+}
+
+func cleanZipEntry(raw string, skillDirName string) string {
+	cleaned := filepath.ToSlash(filepath.Clean("/" + raw))
+	if cleaned == "/" {
+		return ""
+	}
+	rel := strings.TrimPrefix(cleaned, "/")
+	parts := strings.Split(rel, "/")
+	if len(parts) > 1 && parts[0] == skillDirName {
+		rel = strings.Join(parts[1:], "/")
+	}
+	return rel
+}
+
+func isMacJunkEntry(rel string) bool {
+	for _, part := range strings.Split(filepath.ToSlash(rel), "/") {
+		if isMacJunkName(part) {
+			return true
+		}
+	}
+	return false
+}
+
+func isMacJunkName(name string) bool {
+	return name == "__MACOSX" || name == ".DS_Store" || strings.HasPrefix(name, "._")
+}
+
+func cleanupMacJunk(dir string) error {
+	return filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if path == dir {
+			return nil
+		}
+		if !isMacJunkName(d.Name()) {
+			return nil
+		}
+		if err := os.RemoveAll(path); err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return filepath.SkipDir
+		}
+		return nil
+	})
+}
+
 func handleDelete(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete && r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -387,10 +452,6 @@ func handleDelete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handleRename moves ?from= to a sibling at ?to= (a base name, not a path).
-// Both must resolve under root, and "to" must stay in the same parent dir as
-// "from" — this endpoint is for renaming, not moving across directories.
-// Refuses to overwrite an existing entry.
 func handleRename(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -415,8 +476,6 @@ func handleRename(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing 'to'", http.StatusBadRequest)
 		return
 	}
-	// Treat "to" as a bare base name — the browser shouldn't be sending paths
-	// here, and accepting a path would let callers move across directories.
 	cleanedTo := filepath.Base(filepath.Clean("/" + toName))
 	if cleanedTo == "" || cleanedTo == "." || cleanedTo == "/" || strings.ContainsAny(cleanedTo, "/\\") {
 		http.Error(w, "invalid 'to'", http.StatusBadRequest)
@@ -457,104 +516,6 @@ func handleRename(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleMove moves ?from= into the directory ?to= (a destination dir under
-// root), keeping the source's base name. Refuses to overwrite an existing
-// entry, to move root, or to move a directory into itself or its descendants.
-func handleMove(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	from, err := resolve(r.URL.Query().Get("from"))
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	rootAbs, err := filepath.Abs(root)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if from == rootAbs {
-		http.Error(w, "cannot move root", http.StatusBadRequest)
-		return
-	}
-	toDir, err := resolve(r.URL.Query().Get("to"))
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	info, err := os.Stat(toDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			http.Error(w, "destination not found", http.StatusNotFound)
-			return
-		}
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if !info.IsDir() {
-		http.Error(w, "destination is not a directory", http.StatusBadRequest)
-		return
-	}
-	srcInfo, err := os.Lstat(from)
-	if err != nil {
-		if os.IsNotExist(err) {
-			http.Error(w, "not found", http.StatusNotFound)
-			return
-		}
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	// No-op: source already lives in the destination directory.
-	if filepath.Dir(from) == toDir {
-		relSelf := strings.TrimPrefix(from, rootAbs)
-		if relSelf == "" {
-			relSelf = "/"
-		}
-		writeJSON(w, map[string]interface{}{
-			"path": filepath.ToSlash(relSelf),
-			"name": filepath.Base(from),
-		})
-		return
-	}
-	// Refuse to move a directory into itself or any of its descendants —
-	// os.Rename would happily produce a cycle and orphan the subtree.
-	if srcInfo.IsDir() {
-		if toDir == from || strings.HasPrefix(toDir, from+string(os.PathSeparator)) {
-			http.Error(w, "cannot move a folder into itself", http.StatusBadRequest)
-			return
-		}
-	}
-	name := filepath.Base(from)
-	dest := filepath.Join(toDir, name)
-	if dest != rootAbs && !strings.HasPrefix(dest, rootAbs+string(os.PathSeparator)) {
-		http.Error(w, "path escapes root", http.StatusBadRequest)
-		return
-	}
-	if _, err := os.Lstat(dest); err == nil {
-		http.Error(w, "destination already exists", http.StatusConflict)
-		return
-	} else if !os.IsNotExist(err) {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if err := os.Rename(from, dest); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	relDest := strings.TrimPrefix(dest, rootAbs)
-	if relDest == "" {
-		relDest = "/"
-	}
-	writeJSON(w, map[string]interface{}{
-		"path": filepath.ToSlash(relDest),
-		"name": name,
-	})
-}
-
-// handleMkdir creates a directory ?name= inside ?path= (the parent dir).
-// "name" must be a bare base name; refuses to overwrite an existing entry.
 func handleMkdir(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -615,12 +576,16 @@ func handleMkdir(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// isBinary uses the same heuristic git does: presence of a NUL byte in the
-// first chunk. Cheap and good enough for editor-style previews.
 func isBinary(buf []byte) bool {
-	n := min(len(buf), 8000)
-	for i := range n {
-		if buf[i] == 0 {
+	if len(buf) == 0 {
+		return false
+	}
+	n := len(buf)
+	if n > 8000 {
+		n = 8000
+	}
+	for _, b := range buf[:n] {
+		if b == 0 {
 			return true
 		}
 	}
@@ -629,5 +594,7 @@ func isBinary(buf []byte) bool {
 
 func writeJSON(w http.ResponseWriter, v interface{}) {
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(v)
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }

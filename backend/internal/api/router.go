@@ -30,6 +30,7 @@ func NewRouter(
 	projectH *ProjectHandler,
 	sessionH *SessionHandler,
 	filesH *FilesHandler,
+	skillsH *SkillsHandler,
 	authH *AuthHandler,
 	adminH *AdminHandler,
 	usersH *UsersHandler,
@@ -155,6 +156,18 @@ func NewRouter(
 	sessions.GET("/:session_id/term", sessionH.Term)
 	sessions.PATCH("/:session_id", sessionH.UpdateTitle)
 	sessions.DELETE("/:session_id", sessionH.Delete)
+
+	// Global skill library, proxied to the single cluster-wide skillmgr Pod.
+	// Not project-scoped and (for now) not admin-gated — permissions are
+	// deferred. Kept intentionally narrower than /files: skills are managed as
+	// top-level folders uploaded from ZIP archives.
+	skills := protected.Group("/skills")
+	skills.GET("/list", skillsH.List)
+	skills.GET("/read", skillsH.Read)
+	skills.POST("/upload-zip", skillsH.UploadZip)
+	skills.DELETE("/delete", skillsH.Delete)
+	skills.POST("/rename", skillsH.Rename)
+	skills.POST("/mkdir", skillsH.Mkdir)
 
 	// Admin-only user management. AdminOnly layers on top of the existing
 	// AuthMiddleware (already attached to `protected`), so we get both
