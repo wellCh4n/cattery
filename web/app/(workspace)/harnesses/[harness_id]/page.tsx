@@ -32,6 +32,7 @@ import { HarnessIcon } from "@/components/harness-icon"
 import { ModelIcon } from "@/components/model-icon"
 import { RenameSessionDialog } from "@/components/rename-session-dialog"
 import { type Session, type TransportKind } from "@/lib/api"
+import { useDocumentTitle } from "@/lib/use-document-title"
 import { cn } from "@/lib/utils"
 import { type HarnessWithSessions, useWorkspaceStore } from "@/lib/workspace-store"
 
@@ -76,6 +77,8 @@ export default function HarnessPage({ params }: { params: Promise<PageParams> })
   const [deleting, setDeleting] = useState(false)
   const [renameSessionTarget, setRenameSessionTarget] = useState<Session | null>(null)
   const [renameSessionOpen, setRenameSessionOpen] = useState(false)
+
+  useDocumentTitle(harness ? (harness.harness_name ?? "Untitled") : null)
 
   useEffect(() => {
     if (loaded && harness) return

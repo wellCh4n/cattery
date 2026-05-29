@@ -4,6 +4,7 @@ import { use, useEffect, useState } from "react"
 import { AlertTriangle, Loader2 } from "lucide-react"
 import { ChatPanel } from "@/components/chat-panel"
 import { TerminalView } from "@/components/terminal-view"
+import { useDocumentTitle } from "@/lib/use-document-title"
 import { useWorkspaceStore } from "@/lib/workspace-store"
 
 interface PageParams {
@@ -32,6 +33,8 @@ export default function SessionPage({ params }: { params: Promise<PageParams> })
   const refreshSession = useWorkspaceStore(state => state.refreshSession)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(session === null || harness === null)
+
+  useDocumentTitle(session ? (session.title ?? "New Session") : null)
 
   useEffect(() => {
     let cancelled = false
