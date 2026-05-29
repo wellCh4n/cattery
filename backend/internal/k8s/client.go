@@ -34,10 +34,51 @@ var pvcGVR = schema.GroupVersionResource{
 }
 
 const (
-	LabelHarnessID = "cattery.harness.id"
-	LabelProjectID = "cattery.project.id"
-	LabelComponent = "cattery.component"
+	// K8s-recommended common labels — a uniform selector surface carried by
+	// every cattery-managed resource. `app.kubernetes.io/part-of=cattery`
+	// selects them all; `.../component=<role>` narrows to one kind.
+	LabelName      = "app.kubernetes.io/name"       // always appName
+	LabelPartOf    = "app.kubernetes.io/part-of"    // always appName
+	LabelManagedBy = "app.kubernetes.io/managed-by" // always managedBy
+	LabelComponent = "app.kubernetes.io/component"  // role within the platform
+	LabelInstance  = "app.kubernetes.io/instance"   // the resource's own name
+
+	// Business dimensions — custom keys, DNS-subdomain-prefixed per the K8s
+	// label conventions (bare/unprefixed keys are reserved for end users).
+	LabelHarnessID = "cattery.dev/harness-id"
+	LabelProjectID = "cattery.dev/project-id"
 )
+
+// Platform-wide constant label values.
+const (
+	appName   = "cattery"
+	managedBy = "cattery-backend"
+)
+
+// Component values for LabelComponent — the role a resource plays.
+const (
+	ComponentSandbox   = "sandbox"
+	ComponentFileMgr   = "filemgr"
+	ComponentSkillMgr  = "skillmgr"
+	ComponentWorkspace = "workspace"
+	ComponentSkills    = "skills"
+)
+
+// commonLabels returns the app.kubernetes.io/* labels every cattery resource
+// carries. component is its role (e.g. ComponentSandbox); instance is the
+// resource's own name (omitted when empty).
+func commonLabels(component, instance string) map[string]interface{} {
+	l := map[string]interface{}{
+		LabelName:      appName,
+		LabelPartOf:    appName,
+		LabelManagedBy: managedBy,
+		LabelComponent: component,
+	}
+	if instance != "" {
+		l[LabelInstance] = instance
+	}
+	return l
+}
 
 type Client struct {
 	dynamic   dynamic.Interface
@@ -118,10 +159,9 @@ func (c *Client) RunTask(ctx context.Context, spec SandboxSpec) error {
 		},
 	}
 
-	labels := map[string]interface{}{
-		LabelHarnessID: spec.HarnessID,
-		LabelProjectID: spec.ProjectID,
-	}
+	labels := commonLabels(ComponentSandbox, spec.Name)
+	labels[LabelHarnessID] = spec.HarnessID
+	labels[LabelProjectID] = spec.ProjectID
 	workspaceVolume := map[string]interface{}{
 		"name":     workVolumeName,
 		"emptyDir": map[string]interface{}{},
@@ -181,14 +221,17 @@ func (c *Client) RunTask(ctx context.Context, spec SandboxSpec) error {
 	return err
 }
 
-func (c *Client) EnsurePVC(ctx context.Context, name string, labels map[string]string) error {
+// EnsurePVC creates a ReadWriteOnce PVC if absent. component is its role
+// (ComponentWorkspace / ComponentSkills); extra carries business dimensions
+// (e.g. LabelProjectID) merged on top of the common app.kubernetes.io/* set.
+func (c *Client) EnsurePVC(ctx context.Context, name, component string, extra map[string]string) error {
 	_, err := c.dynamic.Resource(pvcGVR).Namespace(c.namespace).Get(ctx, name, metav1.GetOptions{})
 	if err == nil {
 		return nil
 	}
-	metaLabels := map[string]interface{}{}
-	for k, v := range labels {
-		metaLabels[k] = v
+	labels := commonLabels(component, name)
+	for k, v := range extra {
+		labels[k] = v
 	}
 	pvc := &unstructured.Unstructured{
 		Object: map[string]interface{}{
@@ -197,7 +240,7 @@ func (c *Client) EnsurePVC(ctx context.Context, name string, labels map[string]s
 			"metadata": map[string]interface{}{
 				"name":      name,
 				"namespace": c.namespace,
-				"labels":    metaLabels,
+				"labels":    labels,
 			},
 			"spec": map[string]interface{}{
 				"accessModes": []interface{}{"ReadWriteOnce"},
@@ -320,6 +363,8 @@ func (c *Client) EnsureFileMgrPod(ctx context.Context, spec FileMgrPodSpec) erro
 	} else if !apierrors.IsNotFound(err) {
 		return err
 	}
+	labels := commonLabels(ComponentFileMgr, spec.Name)
+	labels[LabelProjectID] = spec.ProjectID
 	pod := &unstructured.Unstructured{
 		Object: map[string]interface{}{
 			"apiVersion": "v1",
@@ -327,10 +372,7 @@ func (c *Client) EnsureFileMgrPod(ctx context.Context, spec FileMgrPodSpec) erro
 			"metadata": map[string]interface{}{
 				"name":      spec.Name,
 				"namespace": c.namespace,
-				"labels": map[string]interface{}{
-					LabelProjectID: spec.ProjectID,
-					LabelComponent: "filemgr",
-				},
+				"labels":    labels,
 			},
 			"spec": map[string]interface{}{
 				// Always-restart so a crashed filemgr comes back without
@@ -397,9 +439,7 @@ func (c *Client) EnsureSkillMgrPod(ctx context.Context, spec SkillMgrPodSpec) er
 			"metadata": map[string]interface{}{
 				"name":      spec.Name,
 				"namespace": c.namespace,
-				"labels": map[string]interface{}{
-					LabelComponent: "skillmgr",
-				},
+				"labels":    commonLabels(ComponentSkillMgr, spec.Name),
 			},
 			"spec": map[string]interface{}{
 				"restartPolicy": "Always",

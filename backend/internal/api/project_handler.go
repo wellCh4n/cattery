@@ -66,7 +66,7 @@ func (h *ProjectHandler) Create(c echo.Context) error {
 	// 运行的时候也可用。失败时记日志不阻塞 API：files_handler 在第一次访问
 	// 时还会重新 EnsurePVC + EnsureFileMgrPod 兜底。
 	pvcName := sandbox.PVCNameForProjectID(project.ProjectID)
-	if err := h.k8s.EnsurePVC(c.Request().Context(), pvcName, map[string]string{
+	if err := h.k8s.EnsurePVC(c.Request().Context(), pvcName, k8s.ComponentWorkspace, map[string]string{
 		k8s.LabelProjectID: project.ProjectID.String(),
 	}); err != nil {
 		log.Printf("warn: ensure workspace pvc for project %s: %v", project.ProjectID, err)

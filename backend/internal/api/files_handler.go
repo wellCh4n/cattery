@@ -56,7 +56,7 @@ func (h *FilesHandler) requireFileMgrURL(c echo.Context, write bool) (string, er
 	ctx := c.Request().Context()
 	projectID := access.Project.ProjectID
 	pvcName := sandbox.PVCNameForProjectID(projectID)
-	if err := h.k8s.EnsurePVC(ctx, pvcName, map[string]string{
+	if err := h.k8s.EnsurePVC(ctx, pvcName, k8s.ComponentWorkspace, map[string]string{
 		k8s.LabelProjectID: projectID.String(),
 	}); err != nil {
 		return "", echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("ensure pvc: %v", err))

@@ -42,9 +42,7 @@ func (h *SkillsHandler) requireSkillMgrURL(c echo.Context) (string, error) {
 		return "", echo.ErrUnauthorized
 	}
 	ctx := c.Request().Context()
-	if err := h.k8s.EnsurePVC(ctx, sandbox.SkillsPVCName, map[string]string{
-		k8s.LabelComponent: "skillmgr",
-	}); err != nil {
+	if err := h.k8s.EnsurePVC(ctx, sandbox.SkillsPVCName, k8s.ComponentSkills, nil); err != nil {
 		return "", echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("ensure skills pvc: %v", err))
 	}
 	if err := h.k8s.EnsureSkillMgrPod(ctx, k8s.SkillMgrPodSpec{

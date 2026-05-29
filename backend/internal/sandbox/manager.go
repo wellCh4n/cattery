@@ -166,7 +166,7 @@ func (m *Manager) EnsureReady(ctx context.Context, inst *model.Harness) (string,
 	}
 
 	pvcName := PVCNameFor(inst)
-	if err := m.k8sClient.EnsurePVC(ctx, pvcName, map[string]string{
+	if err := m.k8sClient.EnsurePVC(ctx, pvcName, k8s.ComponentWorkspace, map[string]string{
 		k8s.LabelProjectID: inst.ProjectID.String(),
 	}); err != nil {
 		_ = m.store.UpdateSandboxStatus(ctx, inst.HarnessID, "failed")
@@ -189,9 +189,7 @@ func (m *Manager) EnsureReady(ctx context.Context, inst *model.Harness) (string,
 	// here too: on a fresh cluster nobody may have opened the Skills panel yet,
 	// and a missing PVC would block the sandbox Pod from scheduling.
 	if mount, ok := skillsMountPaths[inst.Type]; ok {
-		if err := m.k8sClient.EnsurePVC(ctx, SkillsPVCName, map[string]string{
-			k8s.LabelComponent: "skillmgr",
-		}); err != nil {
+		if err := m.k8sClient.EnsurePVC(ctx, SkillsPVCName, k8s.ComponentSkills, nil); err != nil {
 			_ = m.store.UpdateSandboxStatus(ctx, inst.HarnessID, "failed")
 			return "", fmt.Errorf("ensure skills pvc: %w", err)
 		}
