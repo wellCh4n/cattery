@@ -184,9 +184,21 @@ export function SkillBrowserPanel() {
           </div>
         )}
         {isEmpty && (
-          <div className="flex flex-1 flex-col items-center justify-center gap-2 px-4 text-center text-xs text-muted-foreground">
-            <p>No skills yet.</p>
-            <p>Upload a .zip of a <span className="font-mono">{"<slug>/SKILL.md"}</span> folder.</p>
+          <div className="flex h-full flex-col items-center justify-center px-4 text-center">
+            <Puzzle className="size-8 text-muted-foreground/50" />
+            <p className="mt-2 text-xs text-muted-foreground">No skills</p>
+            <div className="mt-3 flex w-32 flex-col gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+              >
+                {uploading ? <Loader2 className="animate-spin" /> : <Upload />}
+                Upload
+              </Button>
+            </div>
           </div>
         )}
         {catalog?.map(skill => (
