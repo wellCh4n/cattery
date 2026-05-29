@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
@@ -24,14 +25,21 @@ type userSearchDTO struct {
 	Username string    `json:"username"`
 }
 
-// Search returns up to 20 users whose username contains the query substring.
-// Empty query matches all. Available to any authenticated caller — usernames
-// are not considered secret in this internal tool.
+// Search returns users whose username contains the query substring. Empty
+// query matches all. An optional `limit` caps the result count (default 20,
+// store enforces a hard ceiling); the membership transfer box requests a
+// higher limit to list the full directory on one side. Available to any
+// authenticated caller — usernames are not considered secret in this internal
+// tool.
 func (h *UsersHandler) Search(c echo.Context) error {
 	if _, ok := UserIDFromContext(c); !ok {
 		return echo.ErrUnauthorized
 	}
-	users, err := h.users.Search(c.Request().Context(), c.QueryParam("q"), 20)
+	limit := 20
+	if v, err := strconv.Atoi(c.QueryParam("limit")); err == nil && v > 0 {
+		limit = v
+	}
+	users, err := h.users.Search(c.Request().Context(), c.QueryParam("q"), limit)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}

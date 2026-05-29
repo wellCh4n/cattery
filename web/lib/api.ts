@@ -156,8 +156,9 @@ export async function listProjectMembers(projectId: string): Promise<ProjectMemb
   return res.json()
 }
 
-export async function searchUsers(query: string): Promise<UserSummary[]> {
-  const url = `${API_BASE}/api/v1/users/search?q=${encodeURIComponent(query)}`
+export async function searchUsers(query: string, limit?: number): Promise<UserSummary[]> {
+  let url = `${API_BASE}/api/v1/users/search?q=${encodeURIComponent(query)}`
+  if (limit) url += `&limit=${limit}`
   const res = await authedFetch(url, { cache: "no-store" })
   if (!res.ok) throw new Error("failed to search users")
   return res.json()

@@ -1,19 +1,22 @@
 "use client"
 
 // ProjectMembersPanel — sidebar view for project membership. Shape mirrors
-// the harness panel: h-9 title bar ("MEMBERS" + add button), then a body
+// the harness panel: h-9 title bar ("MEMBERS" + manage button), then a body
 // that lists the project owner (always first) followed by the members. Every
-// member has full access; only the owner can add/remove members. Adding a
-// member is a modal flow off the + button rather than an inline form.
+// member has full access; only the owner can add/remove members. Managing
+// members is a transfer-box modal off the + button: all users on the left,
+// current members on the right, both searchable — left→right adds, right→left
+// removes.
 
-import { useEffect, useState } from "react"
-import { Loader2, Plus, RefreshCw, Trash2 } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
+import { Check, ChevronLeft, ChevronRight, Loader2, Plus, RefreshCw, Trash2 } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { TreeRow, TreeRowAction } from "@/components/tree-row"
 import {
   Dialog,
   DialogContent,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
@@ -28,6 +31,9 @@ import {
 } from "@/lib/api"
 
 const MIN_REFRESH_SPIN_MS = 1000
+// The transfer box lists the whole directory on the left; ask for the store's
+// ceiling rather than the default 20-row autocomplete cap.
+const DIRECTORY_LIMIT = 50
 
 interface Props {
   project: Project
@@ -39,7 +45,7 @@ export function ProjectMembersPanel({ project, canManage }: Props) {
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [addOpen, setAddOpen] = useState(false)
+  const [manageOpen, setManageOpen] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
 
   async function refreshMembers() {
@@ -87,8 +93,12 @@ export function ProjectMembersPanel({ project, canManage }: Props) {
   }
 
   function handleAdded(member: ProjectMember) {
-    setMembers(list => [member, ...list.filter(m => m.user_id !== member.user_id)]
+    setMembers(list => [...list.filter(m => m.user_id !== member.user_id), member]
       .sort((a, b) => a.username.localeCompare(b.username)))
+  }
+
+  function handleRemoved(userId: string) {
+    setMembers(list => list.filter(m => m.user_id !== userId))
   }
 
   return (
@@ -111,8 +121,8 @@ export function ProjectMembersPanel({ project, canManage }: Props) {
             <Button
               variant="ghost"
               size="icon-sm"
-              onClick={() => setAddOpen(true)}
-              title="Add member"
+              onClick={() => setManageOpen(true)}
+              title="Manage members"
             >
               <Plus />
             </Button>
@@ -146,12 +156,13 @@ export function ProjectMembersPanel({ project, canManage }: Props) {
         {error && <div className="px-2 pt-1 text-xs text-destructive">{error}</div>}
       </div>
 
-      <AddMemberDialog
+      <ManageMembersDialog
         project={project}
-        open={addOpen}
-        onOpenChange={setAddOpen}
-        existingIds={new Set([project.owner_user_id, ...members.map(m => m.user_id)])}
+        open={manageOpen}
+        onOpenChange={setManageOpen}
+        members={members}
         onAdded={handleAdded}
+        onRemoved={handleRemoved}
       />
     </div>
   )
@@ -171,93 +182,119 @@ function MemberRow({
   onRemove?: () => void
 }) {
   return (
-    <div className="group flex h-7 cursor-pointer items-center gap-1.5 px-2 hover:bg-muted/60">
+    <TreeRow className="px-2">
       <span className="min-w-0 flex-1 truncate">{name}</span>
-      {isOwner ? (
-        <span className="text-[10px] uppercase tracking-wide text-muted-foreground">owner</span>
-      ) : canManage ? (
-        <button
-          type="button"
-          className="inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-40"
-          disabled={busy}
-          onClick={onRemove}
-          title="Remove"
-          aria-label="Remove"
-        >
-          {busy ? <Loader2 className="size-3 animate-spin" /> : <Trash2 className="size-3" />}
-        </button>
+      {isOwner || !canManage ? (
+        <Badge variant="secondary" className="h-4 shrink-0 px-1.5 text-[10px] font-normal">
+          {isOwner ? "owner" : "member"}
+        </Badge>
       ) : (
-        <span className="text-[10px] uppercase tracking-wide text-muted-foreground">member</span>
+        <>
+          <Badge
+            variant="secondary"
+            className="h-4 shrink-0 px-1.5 text-[10px] font-normal group-hover/treerow:hidden"
+          >
+            member
+          </Badge>
+          <TreeRowAction
+            destructive
+            disabled={busy}
+            onClick={e => { e.stopPropagation(); onRemove?.() }}
+            title="Remove member"
+            aria-label="Remove member"
+          >
+            {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
+          </TreeRowAction>
+        </>
       )}
-    </div>
+    </TreeRow>
   )
 }
 
-function AddMemberDialog({
+// ManageMembersDialog is a transfer box (穿梭框): all users on the left, the
+// project's current members on the right. Selecting rows on either side and
+// hitting the center arrow applies the change immediately — left→right calls
+// createProjectMember, right→left calls deleteProjectMember — and reports each
+// result up so the sidebar list stays in sync. The owner is never listed; they
+// cannot be removed.
+function ManageMembersDialog({
   project,
   open,
   onOpenChange,
-  existingIds,
+  members,
   onAdded,
+  onRemoved,
 }: {
   project: Project
   open: boolean
   onOpenChange: (open: boolean) => void
-  existingIds: Set<string>
+  members: ProjectMember[]
   onAdded: (member: ProjectMember) => void
+  onRemoved: (userId: string) => void
 }) {
-  const [query, setQuery] = useState("")
-  const [candidates, setCandidates] = useState<UserSummary[]>([])
-  const [selectedUser, setSelectedUser] = useState<UserSummary | null>(null)
-  const [searching, setSearching] = useState(false)
+  const [allUsers, setAllUsers] = useState<UserSummary[]>([])
+  const [loadingUsers, setLoadingUsers] = useState(false)
+  const [leftQuery, setLeftQuery] = useState("")
+  const [rightQuery, setRightQuery] = useState("")
+  const [leftSelected, setLeftSelected] = useState<Set<string>>(new Set())
+  const [rightSelected, setRightSelected] = useState<Set<string>>(new Set())
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!open) {
       queueMicrotask(() => {
-        setQuery("")
-        setCandidates([])
-        setSelectedUser(null)
+        setLeftQuery("")
+        setRightQuery("")
+        setLeftSelected(new Set())
+        setRightSelected(new Set())
         setBusy(false)
         setError(null)
       })
-    }
-  }, [open])
-
-  useEffect(() => {
-    if (!open || selectedUser) {
-      queueMicrotask(() => setCandidates([]))
       return
     }
     let cancelled = false
-    const timer = setTimeout(() => {
-      if (cancelled) return
-      setSearching(true)
-      searchUsers(query)
-        .then(list => {
-          if (cancelled) return
-          setCandidates(list.filter(u => !existingIds.has(u.user_id)))
-        })
-        .catch(() => { if (!cancelled) setCandidates([]) })
-        .finally(() => { if (!cancelled) setSearching(false) })
-    }, 150)
-    return () => {
-      cancelled = true
-      clearTimeout(timer)
-    }
-  }, [open, query, selectedUser, existingIds])
+    setLoadingUsers(true)
+    searchUsers("", DIRECTORY_LIMIT)
+      .then(list => { if (!cancelled) setAllUsers(list) })
+      .catch(e => { if (!cancelled) setError(e instanceof Error ? e.message : "failed to load users") })
+      .finally(() => { if (!cancelled) setLoadingUsers(false) })
+    return () => { cancelled = true }
+  }, [open])
 
-  async function submit() {
-    if (!selectedUser) return
+  const memberIds = useMemo(() => new Set(members.map(m => m.user_id)), [members])
+
+  // Left = directory minus the owner and anyone already a member.
+  const leftUsers = useMemo(() => {
+    const q = leftQuery.trim().toLowerCase()
+    return allUsers
+      .filter(u => u.user_id !== project.owner_user_id && !memberIds.has(u.user_id))
+      .filter(u => !q || u.username.toLowerCase().includes(q))
+  }, [allUsers, leftQuery, memberIds, project.owner_user_id])
+
+  const rightMembers = useMemo(() => {
+    const q = rightQuery.trim().toLowerCase()
+    return members.filter(m => !q || m.username.toLowerCase().includes(q))
+  }, [members, rightQuery])
+
+  function toggle(set: Set<string>, id: string): Set<string> {
+    const next = new Set(set)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    return next
+  }
+
+  async function addSelected() {
+    const picked = leftUsers.filter(u => leftSelected.has(u.user_id))
+    if (picked.length === 0) return
     setBusy(true)
     setError(null)
     try {
-      const member = await createProjectMember(project.project_id, {
-        username: selectedUser.username,
-      })
-      onAdded(member)
-      onOpenChange(false)
+      for (const user of picked) {
+        const member = await createProjectMember(project.project_id, { username: user.username })
+        onAdded(member)
+      }
+      setLeftSelected(new Set())
     } catch (e) {
       setError(e instanceof Error ? e.message : "add member failed")
     } finally {
@@ -265,69 +302,157 @@ function AddMemberDialog({
     }
   }
 
+  async function removeSelected() {
+    const picked = rightMembers.filter(m => rightSelected.has(m.user_id))
+    if (picked.length === 0) return
+    setBusy(true)
+    setError(null)
+    try {
+      for (const member of picked) {
+        await deleteProjectMember(project.project_id, member.user_id)
+        onRemoved(member.user_id)
+      }
+      setRightSelected(new Set())
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "remove member failed")
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[420px]">
+      <DialogContent className="sm:max-w-[640px]">
         <DialogHeader>
-          <DialogTitle>Add member</DialogTitle>
+          <DialogTitle>Manage members</DialogTitle>
         </DialogHeader>
-        <div className="space-y-3">
-          <div className="relative">
-            <Input
-              autoFocus
-              className="h-9 text-sm"
-              placeholder="Search users"
-              value={query}
-              disabled={busy}
-              onChange={e => {
-                setQuery(e.target.value)
-                setSelectedUser(null)
-              }}
-              onKeyDown={e => { if (e.key === "Enter" && selectedUser) void submit() }}
-              autoComplete="off"
-              autoCapitalize="off"
-              spellCheck={false}
-            />
-            {query && !selectedUser && (
-              <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-48 overflow-y-auto rounded-md border bg-popover shadow-md">
-                {searching ? (
-                  <div className="flex h-8 items-center px-2 text-xs text-muted-foreground">
-                    <Loader2 className="mr-1.5 size-3 animate-spin" />
-                    Searching
-                  </div>
-                ) : candidates.length === 0 ? (
-                  <div className="px-2 py-2 text-xs text-muted-foreground">No users found</div>
-                ) : (
-                  candidates.map(candidate => (
-                    <button
-                      key={candidate.user_id}
-                      type="button"
-                      className="flex h-8 w-full cursor-pointer items-center px-2 text-left text-sm hover:bg-muted"
-                      onClick={() => {
-                        setSelectedUser(candidate)
-                        setQuery(candidate.username)
-                        setCandidates([])
-                      }}
-                    >
-                      <span className="truncate">{candidate.username}</span>
-                    </button>
-                  ))
-                )}
-              </div>
-            )}
+        <div className="flex items-stretch gap-2">
+          <TransferList
+            title="All users"
+            search={leftQuery}
+            onSearch={setLeftQuery}
+            empty={loadingUsers ? "Loading" : "No users"}
+            loading={loadingUsers}
+            disabled={busy}
+            items={leftUsers.map(u => ({ id: u.user_id, label: u.username }))}
+            selected={leftSelected}
+            onToggle={id => setLeftSelected(s => toggle(s, id))}
+          />
+
+          <div className="flex flex-col items-center justify-center gap-2">
+            <Button
+              size="icon-sm"
+              variant="outline"
+              disabled={busy || leftSelected.size === 0}
+              onClick={addSelected}
+              title="Add selected"
+              aria-label="Add selected"
+            >
+              {busy ? <Loader2 className="size-4 animate-spin" /> : <ChevronRight className="size-4" />}
+            </Button>
+            <Button
+              size="icon-sm"
+              variant="outline"
+              disabled={busy || rightSelected.size === 0}
+              onClick={removeSelected}
+              title="Remove selected"
+              aria-label="Remove selected"
+            >
+              {busy ? <Loader2 className="size-4 animate-spin" /> : <ChevronLeft className="size-4" />}
+            </Button>
           </div>
-          {error && <div className="text-xs text-destructive">{error}</div>}
+
+          <TransferList
+            title={`Members (${members.length})`}
+            search={rightQuery}
+            onSearch={setRightQuery}
+            empty="No members"
+            loading={false}
+            disabled={busy}
+            items={rightMembers.map(m => ({ id: m.user_id, label: m.username }))}
+            selected={rightSelected}
+            onToggle={id => setRightSelected(s => toggle(s, id))}
+          />
         </div>
-        <DialogFooter>
-          <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={busy}>
-            Cancel
-          </Button>
-          <Button onClick={submit} disabled={!selectedUser || busy}>
-            {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />}
-            Add
-          </Button>
-        </DialogFooter>
+        {error && <div className="pt-1 text-xs text-destructive">{error}</div>}
       </DialogContent>
     </Dialog>
+  )
+}
+
+function TransferList({
+  title,
+  search,
+  onSearch,
+  items,
+  selected,
+  onToggle,
+  empty,
+  loading,
+  disabled,
+}: {
+  title: string
+  search: string
+  onSearch: (value: string) => void
+  items: { id: string; label: string }[]
+  selected: Set<string>
+  onToggle: (id: string) => void
+  empty: string
+  loading: boolean
+  disabled: boolean
+}) {
+  return (
+    <div className="flex min-w-0 flex-1 flex-col rounded-md border">
+      <div className="border-b px-2 py-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+        {title}
+      </div>
+      <div className="p-1.5">
+        <Input
+          className="h-8 text-sm"
+          placeholder="Search"
+          value={search}
+          disabled={disabled}
+          onChange={e => onSearch(e.target.value)}
+          autoComplete="off"
+          autoCapitalize="off"
+          spellCheck={false}
+        />
+      </div>
+      <div className="h-56 overflow-y-auto px-1.5 pb-1.5">
+        {loading ? (
+          <div className="flex h-8 items-center px-1 text-xs text-muted-foreground">
+            <Loader2 className="mr-1.5 size-3 animate-spin" />
+            {empty}
+          </div>
+        ) : items.length === 0 ? (
+          <div className="px-1 py-2 text-xs text-muted-foreground">{empty}</div>
+        ) : (
+          items.map(item => {
+            const active = selected.has(item.id)
+            return (
+              <button
+                key={item.id}
+                type="button"
+                role="checkbox"
+                aria-checked={active}
+                disabled={disabled}
+                onClick={() => onToggle(item.id)}
+                className="flex h-7 w-full cursor-pointer items-center gap-2 rounded px-1.5 text-left text-sm hover:bg-muted disabled:opacity-50"
+              >
+                <span
+                  className={
+                    "flex size-4 shrink-0 items-center justify-center rounded-[4px] border " +
+                    (active ? "border-primary bg-primary text-primary-foreground" : "border-input")
+                  }
+                >
+                  {active && <Check className="size-3" strokeWidth={3} />}
+                </span>
+                <span className="truncate">{item.label}</span>
+              </button>
+            )
+          })
+        )}
+      </div>
+    </div>
   )
 }
