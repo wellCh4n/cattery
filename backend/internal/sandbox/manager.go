@@ -53,6 +53,14 @@ var images = map[string]string{
 	"hermes":      "hermes-sandbox:dev",
 }
 
+// skillsMountPaths maps a harness type to the in-container path where that
+// harness loads skills from. Harnesses absent from this map don't consume the
+// global skill library and get no skills volume. claude-code reads personal
+// skills from ~/.claude/skills, and HOME=/home/node in its image.
+var skillsMountPaths = map[string]string{
+	"claude-code": "/home/node/.claude/skills",
+}
+
 type Manager struct {
 	store         *db.HarnessStore
 	k8sClient     *k8s.Client
@@ -174,6 +182,21 @@ func (m *Manager) EnsureReady(ctx context.Context, inst *model.Harness) (string,
 		ContainerPort: Port,
 		Env:           env,
 		WorkspacePVC:  pvcName,
+	}
+
+	// Mount the global skill library read-only for harnesses that consume it.
+	// The skills PVC is normally created by the skillmgr path, but ensure it
+	// here too: on a fresh cluster nobody may have opened the Skills panel yet,
+	// and a missing PVC would block the sandbox Pod from scheduling.
+	if mount, ok := skillsMountPaths[inst.Type]; ok {
+		if err := m.k8sClient.EnsurePVC(ctx, SkillsPVCName, map[string]string{
+			k8s.LabelComponent: "skillmgr",
+		}); err != nil {
+			_ = m.store.UpdateSandboxStatus(ctx, inst.HarnessID, "failed")
+			return "", fmt.Errorf("ensure skills pvc: %w", err)
+		}
+		spec.SkillsPVC = SkillsPVCName
+		spec.SkillsMount = mount
 	}
 
 	_ = m.store.UpdateSandboxStarting(ctx, inst.HarnessID, name)

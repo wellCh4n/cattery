@@ -232,6 +232,11 @@ async function runPrompt(sess: HarnessSession, userText: string): Promise<void> 
       maxThinkingTokens: 8000,
       includePartialMessages: true,
       permissionMode: 'bypassPermissions',
+      // The agent SDK loads no filesystem settings by default; 'user' opts in to
+      // ~/.claude, which is where the global skill library is mounted read-only
+      // (see backend skillsMountPaths). Without this the mounted skills are
+      // never discovered.
+      settingSources: ['user'],
       cwd: WORKDIR,
       env: {
         ...process.env,

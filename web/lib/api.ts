@@ -387,6 +387,24 @@ export async function createFolder(projectId: string, dir: string, name: string)
 
 const SKILLS_BASE = `${API_BASE}/api/v1/skills`
 
+// SkillCatalogItem is one skill in the library: a top-level `<slug>/` folder,
+// described by its SKILL.md frontmatter. `valid` is false for stray top-level
+// files or folders missing a SKILL.md, with `reason` explaining why.
+export interface SkillCatalogItem {
+  slug: string
+  name: string
+  description: string
+  valid: boolean
+  reason?: string
+  mtime: number
+}
+
+export async function listSkillCatalog(): Promise<SkillCatalogItem[]> {
+  const res = await authedFetch(`${SKILLS_BASE}/catalog`, { cache: "no-store" })
+  if (!res.ok) throw new Error(`list skill catalog failed: ${res.status}`)
+  return res.json()
+}
+
 export async function listSkills(path: string): Promise<FileEntry[]> {
   const res = await authedFetch(`${SKILLS_BASE}/list?path=${encodeURIComponent(path)}`, { cache: "no-store" })
   if (!res.ok) throw new Error(`list skills failed: ${res.status}`)

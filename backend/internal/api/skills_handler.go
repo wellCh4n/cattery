@@ -65,6 +65,13 @@ func (h *SkillsHandler) requireSkillMgrURL(c echo.Context) (string, error) {
 	}).String(), nil
 }
 
+// Catalog proxies GET /skills/catalog — the skill-centric library view: one
+// entry per top-level skill folder, with name/description parsed from each
+// SKILL.md frontmatter. Distinct from /list, which is the raw file tree.
+func (h *SkillsHandler) Catalog(c echo.Context) error {
+	return h.proxyGET(c, "/catalog")
+}
+
 // List proxies GET /skills/list?path=...
 func (h *SkillsHandler) List(c echo.Context) error {
 	return h.proxyGET(c, "/list")

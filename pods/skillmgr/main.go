@@ -39,6 +39,19 @@ type readResponse struct {
 	Content   string `json:"content,omitempty"`
 }
 
+// catalogItem is one entry in the skill-centric catalog: a top-level directory
+// under root is one skill, identified by its `<slug>/SKILL.md` frontmatter.
+// Valid is false for stray top-level files or folders missing a SKILL.md, so
+// the UI can surface them as fixable problems instead of hiding them.
+type catalogItem struct {
+	Slug        string `json:"slug"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Valid       bool   `json:"valid"`
+	Reason      string `json:"reason,omitempty"`
+	Mtime       int64  `json:"mtime"`
+}
+
 var root string
 
 func main() {
@@ -52,6 +65,7 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("/catalog", handleCatalog)
 	mux.HandleFunc("/list", handleList)
 	mux.HandleFunc("/read", handleRead)
 	mux.HandleFunc("/upload-zip", handleUploadZip)
@@ -207,6 +221,101 @@ func handleRead(w http.ResponseWriter, r *http.Request) {
 		resp.Content = string(buf)
 	}
 	writeJSON(w, resp)
+}
+
+const skillManifest = "SKILL.md"
+
+// handleCatalog returns the skill library as a list of skills rather than a raw
+// file tree: each top-level directory is one skill, described by the frontmatter
+// of its SKILL.md. Stray top-level files and folders without a SKILL.md are
+// returned with Valid=false so the UI can flag them instead of hiding them.
+func handleCatalog(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := cleanupMacJunk(root); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	dirents, err := os.ReadDir(root)
+	if err != nil {
+		if os.IsNotExist(err) {
+			writeJSON(w, []catalogItem{})
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	out := make([]catalogItem, 0, len(dirents))
+	for _, de := range dirents {
+		name := de.Name()
+		if isMacJunkName(name) {
+			continue
+		}
+		fi, err := de.Info()
+		if err != nil {
+			continue
+		}
+		item := catalogItem{Slug: name, Name: name, Mtime: fi.ModTime().Unix()}
+		if !fi.IsDir() {
+			item.Reason = "not a folder — each skill must be a <slug>/SKILL.md directory"
+			out = append(out, item)
+			continue
+		}
+		buf, err := os.ReadFile(filepath.Join(root, name, skillManifest))
+		if err != nil {
+			item.Reason = "missing SKILL.md"
+			out = append(out, item)
+			continue
+		}
+		fm := parseFrontmatter(buf)
+		if n := strings.TrimSpace(fm["name"]); n != "" {
+			item.Name = n
+		}
+		item.Description = strings.TrimSpace(fm["description"])
+		item.Valid = true
+		out = append(out, item)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Valid != out[j].Valid {
+			return out[i].Valid // valid skills first, problems sink to the bottom
+		}
+		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
+	})
+	writeJSON(w, out)
+}
+
+// parseFrontmatter extracts top-level `key: value` pairs from a YAML frontmatter
+// block delimited by a leading and a closing `---` line. Intentionally minimal —
+// no nesting or multiline scalars — since skill manifests only carry single-line
+// name + description; this avoids pulling a YAML dependency into skillmgr.
+func parseFrontmatter(buf []byte) map[string]string {
+	out := map[string]string{}
+	text := strings.ReplaceAll(string(buf), "\r\n", "\n")
+	if !strings.HasPrefix(text, "---\n") {
+		return out
+	}
+	rest := text[len("---\n"):]
+	end := strings.Index(rest, "\n---")
+	if end < 0 {
+		return out
+	}
+	for _, line := range strings.Split(rest[:end], "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		colon := strings.Index(line, ":")
+		if colon <= 0 {
+			continue
+		}
+		key := strings.TrimSpace(line[:colon])
+		val := strings.Trim(strings.TrimSpace(line[colon+1:]), `"'`)
+		out[key] = val
+	}
+	return out
 }
 
 func handleUploadZip(w http.ResponseWriter, r *http.Request) {

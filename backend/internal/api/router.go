@@ -162,6 +162,7 @@ func NewRouter(
 	// deferred. Kept intentionally narrower than /files: skills are managed as
 	// top-level folders uploaded from ZIP archives.
 	skills := protected.Group("/skills")
+	skills.GET("/catalog", skillsH.Catalog)
 	skills.GET("/list", skillsH.List)
 	skills.GET("/read", skillsH.Read)
 	skills.POST("/upload-zip", skillsH.UploadZip)
