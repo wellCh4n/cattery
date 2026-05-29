@@ -31,6 +31,21 @@ func FileMgrPodNameForProject(projectID uuid.UUID) string {
 	return fmt.Sprintf("cattery-filemgr-%s", projectID.String())
 }
 
+// SkillMgrPort 是全局 skillmgr Pod 监听的端口。与 filemgr 不同，整个集群只有
+// 一个 skillmgr，挂载全局 skills PVC 暴露 skill 库，后端把 /skills 请求代理过去。
+const SkillMgrPort = 1116
+
+// SkillMgrImage 是 skillmgr 镜像。它只暴露 skill 库需要的窄接口。
+const SkillMgrImage = "cattery-skillmgr:dev"
+
+// SkillMgrPodName 是全局唯一的 skillmgr Pod 名。skill 是全局资源，独立于任何
+// project 管理，所以这里不是 per-project。
+const SkillMgrPodName = "cattery-skillmgr"
+
+// SkillsPVCName 是存放 skill 库的全局 PVC：由 skillmgr RW 挂载、（后续）由
+// sandbox RO 挂载。单节点测试用 RWO 即可；生产多节点需要把该 PVC 供给为 RWX。
+const SkillsPVCName = "cattery-skills-work"
+
 var images = map[string]string{
 	"opencode":    "opencode-sandbox:dev",
 	"claude-code": "claude-code-sandbox:dev",
