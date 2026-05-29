@@ -258,12 +258,17 @@ export function Sidebar() {
               >
                 <span className="min-w-0 flex-1 truncate text-left text-sm font-semibold text-foreground">
                   {currentProject?.project_name ?? "Untitled"}
+                  {currentProject && (
+                    <span className="ml-1.5 font-mono text-xs font-normal text-muted-foreground">
+                      {currentProject.project_id}
+                    </span>
+                  )}
                 </span>
                 <ChevronsUpDown className="size-3 shrink-0 text-muted-foreground" />
               </button>
             )}
             {projectPickerOpen && (
-              <div className="absolute left-0 top-full z-30 mt-1 w-max min-w-full max-w-[320px] max-h-[60vh] overflow-y-auto rounded-md border bg-popover text-sm shadow-md">
+              <div className="absolute left-0 top-full z-30 mt-1 w-max min-w-full max-w-[400px] max-h-[60vh] overflow-y-auto rounded-md border bg-popover text-sm shadow-md">
                 {projects.map(project => {
                   const active = project.project_id === currentProjectId
                   const ownsProject = project.access_role === "owner"
@@ -271,7 +276,7 @@ export function Sidebar() {
                     <div
                       key={project.project_id}
                       className={cn(
-                        "group/proj flex h-9 cursor-pointer items-center gap-2 px-2.5 text-left hover:bg-muted",
+                        "group/proj flex min-h-9 cursor-pointer items-center gap-2 px-2.5 py-1.5 text-left hover:bg-muted",
                         active && "bg-muted/60",
                       )}
                       onClick={() => {
@@ -282,8 +287,13 @@ export function Sidebar() {
                       <span className="flex size-4 shrink-0 items-center justify-center text-foreground">
                         {active ? <Check className="size-3.5" /> : null}
                       </span>
-                      <span className="min-w-0 flex-1 truncate text-xs">
-                        {project.project_name ?? "Untitled"}
+                      <span className="flex min-w-0 flex-1 flex-col">
+                        <span className="truncate text-xs">
+                          {project.project_name ?? "Untitled"}
+                        </span>
+                        <span className="whitespace-nowrap font-mono text-[10px] leading-tight text-muted-foreground">
+                          {project.project_id}
+                        </span>
                       </span>
                       {!ownsProject && (
                         <Badge variant="secondary" className="h-4 shrink-0 px-1.5 text-[10px] font-normal">
@@ -301,7 +311,7 @@ export function Sidebar() {
                               setProjectPickerOpen(false)
                               setRenameProjectTarget(project)
                             }}
-                            className="hidden size-6 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground group-hover/proj:inline-flex"
+                            className="inline-flex size-6 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
                           >
                             <Pencil className="size-3.5" />
                           </button>
@@ -314,7 +324,7 @@ export function Sidebar() {
                               setProjectPickerOpen(false)
                               setDeleteProjectTarget(project)
                             }}
-                            className="hidden size-6 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/15 hover:text-destructive group-hover/proj:inline-flex"
+                            className="inline-flex size-6 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/15 hover:text-destructive"
                           >
                             <Trash2 className="size-3.5" />
                           </button>
