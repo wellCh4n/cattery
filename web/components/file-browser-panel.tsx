@@ -11,14 +11,12 @@
 // entry onto another folder moves it there.
 
 import { useCallback, useEffect, useRef, useState } from "react"
+import { useRouter } from "next/navigation"
 import {
-  Download,
   File as FileIcon,
   Folder,
   FolderPlus,
   Loader2,
-  Maximize2,
-  Minimize2,
   Pencil,
   RefreshCw,
   Trash2,
@@ -34,72 +32,26 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { FileViewer } from "@/components/file-viewer"
 import { Input } from "@/components/ui/input"
-import { Markdown } from "@/components/markdown"
 import { Tree, type TreeNode } from "@/components/tree"
 import { TreeRowAction } from "@/components/tree-row"
 import { cn } from "@/lib/utils"
+import { tabHref } from "@/lib/tabs-store"
 import {
   createFolder,
   deleteFile,
-  downloadFileURL,
-  rawFilePathURL,
   listFiles,
   moveFile,
-  rawFileURL,
-  readFile,
   renameFile,
   uploadFile,
   type FileEntry,
-  type FileReadResponse,
 } from "@/lib/api"
 
 const MIN_REFRESH_SPIN_MS = 1000
 
-const IMAGE_EXTS = new Set([
-  "png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico", "avif",
-])
-const HTML_EXTS = new Set(["html", "htm"])
-const MARKDOWN_EXTS = new Set(["md", "markdown", "mdown", "mkd"])
-
-function isImagePath(path: string): boolean {
-  const dot = path.lastIndexOf(".")
-  if (dot < 0) return false
-  return IMAGE_EXTS.has(path.slice(dot + 1).toLowerCase())
-}
-
-function isHtmlPath(path: string): boolean {
-  const dot = path.lastIndexOf(".")
-  if (dot < 0) return false
-  return HTML_EXTS.has(path.slice(dot + 1).toLowerCase())
-}
-
-function isMarkdownPath(path: string): boolean {
-  const dot = path.lastIndexOf(".")
-  if (dot < 0) return false
-  return MARKDOWN_EXTS.has(path.slice(dot + 1).toLowerCase())
-}
-
-function isPdfPath(path: string): boolean {
-  return path.toLowerCase().endsWith(".pdf")
-}
-
 interface Props {
   projectId: string
 }
-
-// Opened file is either a text read result (already fetched into memory) or
-// a marker that says "this is an image, render it via <img src={rawFileURL}>".
-// Images skip /read entirely — the browser fetches bytes itself.
-type OpenedFile =
-  | { kind: "text"; path: string; data: FileReadResponse }
-  | { kind: "image"; path: string }
-  | { kind: "pdf"; path: string }
-  | { kind: "html"; path: string; data: FileReadResponse }
-  | { kind: "markdown"; path: string; data: FileReadResponse }
-
-type PreviewMode = "preview" | "source"
 
 function joinPath(parent: string, name: string): string {
   return parent === "/" ? `/${name}` : `${parent}/${name}`
@@ -120,13 +72,12 @@ function sortEntries(entries: FileEntry[]): FileEntry[] {
 }
 
 export function FileBrowserPanel({ projectId }: Props) {
+  const router = useRouter()
   const [childrenByPath, setChildrenByPath] = useState<Record<string, FileEntry[]>>({})
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
   const [loadingPaths, setLoadingPaths] = useState<Set<string>>(() => new Set())
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [opened, setOpened] = useState<OpenedFile | null>(null)
-  const [openLoading, setOpenLoading] = useState(false)
   const [uploading, setUploading] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
   const [newFolderDir, setNewFolderDir] = useState<string | null>(null)
@@ -174,41 +125,9 @@ export function FileBrowserPanel({ projectId }: Props) {
     })
   }
 
-  async function openFile(path: string) {
-    if (isImagePath(path)) {
-      setOpened({ kind: "image", path })
-      return
-    }
-    if (isPdfPath(path)) {
-      setOpened({ kind: "pdf", path })
-      return
-    }
-    setOpenLoading(true)
-    try {
-      const data = await readFile(projectId, path)
-      if (isHtmlPath(path)) {
-        setOpened({ kind: "html", path, data })
-        return
-      }
-      if (isMarkdownPath(path)) {
-        setOpened({ kind: "markdown", path, data })
-        return
-      }
-      setOpened({ kind: "text", path, data })
-    } catch (e) {
-      const data = { path, size: 0, truncated: false, binary: false, content: `Error: ${e instanceof Error ? e.message : "unknown"}` }
-      if (isHtmlPath(path)) {
-        setOpened({ kind: "html", path, data })
-        return
-      }
-      if (isMarkdownPath(path)) {
-        setOpened({ kind: "markdown", path, data })
-        return
-      }
-      setOpened({ kind: "text", path, data })
-    } finally {
-      setOpenLoading(false)
-    }
+  // Open a file as a tab in the main pane (FileView renders it there).
+  function openFile(path: string) {
+    router.push(tabHref({ kind: "file", id: path, projectId }))
   }
 
   async function uploadFiles(targetDir: string, files: File[]) {
@@ -352,7 +271,7 @@ export function FileBrowserPanel({ projectId }: Props) {
       children: isDir
         ? (childEntries ? childEntries.map(c => buildFileNode(c, joinPath(path, c.name))) : undefined)
         : undefined,
-      onClick: () => isDir ? toggleExpand(path) : void openFile(path),
+      onClick: () => isDir ? toggleExpand(path) : openFile(path),
       onFilesDropped: isDir ? files => uploadFiles(path, files) : undefined,
       dragId: path,
       onItemDropped: isDir ? sourcePath => moveEntry(sourcePath, path) : undefined,
@@ -508,13 +427,6 @@ export function FileBrowserPanel({ projectId }: Props) {
         }}
       />
 
-      <FileViewerDialog
-        projectId={projectId}
-        opened={opened}
-        loading={openLoading}
-        onClose={() => setOpened(null)}
-      />
-
       <ConfirmDialog
         open={deleteTarget !== null}
         onOpenChange={open => { if (!open) setDeleteTarget(null) }}
@@ -605,155 +517,6 @@ function NewFolderDialog({
             Create
           </Button>
         </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-// FileViewerDialog — large modal for reading a single file. Uses a flex
-// column inside DialogContent so the body scrolls but the header stays
-// pinned. The default DialogContent caps width at sm:max-w-sm — way too
-// small for code; bump to ~5xl and let it stretch tall.
-function FileViewerDialog({
-  projectId,
-  opened,
-  loading,
-  onClose,
-}: {
-  projectId: string
-  opened: OpenedFile | null
-  loading: boolean
-  onClose: () => void
-}) {
-  const [fullscreen, setFullscreen] = useState(false)
-  const [modeByPath, setModeByPath] = useState<{ path: string | null; mode: PreviewMode }>({
-    path: null,
-    mode: "preview",
-  })
-
-  const canToggleMode = opened?.kind === "html" || opened?.kind === "markdown"
-  const mode = canToggleMode && modeByPath.path === opened.path ? modeByPath.mode : "preview"
-  const close = () => {
-    setFullscreen(false)
-    onClose()
-  }
-
-  return (
-    <Dialog open={opened !== null} onOpenChange={open => { if (!open) close() }}>
-      <DialogContent
-        showCloseButton={false}
-        className={cn(
-          opened && "file-preview-dialog",
-          "w-[calc(100%-2rem)] sm:max-w-5xl h-[80vh] p-0 gap-0 flex flex-col overflow-hidden",
-          fullscreen && "top-0 left-0 !h-dvh !w-screen !max-w-none translate-x-0 translate-y-0 rounded-none sm:!max-w-none"
-        )}
-      >
-        {opened && (
-          <>
-            <DialogTitle className="sr-only">{opened.path}</DialogTitle>
-            <div className="flex items-center gap-2 px-3 h-12 border-b shrink-0">
-              <FileIcon className="size-3.5 text-muted-foreground shrink-0" />
-              <span className="text-xs font-mono truncate flex-1" title={opened.path}>
-                {opened.path}
-              </span>
-              {(opened.kind === "text" || opened.kind === "html" || opened.kind === "markdown") && opened.data.truncated && (
-                <span className="text-[10px] text-amber-600 dark:text-amber-400 shrink-0">
-                  truncated
-                </span>
-              )}
-              {canToggleMode && (
-                <div className="flex h-7 shrink-0 items-center rounded border bg-muted/30 p-0.5">
-                  <button
-                    type="button"
-                    onClick={() => setModeByPath({ path: opened.path, mode: "preview" })}
-                    className={cn(
-                      "h-6 px-2 text-[11px] rounded cursor-pointer",
-                      mode === "preview" ? "bg-background text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    Preview
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setModeByPath({ path: opened.path, mode: "source" })}
-                    className={cn(
-                      "h-6 px-2 text-[11px] rounded cursor-pointer",
-                      mode === "source" ? "bg-background text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    Source
-                  </button>
-                </div>
-              )}
-              <a
-                href={downloadFileURL(projectId, opened.path)}
-                className="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-muted"
-                title="Download"
-              >
-                <Download className="size-3.5" />
-              </a>
-              <button
-                type="button"
-                onClick={() => setFullscreen(value => !value)}
-                className="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-muted cursor-pointer"
-                title={fullscreen ? "Exit fullscreen" : "Fullscreen"}
-                aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"}
-              >
-                {fullscreen ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
-              </button>
-              <button
-                type="button"
-                onClick={close}
-                className="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-muted text-xs cursor-pointer"
-                aria-label="Close"
-              >
-                ✕
-              </button>
-            </div>
-            <div className="file-preview-scroll flex-1 min-h-0 overflow-auto">
-              {opened.kind === "image" ? (
-                <div className="flex h-full items-center justify-center p-4">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={rawFileURL(projectId, opened.path)}
-                    alt={opened.path}
-                    className="max-w-full max-h-full object-contain"
-                  />
-                </div>
-              ) : opened.kind === "pdf" ? (
-                <iframe
-                  src={rawFilePathURL(projectId, opened.path)}
-                  title={opened.path}
-                  className="h-full w-full border-0 bg-muted"
-                />
-              ) : opened.kind === "html" && mode === "preview" ? (
-                <iframe
-                  src={rawFilePathURL(projectId, opened.path)}
-                  title={opened.path}
-                  sandbox="allow-forms allow-modals allow-popups allow-same-origin allow-scripts"
-                  className="h-full w-full border-0 bg-white"
-                />
-              ) : opened.kind === "markdown" && mode === "preview" ? (
-                <div className="mx-auto w-full max-w-4xl p-6">
-                  <Markdown className="text-foreground">
-                    {opened.data.content ?? ""}
-                  </Markdown>
-                </div>
-              ) : loading ? (
-                <div className="p-4 text-muted-foreground"><Loader2 className="size-4 animate-spin" /></div>
-              ) : opened.data.binary ? (
-                <div className="p-6 text-muted-foreground italic">
-                  Binary file ({opened.data.size} bytes). Use download to fetch it.
-                </div>
-              ) : (
-                <FileViewer
-                  path={opened.path}
-                  lines={(opened.data.content ?? "").split("\n").map((text, i) => ({ n: i + 1, text }))}
-                />
-              )}
-            </div>
-          </>
-        )}
       </DialogContent>
     </Dialog>
   )

@@ -196,3 +196,12 @@ html:has(.file-preview-dialog) body {
 .file-preview-scroll {
   overscroll-behavior-x: contain;
 }
+
+/* Scrollable but with no visible scrollbar (e.g. the tab strip). */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
