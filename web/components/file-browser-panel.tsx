@@ -353,6 +353,15 @@ export function FileBrowserPanel({ projectId }: Props) {
           <Button
             variant="ghost"
             size="icon-sm"
+            onClick={() => triggerUpload("/")}
+            disabled={uploading !== null}
+            title="Upload to /"
+          >
+            {uploading === "/" ? <Loader2 className="animate-spin" /> : <Upload />}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
             onClick={() => setNewFolderDir("/")}
             title="New folder in /"
           >
