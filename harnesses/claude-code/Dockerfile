@@ -13,7 +13,16 @@ COPY src/ ./src/
 
 # claude CLI refuses to run --dangerously-skip-permissions as root; use the
 # node user that ships with the base image and own /app + /work.
-RUN mkdir -p /work && chown -R node:node /app /work
+#
+# Pre-create /home/node/.claude (owned by node) so the read-only skills PVC,
+# which the backend submounts at /home/node/.claude/skills, lands inside an
+# existing node-owned dir. Otherwise the kubelet auto-creates the parent
+# /home/node/.claude as root:root, and the SDK — running as node — can't write
+# session transcripts to /home/node/.claude/projects/. That breaks `resume`:
+# turn 1 runs in-memory, but every later turn fails with
+# "No conversation found with session ID: …".
+RUN mkdir -p /work /home/node/.claude \
+    && chown -R node:node /app /work /home/node/.claude
 
 USER node
 
