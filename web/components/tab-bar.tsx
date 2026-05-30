@@ -11,7 +11,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import { usePathname, useRouter } from "next/navigation"
-import { Bot, File as FileIcon, MessageSquare, Puzzle, Terminal, X } from "lucide-react"
+import { Bot, File as FileIcon, MessageSquare, Puzzle, Shield, Terminal, X } from "lucide-react"
 import { HarnessIcon } from "@/components/harness-icon"
 import { cn } from "@/lib/utils"
 import { type ProjectWithHarnesses, useWorkspaceStore } from "@/lib/workspace-store"
@@ -86,6 +86,16 @@ function resolveTab(tab: Tab, projects: ProjectWithHarnesses[]): ResolvedTab {
       icon: <Puzzle className="size-3.5 shrink-0 text-muted-foreground" />,
     }
   }
+  if (tab.kind === "admin") {
+    // tab.id is the sub-section ("users"); for now just title-case it.
+    const title = tab.id.charAt(0).toUpperCase() + tab.id.slice(1)
+    return {
+      title,
+      subtitle: "Admin",
+      exists: true,
+      icon: <Shield className="size-3.5 shrink-0 text-muted-foreground" />,
+    }
+  }
   // file: name from the path basename, project name as context.
   const name = tab.id.split("/").filter(Boolean).pop() ?? tab.id
   const project = projects.find(p => p.project_id === tab.projectId)
@@ -117,9 +127,12 @@ export function TabBar() {
 
   // Keep the active tab in view — scroll the strip to it when it changes (e.g.
   // the tab is off-screen, or a freshly-opened one was appended at the end).
+  // Depend on `tabs` too: when a new tab is opened from elsewhere (file browser,
+  // sidebar) it lands in the array on the render *after* activeKey changes, so
+  // we need a second pass once the DOM node is mounted.
   useEffect(() => {
     activeTabRef.current?.scrollIntoView({ behavior: "smooth", inline: "nearest", block: "nearest" })
-  }, [activeKey])
+  }, [activeKey, tabs])
 
   // Open (or just focus) a tab whenever we land on a tabbed route.
   useEffect(() => {

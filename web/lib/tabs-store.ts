@@ -9,11 +9,11 @@
 
 import { create } from "zustand"
 
-export type TabKind = "session" | "harness" | "skill" | "file"
+export type TabKind = "session" | "harness" | "skill" | "file" | "admin"
 
 export interface Tab {
   kind: TabKind
-  // session_id / harness_id / skill slug / file path (absolute, e.g. /src/a.go)
+  // session_id / harness_id / skill slug / file path (absolute, e.g. /src/a.go) / admin sub-section ("users")
   id: string
   // Only set for file tabs — the project the file lives in.
   projectId?: string
@@ -34,6 +34,7 @@ export function tabHref(tab: Tab): string {
     case "session": return `/sessions/${tab.id}`
     case "harness": return `/harnesses/${tab.id}`
     case "skill":   return `/skills/${encodeURIComponent(tab.id)}`
+    case "admin":   return `/admin/${tab.id}`
     case "file": {
       const segs = tab.id.split("/").filter(Boolean).map(encodeURIComponent)
       return `/files/${tab.projectId}/${segs.join("/")}`
@@ -42,12 +43,13 @@ export function tabHref(tab: Tab): string {
 }
 
 // Parse a workspace pathname into the tab it represents, or null for routes
-// that aren't tabbed (home, admin, …).
+// that aren't tabbed (home, …).
 export function tabForPath(pathname: string): Tab | null {
   const parts = pathname.split("/").filter(Boolean)
   if (parts.length === 2 && parts[0] === "sessions") return { kind: "session", id: parts[1] }
   if (parts.length === 2 && parts[0] === "harnesses") return { kind: "harness", id: parts[1] }
   if (parts.length === 2 && parts[0] === "skills") return { kind: "skill", id: decodeURIComponent(parts[1]) }
+  if (parts.length === 2 && parts[0] === "admin") return { kind: "admin", id: parts[1] }
   if (parts.length >= 3 && parts[0] === "files") {
     const projectId = parts[1]
     const path = "/" + parts.slice(2).map(decodeURIComponent).join("/")
@@ -65,7 +67,7 @@ function readTabs(): Tab[] {
     return parsed.filter((t): t is Tab => {
       if (!t || typeof t.id !== "string") return false
       if (t.kind === "file") return typeof t.projectId === "string"
-      return t.kind === "session" || t.kind === "harness" || t.kind === "skill"
+      return t.kind === "session" || t.kind === "harness" || t.kind === "skill" || t.kind === "admin"
     })
   } catch {
     return []

@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { AlertTriangle, ArrowLeft, KeyRound, Loader2, Plus, Trash2 } from "lucide-react"
+import { AlertTriangle, KeyRound, Loader2, Plus, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -76,13 +76,6 @@ export default function AdminUsersPage() {
     <div className="h-full overflow-y-auto">
       <div className="max-w-3xl mx-auto px-6 py-8">
         <div className="flex items-center gap-3 mb-6">
-          <button
-            onClick={() => router.push("/")}
-            className="text-muted-foreground hover:text-foreground cursor-pointer"
-            title="Back"
-          >
-            <ArrowLeft className="size-4" />
-          </button>
           <h1 className="text-xl font-semibold flex-1">Users</h1>
           <Button size="sm" onClick={() => setCreateOpen(true)}>
             <Plus className="size-3.5 mr-1" />
