@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation"
 import { Loader2 } from "lucide-react"
 import { Sidebar } from "@/components/sidebar"
 import { StatusBar } from "@/components/status-bar"
+import { TabBar } from "@/components/tab-bar"
 import { useAuthStore } from "@/lib/auth-store"
 
 export default function WorkspaceLayout({ children }: { children: React.ReactNode }) {
@@ -48,7 +49,10 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
     <div className="flex h-screen flex-col overflow-hidden bg-background">
       <div className="flex min-h-0 flex-1">
         <Sidebar />
-        <main className="flex-1 overflow-hidden">{children}</main>
+        <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          <TabBar />
+          <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
+        </main>
       </div>
       <StatusBar />
     </div>
