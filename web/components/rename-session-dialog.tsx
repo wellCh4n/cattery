@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -25,6 +25,10 @@ export function RenameSessionDialog({ session, open, onOpenChange }: Props) {
   const renameSession = useWorkspaceStore(state => state.renameSession)
   const [value, setValue] = useState("")
   const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (open && session) setValue(session.title ?? "")
+  }, [open, session])
 
   async function commit() {
     if (!session) return

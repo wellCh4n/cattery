@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -25,6 +25,10 @@ export function RenameProjectDialog({ project, open, onOpenChange }: Props) {
   const renameProject = useWorkspaceStore(state => state.renameProject)
   const [value, setValue] = useState("")
   const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (open && project) setValue(project.project_name ?? "")
+  }, [open, project])
 
   async function commit() {
     if (!project) return
