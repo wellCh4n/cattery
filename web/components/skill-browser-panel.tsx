@@ -157,20 +157,20 @@ export function SkillBrowserPanel() {
           <Button
             variant="ghost"
             size="icon-sm"
-            title="Upload skill .zip"
-            disabled={uploading}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            {uploading ? <Loader2 className="animate-spin" /> : <Upload />}
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-sm"
             title="Refresh"
             onClick={() => void refresh()}
             disabled={refreshing}
           >
             <RefreshCw className={refreshing ? "animate-spin" : undefined} />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            title="Upload skill .zip"
+            disabled={uploading}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            {uploading ? <Loader2 className="animate-spin" /> : <Upload />}
           </Button>
         </div>
       </div>
