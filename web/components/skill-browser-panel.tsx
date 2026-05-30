@@ -64,6 +64,10 @@ function joinPath(parent: string, name: string): string {
 
 function sortEntries(entries: FileEntry[]): FileEntry[] {
   return [...entries].sort((a, b) => {
+    // SKILL.md is the manifest — always pin it to the top, ahead of folders.
+    const aManifest = a.name === "SKILL.md"
+    const bManifest = b.name === "SKILL.md"
+    if (aManifest !== bManifest) return aManifest ? -1 : 1
     if (a.type !== b.type) return a.type === "dir" ? -1 : 1
     return a.name.localeCompare(b.name)
   })
