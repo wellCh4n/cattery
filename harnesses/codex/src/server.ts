@@ -17,6 +17,9 @@
  * for the lifetime of the container. WS close only kills the attach client
  * process; the TUI inside the tmux session and its in-memory state survive,
  * so re-attaching restores the same TUI screen — this is how "resume" works.
+ * If the TUI itself exits (e.g. Ctrl+C to quit codex/hermes), a supervisor
+ * loop relaunches it in place (see superviseCmd) so the session stays
+ * reconnectable instead of being torn down.
  *
  * Config via env:
  *   PORT      — listen port (default 1114; matches existing HTTP harnesses)
@@ -163,6 +166,36 @@ function listSessions(): string[] {
   return r.stdout.split('\n').map(s => s.trim()).filter(Boolean)
 }
 
+// Shell-single-quote a token so it can be embedded safely in an `sh -c` script.
+function sq(s: string): string {
+  return `'${s.replace(/'/g, `'\\''`)}'`
+}
+
+// Wrap the TUI launch in a supervisor loop so the tmux session outlives the TUI
+// process. Pressing Ctrl+C inside codex/hermes (double-tap to quit) terminates
+// the TUI; with a bare `tmux new-session <tui>` that exits the pane's only
+// process and tmux tears the whole session down, so every later WS reconnect
+// 404s on `has-session` — the "can't reconnect after Ctrl+C" bug. The loop
+// relaunches the TUI in place instead: an attached client sees a fresh TUI at
+// once and reconnects keep working. (A `pane-died` hook would be tidier but does
+// not fire reliably in tmux 3.3a, so we supervise from the shell.)
+//
+//   trap '' INT — the supervisor shell ignores SIGINT. While the TUI runs it
+//     holds the pty in raw mode (ISIG off), so Ctrl+C reaches the TUI as a key,
+//     not a signal, and its own interrupt/quit handling is unchanged. The trap
+//     only matters in the brief cooked-mode gap between TUI exit and relaunch,
+//     where a stray Ctrl+C would otherwise SIGINT the whole foreground group and
+//     kill the supervisor too, reopening the bug.
+//   sleep 0.5 — floor on relaunch rate so a TUI that exits instantly (e.g. bad
+//     config) flickers instead of pinning a CPU.
+function superviseCmd(inner: string[]): string[] {
+  const innerCmd = inner.map(sq).join(' ')
+  const script =
+    `trap '' INT; while true; do ${innerCmd}; ` +
+    `printf '\\r\\n[cattery] session ended, restarting...\\r\\n'; sleep 0.5; done`
+  return ['sh', '-c', script]
+}
+
 function createSession(id: string, theme: 'light' | 'dark'): void {
   // -d     : start detached (no client attached yet)
   // -s     : session name
@@ -193,7 +226,7 @@ function createSession(id: string, theme: 'light' | 'dark'): void {
     '-x', '120', '-y', '32',
     '-c', WORK_DIR,
     '-e', `CATTERY_THEME=${theme}`,
-    ...cmd,
+    ...superviseCmd(cmd),
   ])
   if (r.code !== 0) {
     throw new Error(`tmux new-session failed: ${r.stderr || r.stdout}`)
