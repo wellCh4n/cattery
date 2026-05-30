@@ -15,6 +15,7 @@ import {
   MessageSquare,
   Pencil,
   Plus,
+  Puzzle,
   RefreshCw,
   Settings,
   Shield,
@@ -22,7 +23,6 @@ import {
   Trash2,
   UserCircle2,
   Users,
-  Wand2,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -373,7 +373,7 @@ export function Sidebar() {
             onClick={() => switchView("members")}
           />
           <ActivityButton
-            icon={<Wand2 className="size-5" />}
+            icon={<Puzzle className="size-5" />}
             label="Skills"
             active={view === "skills"}
             onClick={() => switchView("skills")}
