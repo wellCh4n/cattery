@@ -41,9 +41,11 @@ const EMPTY_BUBBLES: Bubble[] = []
 export function ChatPanel({ session, harness }: Props) {
   const [input, setInput] = useState("")
   const [showJumpToBottom, setShowJumpToBottom] = useState(false)
+  const [composerHeight, setComposerHeight] = useState(0)
   const scrollRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const composerRef = useRef<HTMLDivElement>(null)
   const stickToBottomRef = useRef(true)
   const lastScrollTopRef = useRef(0)
   const chat = useChatStreamStore(state => state.sessions[session.session_id])
@@ -99,6 +101,16 @@ export function ChatPanel({ session, harness }: Props) {
   }, [bubbles, scrollToBottom, sending])
 
   useEffect(() => {
+    const el = composerRef.current
+    if (!el) return
+    const update = () => setComposerHeight(el.offsetHeight)
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  useEffect(() => {
     const el = contentRef.current
     if (!el) return
 
@@ -151,7 +163,8 @@ export function ChatPanel({ session, harness }: Props) {
         <div
           ref={scrollRef}
           onScroll={updateJumpVisibility}
-          className="h-full overflow-y-auto px-4 md:px-8 py-6"
+          className="h-full overflow-y-auto px-4 md:px-8 pt-6"
+          style={{ paddingBottom: composerHeight + 16 }}
         >
           <div ref={contentRef} className="max-w-3xl mx-auto space-y-4">
             {session.status === "creating" && (
@@ -191,7 +204,10 @@ export function ChatPanel({ session, harness }: Props) {
           </div>
         </div>
         {showJumpToBottom && (
-          <div className="pointer-events-none absolute inset-x-4 bottom-3 md:inset-x-8">
+          <div
+            className="pointer-events-none absolute inset-x-4 md:inset-x-8"
+            style={{ bottom: composerHeight + 24 }}
+          >
             <div className="mx-auto flex max-w-3xl justify-end">
               <Button
                 type="button"
@@ -210,65 +226,69 @@ export function ChatPanel({ session, harness }: Props) {
             </div>
           </div>
         )}
-      </div>
 
-      <div className="bg-background px-4 md:px-8 pb-4 pt-2 shrink-0">
-        <div className="max-w-3xl mx-auto">
-          <div
-            className={cn(
-              "group/composer rounded-2xl border bg-background shadow-sm transition-colors",
-              "focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/20",
-              session.status !== "ready" && "opacity-70",
-              sending && "bg-muted/60"
-            )}
-          >
-            <Textarea
-              className="w-full resize-none border-0 bg-transparent dark:bg-transparent disabled:bg-transparent dark:disabled:bg-transparent min-h-[52px] max-h-48 px-4 pt-3 pb-1 text-base md:text-sm shadow-none focus-visible:ring-0 focus-visible:border-0 outline-none [field-sizing:content]"
-              rows={1}
-              value={input}
-              disabled={session.status !== "ready" || sending}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                  e.preventDefault()
-                  handleSend()
-                }
-              }}
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 px-4 md:px-8 pb-4">
+          <div ref={composerRef} className="pointer-events-auto max-w-3xl mx-auto relative">
+            <div
+              aria-hidden
+              className="absolute inset-x-[-1rem] md:inset-x-[-2rem] top-1/2 bottom-[-1rem] bg-background"
             />
-            <div className="flex items-center justify-between px-2 pb-2">
-              <span className="pl-2 inline-flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground/70 select-none">
-                <CornerDownLeft className="size-3" />
-                <span>Send</span>
-                <span className="text-muted-foreground/40">·</span>
-                <span className="font-mono">⇧</span>
-                <CornerDownLeft className="size-3" />
-                <span>Newline</span>
-                <span className="text-muted-foreground/40">·</span>
-                <span className="font-mono font-medium text-[10px]">
-                  {harness.model}
-                </span>
-              </span>
-              {sending ? (
-                <Button
-                  variant="destructive"
-                  size="icon-sm"
-                  onClick={handleStop}
-                  title="Stop"
-                  className="size-9 rounded-full [&_svg]:size-[18px]"
-                >
-                  <Square />
-                </Button>
-              ) : (
-                <Button
-                  size="icon-sm"
-                  disabled={session.status !== "ready" || !input.trim()}
-                  onClick={handleSend}
-                  title="Send"
-                  className="size-9 rounded-full [&_svg]:size-5"
-                >
-                  <ArrowUp />
-                </Button>
+            <div
+              className={cn(
+                "relative group/composer rounded-2xl border bg-background/85 backdrop-blur-md shadow-sm transition-colors",
+                "focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/20",
+                session.status !== "ready" && "opacity-70",
+                sending && "bg-muted/60"
               )}
+            >
+              <Textarea
+                className="w-full resize-none border-0 bg-transparent dark:bg-transparent disabled:bg-transparent dark:disabled:bg-transparent min-h-[52px] max-h-48 px-4 pt-3 pb-1 text-base md:text-sm shadow-none focus-visible:ring-0 focus-visible:border-0 outline-none [field-sizing:content]"
+                rows={1}
+                value={input}
+                disabled={session.status !== "ready" || sending}
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                    e.preventDefault()
+                    handleSend()
+                  }
+                }}
+              />
+              <div className="flex items-center justify-between px-2 pb-2">
+                <span className="pl-2 inline-flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground/70 select-none">
+                  <CornerDownLeft className="size-3" />
+                  <span>Send</span>
+                  <span className="text-muted-foreground/40">·</span>
+                  <span className="font-mono">⇧</span>
+                  <CornerDownLeft className="size-3" />
+                  <span>Newline</span>
+                  <span className="text-muted-foreground/40">·</span>
+                  <span className="font-mono font-medium text-[10px]">
+                    {harness.model}
+                  </span>
+                </span>
+                {sending ? (
+                  <Button
+                    variant="destructive"
+                    size="icon-sm"
+                    onClick={handleStop}
+                    title="Stop"
+                    className="size-9 rounded-full [&_svg]:size-[18px]"
+                  >
+                    <Square />
+                  </Button>
+                ) : (
+                  <Button
+                    size="icon-sm"
+                    disabled={session.status !== "ready" || !input.trim()}
+                    onClick={handleSend}
+                    title="Send"
+                    className="size-9 rounded-full [&_svg]:size-5"
+                  >
+                    <ArrowUp />
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
         </div>
