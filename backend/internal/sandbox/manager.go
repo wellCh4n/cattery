@@ -55,10 +55,24 @@ var images = map[string]string{
 
 // skillsMountPaths maps a harness type to the in-container path where that
 // harness loads skills from. Harnesses absent from this map don't consume the
-// global skill library and get no skills volume. claude-code reads personal
-// skills from ~/.claude/skills, and HOME=/home/node in its image.
+// global skill library and get no skills volume. Every entry points at a
+// read-only discovery location that matches the flat <slug>/SKILL.md layout
+// the skillmgr PVC stores; all of these harnesses auto-discover skills with no
+// config-file entry needed.
+//   - claude-code reads personal skills from ~/.claude/skills (HOME=/home/node).
+//   - codex auto-discovers Agent Skills from user-level ~/.agents/skills
+//     (HOME=/home/node).
+//   - opencode auto-discovers from ~/.agents/skills among other paths; its
+//     image runs as root, so HOME=/root.
+//   - hermes treats ~/.hermes/skills as a writable "source of truth" it saves
+//     learned skills into, so we mount the read-only library at ~/.agents/skills
+//     instead; the hermes bridge (server.ts) registers it via skills.external_dirs
+//     when it rewrites ~/.hermes/config.yaml on container start (HOME=/home/node).
 var skillsMountPaths = map[string]string{
 	"claude-code": "/home/node/.claude/skills",
+	"codex":       "/home/node/.agents/skills",
+	"opencode":    "/root/.agents/skills",
+	"hermes":      "/home/node/.agents/skills",
 }
 
 type Manager struct {
