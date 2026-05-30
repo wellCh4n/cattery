@@ -504,11 +504,11 @@ function emitAndAccumulate(
  * turn and persists it under `~/.claude/projects/<encoded-cwd>/<sessionId>.jsonl`.
  * `getSessionInfo()` resolves `customTitle || aiTitle || lastPrompt || ... || firstPrompt`,
  * so before the aiTitle lands, `summary` equals `firstPrompt` — we poll until
- * the two diverge, with an overall budget of ~8s.
+ * the two diverge, with an overall budget of ~2s.
  */
 async function readSessionTitle(claudeSessionId: string, firstPrompt: string): Promise<string | null> {
-  for (let i = 0; i < 10; i++) {
-    await new Promise(r => setTimeout(r, 800))
+  for (let i = 0; i < 4; i++) {
+    await new Promise(r => setTimeout(r, 500))
     try {
       const info = await getSessionInfo(claudeSessionId, { dir: WORKDIR })
       if (!info?.summary) continue
