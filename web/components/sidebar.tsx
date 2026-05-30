@@ -843,7 +843,7 @@ function ActivityButton({
         aria-hidden
         className={cn(
           "pointer-events-none absolute left-0 top-1 bottom-1 w-0.5 rounded-r transition-colors",
-          active ? "bg-foreground" : "bg-transparent",
+          active ? "bg-primary" : "bg-transparent",
         )}
       />
       <button
