@@ -353,7 +353,7 @@ export function Sidebar() {
         </header>
 
         <div className="flex min-h-0 flex-1 flex-row">
-        <div className="flex w-12 shrink-0 flex-col gap-1 border-r py-2">
+        <div className="flex w-12 shrink-0 flex-col gap-1 border-r">
           <ActivityButton
             icon={<Bot className="size-5" />}
             label="Harnesses"
@@ -842,7 +842,7 @@ function ActivityButton({
       <span
         aria-hidden
         className={cn(
-          "pointer-events-none absolute left-0 top-1 bottom-1 w-0.5 rounded-r transition-colors",
+          "pointer-events-none absolute left-0 inset-y-0 w-0.5 transition-colors",
           active ? "bg-primary" : "bg-transparent",
         )}
       />
