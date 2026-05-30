@@ -9,8 +9,9 @@ The platform is harness-agnostic. Two transports are supported:
 
 ```
 web (Next.js + shadcn)   →   backend (Go + Echo)   →   K8s
-                                                       ├─ Project Pod    (filemgr — shared workspace PVC)
-                                                       └─ Harness Pod    (harness container)
+                                                       ├─ Project Pod    (filemgr — per-project workspace PVC)
+                                                       ├─ Skill Pod      (skillmgr — single, cluster-wide skills PVC)
+                                                       └─ Harness Pod    (harness container, mounts both PVCs)
                                                                          └─ external model API (anthropic/openai-compatible)
 ```
 
@@ -95,7 +96,7 @@ automatically by the backend on startup using `goose`.
 | `make build`        | Compile the Go server to `backend/bin/server`                      |
 | `make stop`         | Kill processes on `:8080` and `:3000`                              |
 | `make build-harness`| Build all harness Docker images; pass `HARNESS=<name>` to build one |
-| `make build-pod`    | Build all standalone Pod images (currently `filemgr`); pass `POD=<name>` to build one |
+| `make build-pod`    | Build all standalone Pod images (`filemgr`, `skillmgr`); pass `POD=<name>` to build one |
 
 ## Configuration
 
@@ -146,6 +147,7 @@ Deleting a user cascades to their harnesses and sessions, and stops their K8s sa
 - **Harness** — an agent template (model, prompt, harness_id, repo, env_vars) scoped to a Project. Owns a single long-lived sandbox.
 - **Sandbox** — one Kubernetes `agents.x-k8s.io/v1alpha1` Sandbox CR per Harness, named `cattery-<harness_id>`. Status is mirrored to the Harness row.
 - **Session** — a conversation inside a Harness's sandbox. Multiple sessions share one sandbox.
+- **Skill** — a `<slug>/SKILL.md (+assets)` directory in the global skills library. Skills are cluster-wide, independent of Projects, served by a single `skillmgr` Pod and read-only mounted into every harness sandbox at the path that harness auto-discovers (e.g. `~/.claude/skills`, `~/.agents/skills`).
 
 Project members see all of the project's harnesses, files, and sessions; their access role gates which mutations they can perform. Deleting a project tears down its filemgr Pod, all harness sandboxes, and the workspace PVC.
 

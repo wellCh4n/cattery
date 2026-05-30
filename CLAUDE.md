@@ -20,8 +20,8 @@ make build                        # compile Go server to backend/bin/server
 make stop                         # kill :8080 and :3000
 make build-harness                # build all four harness images
 make build-harness HARNESS=codex  # build a single harness (opencode | claude-code | codex | hermes)
-make build-pod                    # build all standalone Pod images (currently just filemgr)
-make build-pod POD=filemgr        # build a single Pod image
+make build-pod                    # build all standalone Pod images (filemgr, skillmgr)
+make build-pod POD=filemgr        # build a single Pod image (filemgr | skillmgr)
 ```
 
 Go binary lives at `/usr/local/go/bin/go`; PATH typically does not include it, so prefer `make` targets or call the absolute path directly. Same for bun at `~/.bun/bin/bun`.
@@ -95,7 +95,7 @@ Defined in `backend/internal/harness/event.go`:
 
 ### Adding a harness
 
-Each harness lives in its own subpackage under `backend/internal/harness/<name>/` and self-registers via `init()`. The packages are pulled in by blank import from `session_handler.go`.
+Each harness lives in its own subpackage under `backend/internal/harness/<name>/` and self-registers via `init()`. The packages are pulled in by blank import from `session_handler.go`. Note: Go package names can't contain `-`, so the harness ID `claude-code` lives in package `claudecode/` — registered with the hyphenated ID via `harness.Register("claude-code", …)`.
 
 - **HTTP harness**: write `<name>/translator.go` (stream events from `GET /event`) and `<name>/history.go` (replay from `GET /session/:id/message`), then call `harness.Register(id, stream, history)` in `init()`. See `harness/opencode/`.
 - **Terminal harness**: just call `harness.RegisterTerminal(id)` in `init()`. The session is served via WebSocket at `GET /api/v1/sessions/:id/term` (`session_handler.Term`, backed by `term_handler.go`); no translator code is needed. See `harness/codex/register.go` and `harness/hermes/register.go`.
@@ -124,6 +124,10 @@ The response is itself an SSE stream; the frontend reads it directly from the `f
 - It mounts the project's workspace PVC at `/work` — the same PVC the harness sandbox reuses, but a separate Pod.
 - The backend proxies `/projects/:id/files/*` to the Pod IP on `FileMgrPort`, so the frontend never needs the in-cluster IP (`files_handler.go`).
 - When changing it, update the Pod spec in `backend/internal/k8s/client.go` (and `backend/internal/sandbox/manager.go` for names/ports/image) plus the image build under `pods/filemgr/`.
+
+### The skillmgr Pod (global skill library)
+
+`skillmgr` is the storage backend for the global skill library that powers `web/components/skill-browser-panel.tsx` and the per-skill view. It runs as a **single cluster-wide Pod** (`cattery-skillmgr`), not per-project, serving a `<slug>/SKILL.md (+assets)` tree that any harness sandbox can mount. The image lives under `pods/skillmgr/`; specs and constants in `backend/internal/sandbox/manager.go` and `backend/internal/k8s/client.go` (`EnsureSkillMgrPod`). Skills are uploaded as `.zip` archives via the catalog endpoints; the frontend treats one top-level `<slug>/` directory as one skill. Sandboxes mount the same skills PVC so harnesses auto-discover the library.
 
 ### Notes for the frontend
 
