@@ -30,7 +30,7 @@ web (Next.js + shadcn)   →   backend (Go + Echo)   →   K8s
 Pick a release tag from the [agent-sandbox releases page](https://github.com/kubernetes-sigs/agent-sandbox/releases) and apply the manifest:
 
 ```bash
-VERSION=v0.1.0   # replace with the latest release
+VERSION=v0.4.6   # latest release at time of writing — check the releases page above
 kubectl apply -f https://github.com/kubernetes-sigs/agent-sandbox/releases/download/${VERSION}/manifest.yaml
 ```
 
