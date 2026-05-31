@@ -4,8 +4,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl ca-certificates git \
     && rm -rf /var/lib/apt/lists/*
 
-# install opencode
-RUN curl -fsSL https://opencode.ai/install | bash
+# install opencode — pinned via the install script's --version so rebuilds are
+# reproducible; an unpinned install is silently frozen at the first build by
+# Docker's layer cache and never picks up new releases on rebuild.
+ARG OPENCODE_VERSION=1.15.13
+RUN curl -fsSL https://opencode.ai/install | bash -s -- --version ${OPENCODE_VERSION}
 
 ENV PATH="/root/.opencode/bin:${PATH}"
 

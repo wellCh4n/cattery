@@ -13,8 +13,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       git ca-certificates curl tmux python3 python3-pip make g++ bubblewrap \
     && rm -rf /var/lib/apt/lists/*
 
-# Codex CLI (OpenAI) — official npm package.
-RUN npm install -g @openai/codex@latest
+# Codex CLI (OpenAI) — official npm package. Pinned (not @latest) so the image
+# is reproducible and stays in lockstep with the codex-relay pin below; bump
+# both together. @latest would also be silently frozen at build time by
+# Docker's layer cache, so rebuilds wouldn't actually pick up new releases.
+ARG CODEX_VERSION=0.135.0
+RUN npm install -g @openai/codex@${CODEX_VERSION}
 
 # codex-relay: Responses ↔ Chat Completions translator (Rust binary shipped
 # via PyPI wheel for convenience). Codex >=0.131 hardcodes wire_api =
@@ -24,7 +28,7 @@ RUN npm install -g @openai/codex@latest
 # talks Responses to 127.0.0.1, the relay emits Chat Completions to
 # OPENAI_BASE_URL, NewAPI fans out to Anthropic or OpenAI per model.
 # --break-system-packages: container is sealed, no system Python to protect.
-RUN pip install --break-system-packages --no-cache-dir codex-relay==0.2.0
+RUN pip install --break-system-packages --no-cache-dir codex-relay==0.2.3
 
 WORKDIR /app
 

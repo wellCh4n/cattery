@@ -14,7 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # uv (Astral) — single static binary, pinned + checksum-verified.
-ARG UV_VERSION=0.5.11
+ARG UV_VERSION=0.11.17
 RUN ARCH=$(uname -m) && \
     case "$ARCH" in \
       x86_64) UV_TARGET="x86_64-unknown-linux-gnu" ;; \
@@ -36,7 +36,7 @@ RUN ARCH=$(uname -m) && \
 
 # hermes-agent pinned release. The `[all]` extra pulls Playwright/Chromium +
 # voice deps; skip it for a coding TUI.
-ARG HERMES_VERSION=v2026.5.16
+ARG HERMES_VERSION=v2026.5.29.2
 RUN git clone --depth 1 --branch ${HERMES_VERSION} \
       https://github.com/NousResearch/hermes-agent.git /opt/hermes \
     && cd /opt/hermes \
