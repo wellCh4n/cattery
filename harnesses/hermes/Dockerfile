@@ -58,7 +58,20 @@ RUN mkdir -p /work && chown -R node:node /app /work
 # copy-mode so users can scroll TUI history (hermes/codex sit in
 # alt-screen, so xterm's own scrollback never fills). A generous
 # history-limit gives them something to scroll through.
-RUN printf 'set -g mouse on\nset -g history-limit 50000\nset -g default-terminal "tmux-256color"\nset -as terminal-overrides ",*:Tc"\n' > /home/node/.tmux.conf \
+# The copy-mode wheel bindings tack on `refresh-client` so each scroll
+# forces a full repaint: without it tmux scrolls the pane region and the
+# top-right `[N/M]` position indicator is carried down with the content
+# instead of cleared, leaving a ghost trail of indicators on every tick.
+RUN printf '%s\n' \
+      'set -g mouse on' \
+      'set -g history-limit 50000' \
+      'set -g default-terminal "tmux-256color"' \
+      'set -as terminal-overrides ",*:Tc"' \
+      'bind -T copy-mode WheelUpPane send-keys -X -N 3 scroll-up \; refresh-client' \
+      'bind -T copy-mode WheelDownPane send-keys -X -N 3 scroll-down \; refresh-client' \
+      'bind -T copy-mode-vi WheelUpPane send-keys -X -N 3 scroll-up \; refresh-client' \
+      'bind -T copy-mode-vi WheelDownPane send-keys -X -N 3 scroll-down \; refresh-client' \
+      > /home/node/.tmux.conf \
     && chown node:node /home/node/.tmux.conf
 
 USER node
