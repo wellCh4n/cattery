@@ -83,9 +83,14 @@ func commonLabels(component, instance string) map[string]interface{} {
 type Client struct {
 	dynamic   dynamic.Interface
 	namespace string
+	// storageClass is stamped on every PVC; empty means "cluster default".
+	storageClass string
+	// pvcAccessMode is the access mode for every PVC (e.g. ReadWriteOnce,
+	// ReadWriteMany); empty falls back to ReadWriteMany.
+	pvcAccessMode string
 }
 
-func NewClient(namespace string) (*Client, error) {
+func NewClient(namespace, storageClass, pvcAccessMode string) (*Client, error) {
 	cfg, err := rest.InClusterConfig()
 	if err != nil {
 		cfg, err = clientcmd.BuildConfigFromFlags("", clientcmd.RecommendedHomeFile)
@@ -97,7 +102,15 @@ func NewClient(namespace string) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Client{dynamic: dyn, namespace: namespace}, nil
+	if pvcAccessMode == "" {
+		pvcAccessMode = "ReadWriteMany"
+	}
+	return &Client{
+		dynamic:       dyn,
+		namespace:     namespace,
+		storageClass:  storageClass,
+		pvcAccessMode: pvcAccessMode,
+	}, nil
 }
 
 type SandboxSpec struct {
@@ -221,9 +234,12 @@ func (c *Client) RunTask(ctx context.Context, spec SandboxSpec) error {
 	return err
 }
 
-// EnsurePVC creates a ReadWriteOnce PVC if absent. component is its role
-// (ComponentWorkspace / ComponentSkills); extra carries business dimensions
-// (e.g. LabelProjectID) merged on top of the common app.kubernetes.io/* set.
+// EnsurePVC creates the PVC if absent. Its access mode and storageClassName
+// come from Client config (K8S_PVC_ACCESS_MODE / K8S_STORAGE_CLASS); an empty
+// storage class is omitted so the cluster's default StorageClass is used.
+// component is its role (ComponentWorkspace / ComponentSkills); extra carries
+// business dimensions (e.g. LabelProjectID) merged on top of the common
+// app.kubernetes.io/* set.
 func (c *Client) EnsurePVC(ctx context.Context, name, component string, extra map[string]string) error {
 	_, err := c.dynamic.Resource(pvcGVR).Namespace(c.namespace).Get(ctx, name, metav1.GetOptions{})
 	if err == nil {
@@ -232,6 +248,17 @@ func (c *Client) EnsurePVC(ctx context.Context, name, component string, extra ma
 	labels := commonLabels(component, name)
 	for k, v := range extra {
 		labels[k] = v
+	}
+	spec := map[string]interface{}{
+		"accessModes": []interface{}{c.pvcAccessMode},
+		"resources": map[string]interface{}{
+			"requests": map[string]interface{}{
+				"storage": "10Gi",
+			},
+		},
+	}
+	if c.storageClass != "" {
+		spec["storageClassName"] = c.storageClass
 	}
 	pvc := &unstructured.Unstructured{
 		Object: map[string]interface{}{
@@ -242,14 +269,7 @@ func (c *Client) EnsurePVC(ctx context.Context, name, component string, extra ma
 				"namespace": c.namespace,
 				"labels":    labels,
 			},
-			"spec": map[string]interface{}{
-				"accessModes": []interface{}{"ReadWriteOnce"},
-				"resources": map[string]interface{}{
-					"requests": map[string]interface{}{
-						"storage": "10Gi",
-					},
-				},
-			},
+			"spec": spec,
 		},
 	}
 	_, err = c.dynamic.Resource(pvcGVR).Namespace(c.namespace).Create(ctx, pvc, metav1.CreateOptions{})

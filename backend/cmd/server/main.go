@@ -32,7 +32,7 @@ func main() {
 		log.Fatalf("bootstrap admin: %v", err)
 	}
 
-	k8s, err := k8sclient.NewClient(cfg.K8sNamespace)
+	k8s, err := k8sclient.NewClient(cfg.K8sNamespace, cfg.K8sStorageClass, cfg.K8sPVCAccessMode)
 	if err != nil {
 		log.Fatalf("k8s client: %v", err)
 	}

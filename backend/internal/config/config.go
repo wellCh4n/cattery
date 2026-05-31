@@ -15,6 +15,15 @@ type Config struct {
 	OpenAIBaseURL    string
 	OpenAIAPIKey     string
 
+	// K8sStorageClass is the storageClassName stamped on every PVC. Empty means
+	// "use the cluster's default StorageClass" (current/legacy behavior).
+	K8sStorageClass string
+	// K8sPVCAccessMode is the access mode for every PVC. Defaults to
+	// ReadWriteMany — the mode the shared-PVC architecture actually wants
+	// (filemgr/sandbox/skillmgr mount the same volume). Set to ReadWriteOnce
+	// when the chosen StorageClass is block-backed (most single-SC clusters).
+	K8sPVCAccessMode string
+
 	// JWTSecret signs auth tokens. Required; server refuses to start without it.
 	JWTSecret string
 }
@@ -31,6 +40,8 @@ func Load() *Config {
 		OpenAIBaseURL:    getEnv("OPENAI_BASE_URL", ""),
 		OpenAIAPIKey:     getEnv("OPENAI_API_KEY", ""),
 		JWTSecret:        getEnv("JWT_SECRET", ""),
+		K8sStorageClass:  getEnv("K8S_STORAGE_CLASS", ""),
+		K8sPVCAccessMode: getEnv("K8S_PVC_ACCESS_MODE", "ReadWriteMany"),
 	}
 }
 
