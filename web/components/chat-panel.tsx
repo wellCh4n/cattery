@@ -208,7 +208,7 @@ export function ChatPanel({ session, harness }: Props) {
             className="pointer-events-none absolute inset-x-4 md:inset-x-8"
             style={{ bottom: composerHeight + 24 }}
           >
-            <div className="mx-auto flex max-w-3xl justify-end">
+            <div className="mx-auto flex max-w-3xl justify-center">
               <Button
                 type="button"
                 size="icon-sm"
@@ -219,7 +219,7 @@ export function ChatPanel({ session, harness }: Props) {
                   scrollToBottom("smooth")
                   setShowJumpToBottom(false)
                 }}
-                className="pointer-events-auto rounded-full shadow-md"
+                className="pointer-events-auto size-9 rounded-full border bg-background/70 backdrop-blur-md shadow-md hover:bg-background/85 [&_svg]:size-5"
               >
                 <ArrowDown />
               </Button>
@@ -242,7 +242,7 @@ export function ChatPanel({ session, harness }: Props) {
               )}
             >
               <Textarea
-                className="w-full resize-none border-0 bg-transparent dark:bg-transparent disabled:bg-transparent dark:disabled:bg-transparent min-h-[52px] max-h-48 px-4 pt-3 pb-1 text-base md:text-sm shadow-none focus-visible:ring-0 focus-visible:border-0 outline-none [field-sizing:content]"
+                className="w-full resize-none border-0 bg-transparent dark:bg-transparent disabled:bg-transparent dark:disabled:bg-transparent min-h-[44px] max-h-48 px-4 pt-4 pb-2 text-base md:text-sm shadow-none focus-visible:ring-0 focus-visible:border-0 outline-none [field-sizing:content]"
                 rows={1}
                 value={input}
                 disabled={session.status !== "ready" || sending}
@@ -254,8 +254,8 @@ export function ChatPanel({ session, harness }: Props) {
                   }
                 }}
               />
-              <div className="flex items-center justify-between px-2 pb-2">
-                <span className="pl-2 inline-flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground/70 select-none">
+              <div className="flex items-end justify-between px-4 pb-4">
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground/70 select-none">
                   <CornerDownLeft className="size-3" />
                   <span>Send</span>
                   <span className="text-muted-foreground/40">·</span>
