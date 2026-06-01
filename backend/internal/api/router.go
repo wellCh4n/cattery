@@ -15,7 +15,8 @@ import (
 )
 
 // tokenQueryRedactor strips secret tokens that leak into request URIs via
-// `?token=` (used by <img>/<iframe>/WS upgrades that can't set headers).
+// `?token=` (used by <img>/<iframe> file URLs that can't set headers; the
+// terminal WS carries its token in the Sec-WebSocket-Protocol header instead).
 // Anyone with read access to the access log would otherwise have working
 // session tokens.
 var tokenQueryRedactor = regexp.MustCompile(`([?&]token=)[^&]*`)
@@ -106,9 +107,10 @@ func NewRouter(
 	// Public endpoint — issues a token.
 	v1.POST("/auth/login", authH.Login, loginLimiter)
 
-	// Everything else requires a valid Bearer token (header) or ?token= query
-	// (used by <img>/<iframe> file URLs and the terminal WebSocket upgrade,
-	// which can't set custom headers).
+	// Everything else requires a valid Bearer token: the Authorization header
+	// normally, a ?token= query for <img>/<iframe> file URLs, or the
+	// Sec-WebSocket-Protocol header for the terminal WS upgrade — see
+	// AuthMiddleware.
 	protected := v1.Group("", AuthMiddleware(signer))
 
 	protected.GET("/auth/me", authH.Me)

@@ -278,13 +278,22 @@ export async function getHistory(sessionId: string): Promise<PlatformHistoryItem
   return res.json()
 }
 
-// termURL generates the terminal WS endpoint. WebSocket upgrades can't carry
-// Authorization headers from the browser, so we pass the token as a query
-// param instead — the backend middleware accepts either form.
+// termURL generates the terminal WS endpoint. The bearer token is NOT in the
+// URL — see termSubprotocols.
 export function termURL(sessionId: string): string {
   const base = API_BASE.replace(/^http(s?):/, "ws$1:")
-  const url = `${base}/api/v1/sessions/${sessionId}/term`
-  return appendToken(url)
+  return `${base}/api/v1/sessions/${sessionId}/term`
+}
+
+// termSubprotocols returns the WebSocket constructor's second argument for the
+// terminal connection. Browsers can't set an Authorization header on a WS
+// upgrade, so we smuggle the token through Sec-WebSocket-Protocol (which IS
+// settable, via the subprotocol list) instead of `?token=` in the URL — the
+// latter leaks into proxy/ingress access logs. The backend reads the token
+// from the entry next to this marker and echoes the marker back.
+export function termSubprotocols(): string[] {
+  const token = getStoredToken()
+  return token ? ["cattery.bearer", token] : []
 }
 
 // ---- filemgr (standalone per-project Pod, proxied through backend) ----

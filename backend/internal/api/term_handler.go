@@ -33,6 +33,11 @@ func (h *SessionHandler) Term(c echo.Context) error {
 
 	clientWS, err := websocket.Accept(c.Response(), c.Request(), &websocket.AcceptOptions{
 		InsecureSkipVerify: true, // CORS origins already filtered by Echo middleware
+		// The client carries its bearer token as a second subprotocol next to
+		// this marker (see auth_middleware.go); echo the marker back so the
+		// browser's subprotocol negotiation succeeds. The token entry is left
+		// unselected — it only rides along to keep auth out of the URL.
+		Subprotocols: []string{wsBearerProtocol},
 		// 64KB is plenty for typed input frames; PTY chunks are sized below.
 	})
 	if err != nil {
