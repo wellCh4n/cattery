@@ -8,12 +8,12 @@ import {
   ChevronRight,
   Clock,
   Cable,
+  FolderOpen,
   Loader2,
   MessageSquare,
   MessagesSquare,
   Pencil,
   Play,
-  Shield,
   Terminal,
   Trash2,
 } from "lucide-react"
@@ -181,7 +181,7 @@ export default function HarnessPage({ params }: { params: Promise<PageParams> })
                   <span className="min-w-0 truncate">{harness.model}</span>
                 </span>
                 <span className="inline-flex min-w-0 items-center gap-1.5">
-                  <Shield className="size-3.5" />
+                  <FolderOpen className="size-3.5" />
                   <span className="min-w-0 truncate">{project.project_name ?? "Untitled Project"}</span>
                 </span>
                 <span className="inline-flex min-w-0 items-center gap-1.5">
