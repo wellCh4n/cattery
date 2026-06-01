@@ -127,7 +127,8 @@ func (h *SessionHandler) SendMessage(c echo.Context) error {
 	if sess.Status != "ready" {
 		return echo.NewHTTPError(http.StatusBadRequest, "session not ready")
 	}
-	if inst.SandboxURL == nil {
+	sandboxURL, ok := h.sandbox.URL(c.Request().Context(), inst)
+	if !ok {
 		return echo.NewHTTPError(http.StatusBadRequest, "sandbox not ready")
 	}
 
@@ -138,7 +139,7 @@ func (h *SessionHandler) SendMessage(c echo.Context) error {
 		return echo.ErrBadRequest
 	}
 
-	if err := h.harnessClient.PromptAsync(c.Request().Context(), *inst.SandboxURL, *sess.HarnessSessionID, req.Text); err != nil {
+	if err := h.harnessClient.PromptAsync(c.Request().Context(), sandboxURL, *sess.HarnessSessionID, req.Text); err != nil {
 		return echo.NewHTTPError(http.StatusBadGateway, err.Error())
 	}
 
@@ -170,7 +171,7 @@ func (h *SessionHandler) SendMessage(c echo.Context) error {
 	}
 
 	translate := harness.TranslatorFor(inst.Type)
-	return h.harnessClient.StreamEventsUntilIdle(c.Request().Context(), *inst.SandboxURL, *sess.HarnessSessionID, c.Response(), translate, onEvent)
+	return h.harnessClient.StreamEventsUntilIdle(c.Request().Context(), sandboxURL, *sess.HarnessSessionID, c.Response(), translate, onEvent)
 }
 
 type updateSessionRequest struct {
@@ -202,8 +203,10 @@ func (h *SessionHandler) Delete(c echo.Context) error {
 		return err
 	}
 	inst := access.Harness
-	if inst.SandboxURL != nil && sess.HarnessSessionID != nil {
-		_ = h.harnessClient.Abort(c.Request().Context(), *inst.SandboxURL, *sess.HarnessSessionID)
+	if sess.HarnessSessionID != nil {
+		if sandboxURL, ok := h.sandbox.URL(c.Request().Context(), inst); ok {
+			_ = h.harnessClient.Abort(c.Request().Context(), sandboxURL, *sess.HarnessSessionID)
+		}
 	}
 	if err := h.sessionStore.HardDelete(c.Request().Context(), sess.SessionID); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
@@ -218,10 +221,14 @@ func (h *SessionHandler) Abort(c echo.Context) error {
 		return err
 	}
 	inst := access.Harness
-	if inst.SandboxURL == nil || sess.HarnessSessionID == nil {
+	if sess.HarnessSessionID == nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "session not active")
 	}
-	if err := h.harnessClient.Abort(c.Request().Context(), *inst.SandboxURL, *sess.HarnessSessionID); err != nil {
+	sandboxURL, ok := h.sandbox.URL(c.Request().Context(), inst)
+	if !ok {
+		return echo.NewHTTPError(http.StatusBadRequest, "session not active")
+	}
+	if err := h.harnessClient.Abort(c.Request().Context(), sandboxURL, *sess.HarnessSessionID); err != nil {
 		return echo.NewHTTPError(http.StatusBadGateway, err.Error())
 	}
 	return c.NoContent(http.StatusNoContent)
@@ -235,14 +242,18 @@ func (h *SessionHandler) Answer(c echo.Context) error {
 		return err
 	}
 	inst := access.Harness
-	if inst.SandboxURL == nil || sess.HarnessSessionID == nil {
+	if sess.HarnessSessionID == nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "session not active")
+	}
+	sandboxURL, ok := h.sandbox.URL(c.Request().Context(), inst)
+	if !ok {
 		return echo.NewHTTPError(http.StatusBadRequest, "session not active")
 	}
 	body, err := io.ReadAll(c.Request().Body)
 	if err != nil {
 		return echo.ErrBadRequest
 	}
-	if err := h.harnessClient.Answer(c.Request().Context(), *inst.SandboxURL, *sess.HarnessSessionID, body); err != nil {
+	if err := h.harnessClient.Answer(c.Request().Context(), sandboxURL, *sess.HarnessSessionID, body); err != nil {
 		return echo.NewHTTPError(http.StatusBadGateway, err.Error())
 	}
 	return c.NoContent(http.StatusNoContent)
@@ -255,10 +266,11 @@ func (h *SessionHandler) History(c echo.Context) error {
 		return err
 	}
 	inst := access.Harness
-	if inst.SandboxURL == nil || sess.HarnessSessionID == nil {
+	sandboxURL, ok := h.sandbox.URL(c.Request().Context(), inst)
+	if !ok || sess.HarnessSessionID == nil {
 		return c.JSON(http.StatusOK, []harness.PlatformHistoryItem{})
 	}
-	raw, err := h.harnessClient.History(c.Request().Context(), *inst.SandboxURL, *sess.HarnessSessionID)
+	raw, err := h.harnessClient.History(c.Request().Context(), sandboxURL, *sess.HarnessSessionID)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadGateway, err.Error())
 	}
@@ -290,8 +302,8 @@ func (h *SessionHandler) Export(c echo.Context) error {
 
 	inst := access.Harness
 	var items []harness.PlatformHistoryItem
-	if inst.SandboxURL != nil && sess.HarnessSessionID != nil {
-		raw, err := h.harnessClient.History(c.Request().Context(), *inst.SandboxURL, *sess.HarnessSessionID)
+	if sandboxURL, ok := h.sandbox.URL(c.Request().Context(), inst); ok && sess.HarnessSessionID != nil {
+		raw, err := h.harnessClient.History(c.Request().Context(), sandboxURL, *sess.HarnessSessionID)
 		if err != nil {
 			return echo.NewHTTPError(http.StatusBadGateway, err.Error())
 		}

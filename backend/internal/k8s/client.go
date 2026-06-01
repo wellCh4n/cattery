@@ -280,31 +280,49 @@ func (c *Client) WaitReady(ctx context.Context, name string, timeout time.Durati
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		obj, err := c.dynamic.Resource(sandboxGVR).Namespace(c.namespace).Get(ctx, name, metav1.GetOptions{})
-		if err != nil {
-			time.Sleep(500 * time.Millisecond)
-			continue
-		}
-
-		conditions, _, _ := unstructured.NestedSlice(obj.Object, "status", "conditions")
-		for _, raw := range conditions {
-			cond, ok := raw.(map[string]interface{})
-			if !ok {
-				continue
-			}
-			if cond["type"] == "Ready" && cond["status"] == "True" {
-				port := containerPort(obj.Object)
-				if url, ok := urlFromStatusPodIPs(obj.Object, port); ok {
-					return url, nil
-				}
-				if url, ok := c.urlFromSelectedPod(ctx, obj.Object, port); ok {
-					return url, nil
-				}
+		if err == nil {
+			if url, ok := c.readyURL(ctx, obj.Object); ok {
+				return url, nil
 			}
 		}
-
 		time.Sleep(500 * time.Millisecond)
 	}
 	return "", fmt.Errorf("timeout waiting for sandbox %s", name)
+}
+
+// ResolveURL does a single, non-polling read of the Sandbox CR and returns its
+// current harness URL if the CR is Ready and a pod IP is published. Unlike
+// WaitReady it never blocks: callers use it to resolve the address fresh on
+// each connection rather than trusting a persisted (and quickly-stale) value —
+// the pod IP is ephemeral and changes whenever the pod is rescheduled.
+func (c *Client) ResolveURL(ctx context.Context, name string) (string, bool) {
+	obj, err := c.dynamic.Resource(sandboxGVR).Namespace(c.namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return "", false
+	}
+	return c.readyURL(ctx, obj.Object)
+}
+
+// readyURL extracts the harness URL from a Sandbox CR object when its Ready
+// condition is True and a routable pod IP is available.
+func (c *Client) readyURL(ctx context.Context, obj map[string]interface{}) (string, bool) {
+	conditions, _, _ := unstructured.NestedSlice(obj, "status", "conditions")
+	for _, raw := range conditions {
+		cond, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if cond["type"] == "Ready" && cond["status"] == "True" {
+			port := containerPort(obj)
+			if url, ok := urlFromStatusPodIPs(obj, port); ok {
+				return url, true
+			}
+			if url, ok := c.urlFromSelectedPod(ctx, obj, port); ok {
+				return url, true
+			}
+		}
+	}
+	return "", false
 }
 
 func urlFromStatusPodIPs(obj map[string]interface{}, port int64) (string, bool) {
