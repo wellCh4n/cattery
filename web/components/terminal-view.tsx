@@ -16,7 +16,7 @@ import "@xterm/xterm/css/xterm.css"
 // CSS @font-faces that don't pin a range; explicit `unicode-range` is what
 // actually forces the browser to use our self-hosted woff2s for those blocks.
 import "@fontsource/noto-sans-symbols-2/symbols-400.css"
-import { termURL, type Session, type Harness } from "@/lib/api"
+import { termURL, termSubprotocols, type Session, type Harness } from "@/lib/api"
 
 interface Props {
   session: Session
@@ -101,7 +101,7 @@ export function TerminalView({ session }: Props) {
     }
     host.addEventListener("mousedown", interceptRightClick, true)
 
-    const ws = new WebSocket(termURL(session.session_id))
+    const ws = new WebSocket(termURL(session.session_id), termSubprotocols())
     ws.binaryType = "arraybuffer"
 
     // Fit xterm to the host, then report the size so tmux (and the TUI inside)
