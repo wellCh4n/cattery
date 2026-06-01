@@ -24,7 +24,6 @@ type Harness struct {
 	EnvVars       map[string]string `db:"env_vars"       json:"env_vars"`
 	SandboxStatus string            `db:"sandbox_status" json:"sandbox_status"`
 	TaskName      *string           `db:"task_name"      json:"task_name"`
-	SandboxURL    *string           `db:"sandbox_url"    json:"sandbox_url"`
 	CreatedAt     time.Time         `db:"created_at"     json:"created_at"`
 }
 

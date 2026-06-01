@@ -27,7 +27,11 @@ func (h *SessionHandler) Term(c echo.Context) error {
 	if harness.KindFor(inst.Type) != harness.KindTerminal {
 		return echo.NewHTTPError(http.StatusBadRequest, "harness type is not terminal kind")
 	}
-	if inst.SandboxURL == nil || sess.HarnessSessionID == nil {
+	if sess.HarnessSessionID == nil {
+		return echo.NewHTTPError(http.StatusConflict, "session not ready")
+	}
+	sandboxURL, ok := h.sandbox.URL(c.Request().Context(), inst)
+	if !ok {
 		return echo.NewHTTPError(http.StatusConflict, "session not ready")
 	}
 
@@ -47,7 +51,7 @@ func (h *SessionHandler) Term(c echo.Context) error {
 	defer clientWS.CloseNow()
 
 	// Connect upstream WS to the tui-bridge.
-	upstreamURL := buildUpstreamTermURL(*inst.SandboxURL, *sess.HarnessSessionID)
+	upstreamURL := buildUpstreamTermURL(sandboxURL, *sess.HarnessSessionID)
 	ctx, cancel := context.WithCancel(c.Request().Context())
 	defer cancel()
 

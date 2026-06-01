@@ -110,11 +110,17 @@ func PVCNameForProjectID(projectID uuid.UUID) string {
 //
 // 调用方应在 goroutine 里调用（耗时可达分钟级）。
 func (m *Manager) EnsureReady(ctx context.Context, inst *model.Harness) (string, error) {
-	if inst.SandboxStatus == "ready" && inst.SandboxURL != nil {
-		return *inst.SandboxURL, nil
-	}
-
 	name := NameFor(inst)
+
+	if inst.SandboxStatus == "ready" {
+		// The pod IP is not cached in the DB — resolve it live from K8s.
+		if url, ok := m.k8sClient.ResolveURL(ctx, name); ok {
+			return url, nil
+		}
+		// Status says ready but the pod isn't resolvable (rescheduled/deleted) —
+		// wait for the existing CR to republish an IP instead of failing.
+		return m.waitURL(ctx, name, inst.HarnessID)
+	}
 
 	if inst.SandboxStatus == "starting" {
 		return m.waitURL(ctx, name, inst.HarnessID)
@@ -230,8 +236,17 @@ func (m *Manager) waitURL(ctx context.Context, name string, harnessID uuid.UUID)
 		_ = m.store.UpdateSandboxStatus(ctx, harnessID, "failed")
 		return "", err
 	}
-	_ = m.store.UpdateSandboxReady(ctx, harnessID, url)
+	_ = m.store.UpdateSandboxReady(ctx, harnessID)
 	return url, nil
+}
+
+// URL resolves the harness sandbox's current address straight from K8s. There
+// is no DB cache of the pod IP (it's ephemeral and goes stale on reschedule),
+// so callers resolve it fresh — once per connection. Returns ("", false) when
+// the sandbox isn't Ready / has no published pod IP yet, which handlers treat
+// as "sandbox not ready".
+func (m *Manager) URL(ctx context.Context, inst *model.Harness) (string, bool) {
+	return m.k8sClient.ResolveURL(ctx, NameFor(inst))
 }
 
 func withPathSuffix(base, suffix string) string {

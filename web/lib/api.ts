@@ -54,7 +54,6 @@ export interface Session {
   status: string
   phase: string | null
   title: string | null
-  sandbox_url: string | null
   harness_session_id: string | null
   created_at: string
   last_seen_at: string | null

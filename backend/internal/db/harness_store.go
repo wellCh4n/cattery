@@ -13,7 +13,7 @@ import (
 
 var ErrHarnessNotFound = errors.New("harness not found")
 
-const harnessColumns = `harness_id, project_id, harness_name, model, type, env_vars, sandbox_status, task_name, sandbox_url, created_at`
+const harnessColumns = `harness_id, project_id, harness_name, model, type, env_vars, sandbox_status, task_name, created_at`
 
 type HarnessStore struct{ db *sqlx.DB }
 
@@ -143,10 +143,10 @@ func (s *HarnessStore) UpdateSandboxStarting(ctx context.Context, id uuid.UUID, 
 	return err
 }
 
-func (s *HarnessStore) UpdateSandboxReady(ctx context.Context, id uuid.UUID, sandboxURL string) error {
+func (s *HarnessStore) UpdateSandboxReady(ctx context.Context, id uuid.UUID) error {
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE harnesses SET sandbox_status='ready', sandbox_url=$1 WHERE harness_id=$2`,
-		sandboxURL, id,
+		`UPDATE harnesses SET sandbox_status='ready' WHERE harness_id=$1`,
+		id,
 	)
 	return err
 }
@@ -166,7 +166,7 @@ type scanner interface {
 func prefixedHarnessColumns(alias string) string {
 	cols := []string{
 		"harness_id", "project_id", "harness_name", "model", "type",
-		"env_vars", "sandbox_status", "task_name", "sandbox_url", "created_at",
+		"env_vars", "sandbox_status", "task_name", "created_at",
 	}
 	out := ""
 	for i, col := range cols {
@@ -184,7 +184,7 @@ func scanHarness(row scanner) (*model.Harness, error) {
 	err := row.Scan(
 		&h.HarnessID, &h.ProjectID, &h.HarnessName, &h.Model, &h.Type,
 		&envRaw,
-		&h.SandboxStatus, &h.TaskName, &h.SandboxURL, &h.CreatedAt,
+		&h.SandboxStatus, &h.TaskName, &h.CreatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrHarnessNotFound
@@ -205,7 +205,7 @@ func scanHarnessAccess(row scanner) (*model.HarnessAccess, error) {
 	err := row.Scan(
 		&h.HarnessID, &h.ProjectID, &h.HarnessName, &h.Model, &h.Type,
 		&envRaw,
-		&h.SandboxStatus, &h.TaskName, &h.SandboxURL, &h.CreatedAt,
+		&h.SandboxStatus, &h.TaskName, &h.CreatedAt,
 		&role, &ownerUsername,
 		&p.ProjectID, &p.OwnerUserID, &p.ProjectName, &p.CreatedAt,
 	)
