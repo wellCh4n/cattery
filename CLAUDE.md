@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Cattery is a self-hosted, team-oriented AI coding agent platform. Each Agent template runs inside an isolated Kubernetes Sandbox Pod; users interact with the running agent through Sessions. The platform is harness-agnostic — `opencode`, `claude-code`, `codex`, etc. all sit behind a common HTTP contract and a translation layer that normalizes their event streams.
+Cattery is a self-hosted, team-oriented AI coding agent platform. Work is organized into **Projects** — shared workspaces with files and members. Each Project holds one or more **Harnesses** (agent templates); each Harness runs inside an isolated Kubernetes Sandbox Pod that users drive through **Sessions**. The platform is harness-agnostic — `opencode`, `claude-code`, `codex`, etc. all sit behind a common contract and a translation layer that normalizes their event streams.
 
 Target deployment: self-hosted Kubernetes, internal-only (no SSO/audit yet). Models are reached via an external OpenAI- or Anthropic-compatible gateway (e.g. NewAPI), NOT LiteLLM.
 
@@ -22,9 +22,15 @@ make build-harness                # build all four harness images
 make build-harness HARNESS=codex  # build a single harness (opencode | claude-code | codex | hermes)
 make build-pod                    # build all standalone Pod images (filemgr, skillmgr)
 make build-pod POD=filemgr        # build a single Pod image (filemgr | skillmgr)
+
+make docker-db                    # local Postgres via docker compose (also: docker-up | docker-down | docker-reset-db)
+
+go test ./...                     # backend tests (only internal/model has tests today)
+go test ./internal/model -run TestName   # a single test
+cd web && bun lint                # frontend lint (eslint); no frontend test suite
 ```
 
-Go binary lives at `/usr/local/go/bin/go`; PATH typically does not include it, so prefer `make` targets or call the absolute path directly. Same for bun at `~/.bun/bin/bun`.
+There is no `make test`/`make lint` target — run the toolchain directly as above. `go` and `bun` are on `PATH` (Homebrew, `/opt/homebrew/bin`) and the Makefile resolves both with `which`, so prefer `make` targets; if you call the toolchain directly and it isn't found, use `$(which go)` / `$(which bun)` rather than a hardcoded path.
 
 Backend env vars (see `backend/.env`, gitignored): `DATABASE_URL`, `PORT`, `K8S_NAMESPACE`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `JWT_SECRET` (required — signing key for login tokens; rotating it invalidates every issued session), `K8S_STORAGE_CLASS` (PVC `storageClassName`; empty = cluster default), `K8S_PVC_ACCESS_MODE` (PVC access mode; defaults to `ReadWriteMany`, set to `ReadWriteOnce` on block-backed storage classes that only support single-node mounts).
 
@@ -42,13 +48,14 @@ web (Next.js + shadcn, bun)   →   backend (Go + Echo)   →   K8s Sandbox Pod
                                                             └─ external model API (anthropic/openai-compatible)
 ```
 
-### Resource model: Agent vs Session vs Sandbox
+### Resource model: Project → Harness → Sandbox → Session
 
-- **Agent** — configuration template (model, prompt, harness_id, repo, env_vars). Owns a single long-lived sandbox.
-- **Sandbox** — one K8s `agents.x-k8s.io/v1alpha1` Sandbox CR per Agent, named `cattery-<agent_id>`. Status lives on the Agent row (`sandbox_status`, `task_name`, `sandbox_url`).
-- **Session** — a conversation inside an Agent's sandbox. Multiple sessions share one sandbox. Each Session has a `harness_session_id` returned by the harness's `POST /session`.
+- **Project** — shared workspace owned by a user, with its own PVC-backed file workspace (served by a per-project filemgr Pod). Access is two roles only — `owner` and `member` (`model.AccessOwner` / `model.AccessMember`); there is no viewer/editor tier, and added members are always written as `member`. Role currently grants all-or-nothing access: `requireWritableSession` is just an alias for `requireReadableSession`, so read/write are not yet differentiated. Harnesses live inside a Project; deleting a Project tears down its harness sandboxes, filemgr Pod, and workspace PVC.
+- **Harness** — configuration template (model, prompt, `type` = harness_id, repo, env_vars) scoped to a Project. Owns a single long-lived sandbox; `sandbox_status` (+ `task_name`) lives on the Harness row. The pod URL is **not** persisted — it's the ephemeral pod IP, resolved live from K8s on each connection (`Manager.URL` → `k8sClient.ResolveURL`). Handlers/store use `harness_id`, never `agent_id` — there is no "Agent" entity in the code.
+- **Sandbox** — one K8s `agents.x-k8s.io/v1alpha1` Sandbox CR per Harness, named `cattery-<harnessID>` (HTTP kinds) or `cattery-<type>-<harnessID>` (terminal kinds), per `sandbox/manager.go`. Note the `agents.x-k8s.io` API group is the upstream Agent Sandbox controller — unrelated to Cattery's own resource naming.
+- **Session** — a conversation inside a Harness's sandbox. Multiple sessions share one sandbox. Each Session has a `harness_session_id` returned by the harness's `POST /session`.
 
-Creating a Session triggers `ensureSandbox` (`backend/internal/api/session_handler.go`): if the Agent's sandbox is `ready`, reuse; otherwise start the Sandbox CR, wait for `status.conditions[Ready]=True`, pick first IPv4 from `status.podIPs`, then handshake `POST /session` on the harness.
+Creating a Session kicks off `bringUp` (`backend/internal/api/session_handler.go`), which calls `sandbox.Manager.EnsureReady` (`backend/internal/sandbox/manager.go`): if the Harness's sandbox is `ready`, resolve its current URL live from K8s; otherwise start the Sandbox CR, wait for `status.conditions[Ready]=True`, pick the first IPv4 from `status.podIPs`, then handshake `POST /session` on the harness. Because the URL is always resolved fresh (never cached in the DB), a rescheduled pod's new IP is picked up automatically — there's no stale-URL footgun.
 
 ### Two harness kinds: HTTP vs Terminal
 
@@ -61,7 +68,7 @@ The frontend picks `chat-panel.tsx` vs `terminal-view.tsx` based on the kind.
 
 ### Harness HTTP contract (KindHTTP only)
 
-Every HTTP harness container must implement these endpoints on `agent.container_port` (default 4096):
+Every HTTP harness container must implement these endpoints on the harness container port (default 4096; `sandbox.Port`):
 
 ```
 POST /session                          → { id }
@@ -104,9 +111,9 @@ Each harness lives in its own subpackage under `backend/internal/harness/<name>/
 
 `POST /api/v1/sessions/:id/message`:
 
-1. Look up Session → Agent → `sandbox_url`.
+1. Look up Session → Harness, then resolve the sandbox URL live from K8s (`Manager.URL`).
 2. Forward to harness: `POST /session/:harness_session_id/prompt_async` (returns 204 immediately).
-3. Open SSE: `GET <sandbox_url>/event` on the harness.
+3. Open SSE: `GET <sandboxURL>/event` on the harness.
 4. For each event, run it through the harness's translator → write platform-format SSE frame to the response.
 5. Stop when the **primary** session's `session.idle` arrives. Child sessions spawned by the `task` tool are tracked in `childSessions` so their events are also forwarded.
 
@@ -115,6 +122,10 @@ The response is itself an SSE stream; the frontend reads it directly from the `f
 ### Frontend event handling
 
 `web/components/chat-panel.tsx` is the single point that consumes platform events. It maintains a `Bubble[]` list keyed by `partId` / `toolId`. **Do not** branch on harness-specific event types here — if you need new behavior, extend the platform protocol and update the translators.
+
+### Auth
+
+Stateless HS256 JWT (`backend/internal/auth/jwt.go`), 7-day TTL, no server-side revocation — the token is the source of truth until expiry (demoting an admin only takes effect on the next token). Every route except `POST /auth/login` sits behind `AuthMiddleware` (`auth_middleware.go`), which accepts the bearer token from **three** transports, in order: `Authorization: Bearer` header, `?token=` query param (for `<img>`/`<iframe>`/download URLs that can't set headers), or the `Sec-WebSocket-Protocol` header paired with the `cattery.bearer` marker (terminal WS upgrade — keeps the token out of access logs). Admin-only routes layer `AdminOnly` on top.
 
 ### The filemgr Pod (per-project file manager)
 
