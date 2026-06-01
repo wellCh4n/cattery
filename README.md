@@ -7,12 +7,68 @@ The platform is harness-agnostic. Two transports are supported:
 - **HTTP harnesses** (e.g. `opencode`, `claude-code`) — implement a common HTTP contract; the backend translates their event streams into a uniform protocol the frontend can render.
 - **Terminal harnesses** (e.g. `codex`, `hermes`) — wrap a TUI; the backend proxies raw PTY bytes over WebSocket to a terminal view.
 
-```
-web (Next.js + shadcn)   →   backend (Go + Echo)   →   K8s
-                                                       ├─ Project Pod    (filemgr — per-project workspace PVC)
-                                                       ├─ Skill Pod      (skillmgr — single, cluster-wide skills PVC)
-                                                       └─ Harness Pod    (harness container, mounts both PVCs)
-                                                                         └─ external model API (anthropic/openai-compatible)
+```mermaid
+graph TD
+    Browser["Browser\nNext.js + shadcn (port 3000)"]
+
+    subgraph Backend["Go Backend (Echo, port 8080)"]
+        Auth["AuthMiddleware\n(JWT)"]
+        Router["Router /api/v1"]
+        SandboxMgr["sandbox.Manager\nEnsureReady / Stop"]
+        HarnessReg["harness.Registry\nKindHTTP / KindTerminal"]
+        K8sClient["k8s.Client\nRunTask · EnsurePVC · ResolveURL"]
+        DB["PostgreSQL\nprojects · harnesses · sessions · users"]
+    end
+
+    subgraph K8s["Kubernetes Cluster"]
+        SandboxCR["Sandbox CR\nagents.x-k8s.io/v1alpha1\n(one per Harness)\nmounts workspace PVC rw + skills PVC ro"]
+
+        subgraph HTTPPods["HTTP Harnesses (SSE + translator)"]
+            OpenCode["opencode Pod"]
+            ClaudeCode["claude-code Pod"]
+        end
+
+        subgraph TermPods["Terminal Harnesses (raw PTY over WS)"]
+            Codex["codex Pod"]
+            Hermes["hermes Pod"]
+        end
+
+        FileMgr["filemgr Pod\n(one per Project)"]
+        SkillMgr["skillmgr Pod\n(cluster-wide)"]
+
+        WorkPVC["workspace PVC\ncattery-project-&lt;id&gt;-work"]
+        SkillPVC["skills PVC\ncattery-skills-work"]
+    end
+
+    ModelAPI["External Model API\nAnthropic / OpenAI-compatible gateway"]
+
+    Browser -->|"REST / SSE / WebSocket"| Auth
+    Auth --> Router
+    Router -->|"session/message"| SandboxMgr
+    Router -->|"handlers → stores"| DB
+    Router -->|"proxy /files/*"| FileMgr
+    Router -->|"proxy /skills/*"| SkillMgr
+    SandboxMgr --> K8sClient
+    SandboxMgr -->|"KindFor(harnessID)"| HarnessReg
+    K8sClient -->|"create/delete Sandbox CR\n(spec includes PVC mounts)"| SandboxCR
+    K8sClient -->|"create Pod"| FileMgr
+    K8sClient -->|"create Pod"| SkillMgr
+    K8sClient -->|"EnsurePVC"| WorkPVC
+    K8sClient -->|"EnsurePVC"| SkillPVC
+    SandboxCR --> OpenCode
+    SandboxCR --> ClaudeCode
+    SandboxCR --> Codex
+    SandboxCR --> Hermes
+    OpenCode -->|"SSE events → translator → PlatformEvent"| Router
+    ClaudeCode -->|"SSE events → translator → PlatformEvent"| Router
+    Codex -->|"PTY bytes"| Router
+    Hermes -->|"PTY bytes"| Router
+    OpenCode --> ModelAPI
+    ClaudeCode --> ModelAPI
+    Codex --> ModelAPI
+    Hermes --> ModelAPI
+    FileMgr -->|"mount rw"| WorkPVC
+    SkillMgr -->|"mount rw"| SkillPVC
 ```
 
 ## Prerequisites
@@ -143,7 +199,7 @@ Deleting a user cascades to their harnesses and sessions, and stops their K8s sa
 
 ## Resource model
 
-- **Project** — a shared workspace owned by one user with optional members at `viewer` / `editor` / `owner` roles. Each project has its own PVC-backed file workspace, served by a per-project `filemgr` Pod.
+- **Project** — a shared workspace owned by one user with optional members at `owner` / `member` roles. Each project has its own PVC-backed file workspace, served by a per-project `filemgr` Pod.
 - **Harness** — an agent template (model, prompt, harness_id, repo, env_vars) scoped to a Project. Owns a single long-lived sandbox.
 - **Sandbox** — one Kubernetes `agents.x-k8s.io/v1alpha1` Sandbox CR per Harness, named `cattery-<harness_id>`. Status is mirrored to the Harness row.
 - **Session** — a conversation inside a Harness's sandbox. Multiple sessions share one sandbox.
