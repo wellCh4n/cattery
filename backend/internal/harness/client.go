@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -214,9 +213,7 @@ func (c *Client) StreamEventsUntilIdle(ctx context.Context, sandboxURL, harnessS
 			continue
 		}
 		// 空行 = 事件结束，处理 dataLine
-		log.Printf("[harness] raw event: %s", dataLine)
 		platEv, isIdle := translate(dataLine, harnessSessionID, childSessions, state)
-		log.Printf("[harness] translated: platEv=%v isIdle=%v", platEv, isIdle)
 		dataLine = ""
 
 		if platEv != nil {
