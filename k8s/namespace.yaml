@@ -1,0 +1,10 @@
+# Namespace that holds the Cattery backend and everything it creates
+# (Sandbox CRs, filemgr/skillmgr Pods, workspace/skills PVCs).
+# Must match the backend's K8S_NAMESPACE env var.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cattery
+  labels:
+    app.kubernetes.io/name: cattery
+    app.kubernetes.io/part-of: cattery

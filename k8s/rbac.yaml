@@ -1,0 +1,65 @@
+# ServiceAccount + RBAC for the Cattery backend.
+#
+# The backend connects to the K8s API via in-cluster config
+# (rest.InClusterConfig, backend/internal/k8s/client.go), which reads the token
+# of the ServiceAccount referenced by the Pod's `serviceAccountName`. No
+# kubeconfig is needed in-cluster.
+#
+# Permissions are scoped to exactly what the backend uses: it creates/reads/
+# deletes Sandbox CRs, Pods (filemgr/skillmgr), and PVCs, all within
+# K8S_NAMESPACE. Get is used to poll readiness, so no watch/update/patch needed.
+#
+# The namespace itself lives in k8s/namespace.yaml. Apply the whole directory so
+# the Namespace is created before these namespaced objects:
+#   kubectl apply -f k8s/
+# Then reference the SA from the backend Deployment via:
+#   spec.template.spec.serviceAccountName: cattery
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cattery
+  namespace: cattery # keep aligned with K8S_NAMESPACE
+  labels:
+    app.kubernetes.io/name: cattery
+    app.kubernetes.io/part-of: cattery
+    app.kubernetes.io/component: backend
+---
+# Role is namespace-scoped. If the backend must create sandboxes in a different
+# namespace than its own, switch this pair to ClusterRole + ClusterRoleBinding.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cattery-backend
+  namespace: cattery
+  labels:
+    app.kubernetes.io/name: cattery
+    app.kubernetes.io/part-of: cattery
+    app.kubernetes.io/component: backend
+rules:
+  - apiGroups: ["agents.x-k8s.io"]
+    resources: ["sandboxes"]
+    verbs: ["create", "get", "list", "delete"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["create", "get", "list", "delete"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["create", "get", "list", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cattery-backend
+  namespace: cattery
+  labels:
+    app.kubernetes.io/name: cattery
+    app.kubernetes.io/part-of: cattery
+    app.kubernetes.io/component: backend
+subjects:
+  - kind: ServiceAccount
+    name: cattery
+    namespace: cattery
+roleRef:
+  kind: Role
+  name: cattery-backend
+  apiGroup: rbac.authorization.k8s.io
