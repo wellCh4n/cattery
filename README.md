@@ -81,23 +81,29 @@ graph TD
 - **Docker** — required for harness images, plus the optional compose stack
 - **An OpenAI- or Anthropic-compatible model gateway** (e.g. NewAPI, LiteLLM, the upstream provider directly)
 
-### Install the Agent Sandbox controller
+### Install the cluster prerequisites
 
-Pick a release tag from the [agent-sandbox releases page](https://github.com/kubernetes-sigs/agent-sandbox/releases) and apply the manifest:
+The `k8s/` directory bundles everything the cluster needs behind one Kustomize
+entrypoint — the upstream Agent Sandbox controller (version-pinned), the
+`cattery` namespace, and the backend's ServiceAccount + RBAC:
 
 ```bash
-VERSION=v0.4.6   # latest release at time of writing — check the releases page above
-kubectl apply -f https://github.com/kubernetes-sigs/agent-sandbox/releases/download/${VERSION}/manifest.yaml
+kubectl apply -k k8s/
 ```
+
+This fetches the Agent Sandbox controller manifest over the network; to pin a
+different release, edit the URL in [`k8s/kustomization.yaml`](k8s/kustomization.yaml)
+(see the [agent-sandbox releases page](https://github.com/kubernetes-sigs/agent-sandbox/releases)).
+Preview the fully-rendered manifests first with `kubectl kustomize k8s/`.
 
 Verify the CRD is registered and the controller is running:
 
 ```bash
 kubectl get crd sandboxes.agents.x-k8s.io
-kubectl get pods -n agent-sandbox-system   # or wherever the manifest installs it
+kubectl get pods -n agent-sandbox-system
 ```
 
-See the [Agent Sandbox Getting Started guide](https://agent-sandbox.sigs.k8s.io/docs/getting_started/) for cluster-wide RBAC, namespacing, and extension components.
+See the [Agent Sandbox Getting Started guide](https://agent-sandbox.sigs.k8s.io/docs/getting_started/) for the controller's own RBAC, namespacing, and extension components.
 
 ## Quick start
 

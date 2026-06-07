@@ -9,9 +9,9 @@
 # deletes Sandbox CRs, Pods (filemgr/skillmgr), and PVCs, all within
 # K8S_NAMESPACE. Get is used to poll readiness, so no watch/update/patch needed.
 #
-# The namespace itself lives in k8s/namespace.yaml. Apply the whole directory so
-# the Namespace is created before these namespaced objects:
-#   kubectl apply -f k8s/
+# Applied as part of the Kustomize bundle (k8s/kustomization.yaml), which also
+# creates the namespace and the upstream Agent Sandbox controller:
+#   kubectl apply -k k8s/
 # Then reference the SA from the backend Deployment via:
 #   spec.template.spec.serviceAccountName: cattery
 apiVersion: v1

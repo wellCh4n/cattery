@@ -1,0 +1,29 @@
+# Kustomize entrypoint for Cattery's K8s prerequisites.
+#
+# Bundles the upstream Agent Sandbox controller (third-party, version-pinned)
+# with Cattery's own namespace + RBAC, so the whole prerequisite stack installs
+# in one command:
+#
+#   kubectl apply -k k8s/
+#
+# Preview the fully-rendered manifests without applying:
+#
+#   kubectl kustomize k8s/
+#
+# The first resource is fetched over the network at apply time. To bump the
+# controller, change the version in the URL below (releases:
+# https://github.com/kubernetes-sigs/agent-sandbox/releases).
+#
+# No global namespace/labels transformers are set on purpose: the upstream
+# controller lives in its own agent-sandbox-system namespace, and our objects
+# already carry their namespace + labels in-file — a global transformer would
+# wrongly rewrite the upstream resources.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  # Upstream Agent Sandbox controller + CRD (provides agents.x-k8s.io/v1alpha1).
+  - https://github.com/kubernetes-sigs/agent-sandbox/releases/download/v0.4.6/manifest.yaml
+  # Cattery's own resources.
+  - namespace.yaml
+  - rbac.yaml
