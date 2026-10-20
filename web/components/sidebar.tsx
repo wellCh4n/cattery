@@ -13,6 +13,7 @@ import {
   MessageSquare,
   MessagesSquare,
   Pencil,
+  Play,
   Plus,
   Power,
   Puzzle,
@@ -67,6 +68,7 @@ export function Sidebar() {
   const createSession = useWorkspaceStore(state => state.createSession)
   const deleteSession = useWorkspaceStore(state => state.deleteSession)
   const deleteProject = useWorkspaceStore(state => state.deleteProject)
+  const startSandbox = useWorkspaceStore(state => state.startSandbox)
   const stopSandbox = useWorkspaceStore(state => state.stopSandbox)
 
   const [newProjectOpen, setNewProjectOpen] = useState(false)
@@ -425,6 +427,20 @@ export function Sidebar() {
               />
             </span>
             <div className="flex items-center gap-1">
+              {(sandboxStatus === "idle" || sandboxStatus === "failed") && (
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => {
+                    startSandbox(currentProject.project_id).catch(err =>
+                      window.alert(err instanceof Error ? err.message : "Failed to start sandbox"),
+                    )
+                  }}
+                  title={sandboxStatus === "failed" ? "Retry starting sandbox" : "Start sandbox"}
+                >
+                  <Play />
+                </Button>
+              )}
               {currentProject.access_role === "owner" && (sandboxStatus === "ready" || sandboxStatus === "starting") && (
                 <Button
                   variant="ghost"

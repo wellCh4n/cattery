@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"log"
 	"net/http"
@@ -166,6 +167,24 @@ func (h *ProjectHandler) Delete(c echo.Context) error {
 
 // StopSandbox stops the project's agent sandbox. Sessions survive: their
 // transcripts live on the workspace PVC and the sandbox restarts on next use.
+// StartSandbox brings the project's sandbox up ahead of the first message. The
+// start runs detached (a pod can take a while) and the caller polls the
+// project's sandbox_status. Any member may start it — sending a message would
+// anyway; stopping stays owner-only.
+func (h *ProjectHandler) StartSandbox(c echo.Context) error {
+	access, err := requireWritableProject(c, h.projects)
+	if err != nil {
+		return err
+	}
+	projectID := access.Project.ProjectID
+	go func() {
+		if _, err := h.sandbox.EnsureReady(context.Background(), projectID); err != nil {
+			log.Printf("warn: start sandbox for project %s: %v", projectID, err)
+		}
+	}()
+	return c.NoContent(http.StatusAccepted)
+}
+
 func (h *ProjectHandler) StopSandbox(c echo.Context) error {
 	access, err := requireManageableProject(c, h.projects)
 	if err != nil {

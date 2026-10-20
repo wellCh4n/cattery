@@ -123,6 +123,7 @@ func NewRouter(
 	projects.DELETE("/:project_id", projectH.Delete)
 	projects.GET("/:project_id/sessions", sessionH.ListByProject)
 	projects.POST("/:project_id/sessions", sessionH.Create)
+	projects.POST("/:project_id/sandbox", projectH.StartSandbox)
 	projects.DELETE("/:project_id/sandbox", projectH.StopSandbox)
 	projects.GET("/:project_id/members", projectH.ListMembers)
 	projects.POST("/:project_id/members", projectH.CreateMember)
