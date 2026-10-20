@@ -10,6 +10,8 @@ func TestProviderForModelConfiguredModels(t *testing.T) {
 	}{
 		{name: "claude sonnet uses anthropic", modelID: "claude-sonnet-4-6", want: ProviderAnthropic},
 		{name: "claude opus uses anthropic", modelID: "claude-opus-4-7", want: ProviderAnthropic},
+		{name: "deepseek flash uses openai", modelID: "deepseek-flash", want: ProviderOpenAI},
+		{name: "deepseek pro uses openai", modelID: "deepseek-v4-pro", want: ProviderOpenAI},
 		{name: "gpt uses openai", modelID: "gpt-5.5", want: ProviderOpenAI},
 		{name: "normalizes whitespace and case", modelID: "  GPT-5.4  ", want: ProviderOpenAI},
 	}

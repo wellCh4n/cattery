@@ -21,7 +21,7 @@ graph TD
     end
 
     subgraph K8s["Kubernetes Cluster"]
-        SandboxCR["Sandbox CR\nagents.x-k8s.io/v1alpha1\n(one per Harness)\nmounts workspace PVC rw + skills PVC ro"]
+        SandboxCR["Sandbox CR\nagents.x-k8s.io/v1beta1\n(one per Harness)\nmounts workspace PVC rw + skills PVC ro"]
 
         subgraph HTTPPods["HTTP Harnesses (SSE + translator)"]
             OpenCode["opencode Pod"]
@@ -74,7 +74,7 @@ graph TD
 ## Prerequisites
 
 - **Kubernetes cluster** (any flavor — kind, minikube, EKS, GKE, etc.) with kubeconfig reachable from the backend
-- **[Agent Sandbox](https://github.com/kubernetes-sigs/agent-sandbox) controller** installed in the cluster — provides the `agents.x-k8s.io/v1alpha1` `Sandbox` CRD that Cattery uses to launch isolated agent pods
+- **[Agent Sandbox](https://github.com/kubernetes-sigs/agent-sandbox) controller** installed in the cluster — provides the `agents.x-k8s.io/v1beta1` `Sandbox` CRD that Cattery uses to launch isolated agent pods
 - **PostgreSQL** 14+ — run it yourself, or let the bundled `docker-compose.yml` start one for you
 - **Go** ≥ 1.22 (only if you run the backend on the host instead of in compose)
 - **Bun** ≥ 1.0 (only if you run the frontend on the host)
@@ -207,7 +207,7 @@ Deleting a user cascades to their harnesses and sessions, and stops their K8s sa
 
 - **Project** — a shared workspace owned by one user with optional members at `owner` / `member` roles. Each project has its own PVC-backed file workspace, served by a per-project `filemgr` Pod.
 - **Harness** — an agent template (model, prompt, harness_id, repo, env_vars) scoped to a Project. Owns a single long-lived sandbox.
-- **Sandbox** — one Kubernetes `agents.x-k8s.io/v1alpha1` Sandbox CR per Harness, named `cattery-<harness_id>`. Status is mirrored to the Harness row.
+- **Sandbox** — one Kubernetes `agents.x-k8s.io/v1beta1` Sandbox CR per Harness, named `cattery-<harness_id>`. Status is mirrored to the Harness row.
 - **Session** — a conversation inside a Harness's sandbox. Multiple sessions share one sandbox.
 - **Skill** — a `<slug>/SKILL.md (+assets)` directory in the global skills library. Skills are cluster-wide, independent of Projects, served by a single `skillmgr` Pod and read-only mounted into every harness sandbox at the path that harness auto-discovers (e.g. `~/.claude/skills`, `~/.agents/skills`).
 

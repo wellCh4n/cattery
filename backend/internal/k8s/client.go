@@ -17,7 +17,7 @@ import (
 
 var sandboxGVR = schema.GroupVersionResource{
 	Group:    "agents.x-k8s.io",
-	Version:  "v1alpha1",
+	Version:  "v1beta1",
 	Resource: "sandboxes",
 }
 
@@ -201,7 +201,7 @@ func (c *Client) RunTask(ctx context.Context, spec SandboxSpec) error {
 
 	sandbox := &unstructured.Unstructured{
 		Object: map[string]interface{}{
-			"apiVersion": "agents.x-k8s.io/v1alpha1",
+			"apiVersion": "agents.x-k8s.io/v1beta1",
 			"kind":       "Sandbox",
 			"metadata": map[string]interface{}{
 				"name":      spec.Name,

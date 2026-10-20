@@ -43,6 +43,8 @@ interface ModelOption {
 }
 
 const MODELS: ModelOption[] = [
+  { id: "deepseek-flash", label: "DeepSeek-V4.1-Flash", types: ["opencode", "claude-code", "hermes"] },
+  { id: "deepseek-v4-pro", label: "DeepSeek-V4-Pro", types: ["opencode", "claude-code", "hermes"] },
   { id: "claude-sonnet-4-6", label: "claude-sonnet-4-6", types: ["opencode", "claude-code", "hermes", "codex"] },
   { id: "claude-opus-4-6",   label: "claude-opus-4-6",   types: ["opencode", "claude-code", "hermes", "codex"] },
   { id: "claude-opus-4-7",   label: "claude-opus-4-7",   types: ["opencode", "claude-code", "hermes", "codex"] },
@@ -53,7 +55,7 @@ const MODELS: ModelOption[] = [
 
 const defaultForm = {
   harness_name: "",
-  model: "claude-sonnet-4-6",
+  model: "deepseek-flash",
   custom_model: "",
   type: "opencode",
   env_vars: "",

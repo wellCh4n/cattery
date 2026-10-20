@@ -77,6 +77,8 @@ type Session struct {
 }
 
 var ModelProviders = map[string]string{
+	"deepseek-flash":    ProviderOpenAI,
+	"deepseek-v4-pro":   ProviderOpenAI,
 	"claude-sonnet-4-6": ProviderAnthropic,
 	"claude-opus-4-6":   ProviderAnthropic,
 	"claude-opus-4-7":   ProviderAnthropic,

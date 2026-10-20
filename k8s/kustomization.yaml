@@ -22,8 +22,8 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
-  # Upstream Agent Sandbox controller + CRD (provides agents.x-k8s.io/v1alpha1).
-  - https://github.com/kubernetes-sigs/agent-sandbox/releases/download/v0.4.6/manifest.yaml
+  # Upstream Agent Sandbox controller + CRD (provides agents.x-k8s.io/v1beta1).
+  - https://github.com/kubernetes-sigs/agent-sandbox/releases/download/v1.0.7/sandbox.yaml
   # Cattery's own resources.
   - namespace.yaml
   - rbac.yaml
