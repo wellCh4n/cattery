@@ -1,28 +1,49 @@
 "use client"
 
-import { useCallback, useState, useEffect, useRef } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import {
-  ArrowUp,
-  ArrowDown,
-  Square,
-  Loader2,
-  CheckCircle2,
-  CircleAlert,
-  Wrench,
-  Sparkles,
-  AlertTriangle,
-  CornerDownLeft,
-  Brain,
-  ChevronDown,
-  Copy,
-  Check,
+  ArrowUpIcon,
+  CheckIcon,
+  CircleCheckIcon,
+  CopyIcon,
+  FilePenIcon,
+  FileTextIcon,
+  FolderIcon,
+  LoaderCircleIcon,
+  MessageCircleDashedIcon,
+  SearchIcon,
+  SquareIcon,
+  TerminalIcon,
+  TriangleAlertIcon,
+  WrenchIcon,
 } from "lucide-react"
+import { Bubble as BubbleUI, BubbleContent } from "@/components/ui/bubble"
 import { Button } from "@/components/ui/button"
-import { Textarea } from "@/components/ui/textarea"
+import { CodeBlock, CodeBlockContent } from "@/components/ui/code-block"
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
+import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea } from "@/components/ui/input-group"
+import { Message, MessageContent, MessageFooter } from "@/components/ui/message"
+import {
+  MessageScroller,
+  MessageScrollerButton,
+  MessageScrollerContent,
+  MessageScrollerItem,
+  MessageScrollerProvider,
+  MessageScrollerViewport,
+} from "@/components/ui/message-scroller"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import {
+  Trace,
+  TraceCollapsible,
+  TraceCollapsibleContent,
+  TraceCollapsibleTrigger,
+  TraceIcon,
+  TraceLine,
+  TraceTitle,
+} from "@/components/ui/trace"
 import { Markdown } from "@/components/markdown"
 import { FileViewer } from "@/components/file-viewer"
 import { ModelPicker } from "@/components/model-picker"
-import { cn } from "@/lib/utils"
 import { type Session } from "@/lib/api"
 import {
   useChatStreamStore,
@@ -37,16 +58,52 @@ interface Props {
 
 const EMPTY_BUBBLES: Bubble[] = []
 
+// A turn is one person's message, or everything the agent did in reply to it
+// (thinking, tool calls and text, in stream order).
+interface Turn {
+  id: string
+  role: "user" | "assistant"
+  bubbles: Bubble[]
+}
+
+// Within an agent turn, consecutive thinking/tool bubbles form one Trace; text
+// and errors render on their own.
+type Segment =
+  | { kind: "steps"; id: string; bubbles: Bubble[] }
+  | { kind: "text" | "error"; id: string; bubble: Bubble }
+
+function toTurns(bubbles: Bubble[]): Turn[] {
+  const turns: Turn[] = []
+  for (const b of bubbles) {
+    const last = turns.at(-1)
+    if (b.role === "user" || !last || last.role === "user") {
+      turns.push({ id: b.id, role: b.role, bubbles: [b] })
+    } else {
+      last.bubbles.push(b)
+    }
+  }
+  return turns
+}
+
+function toSegments(bubbles: Bubble[]): Segment[] {
+  const segments: Segment[] = []
+  for (const b of bubbles) {
+    if (b.kind === "thinking" || b.kind === "tool") {
+      const last = segments.at(-1)
+      if (last?.kind === "steps") last.bubbles.push(b)
+      else segments.push({ kind: "steps", id: b.id, bubbles: [b] })
+    } else if (b.kind === "error") {
+      segments.push({ kind: "error", id: b.id, bubble: b })
+    } else if (b.content) {
+      segments.push({ kind: "text", id: b.id, bubble: b })
+    }
+  }
+  return segments
+}
+
 export function ChatPanel({ session }: Props) {
   const [input, setInput] = useState("")
-  const [showJumpToBottom, setShowJumpToBottom] = useState(false)
-  const [composerHeight, setComposerHeight] = useState(0)
-  const scrollRef = useRef<HTMLDivElement>(null)
-  const contentRef = useRef<HTMLDivElement>(null)
-  const bottomRef = useRef<HTMLDivElement>(null)
-  const composerRef = useRef<HTMLDivElement>(null)
-  const stickToBottomRef = useRef(true)
-  const lastScrollTopRef = useRef(0)
+  const formRef = useRef<HTMLFormElement>(null)
   const chat = useChatStreamStore(state => state.sessions[session.session_id])
   const bubbles = chat?.bubbles ?? EMPTY_BUBBLES
   const sending = chat?.sending ?? false
@@ -54,407 +111,344 @@ export function ChatPanel({ session }: Props) {
   const loadHistory = useChatStreamStore(state => state.loadHistory)
   const sendMessage = useChatStreamStore(state => state.sendMessage)
   const stopSession = useChatStreamStore(state => state.stopSession)
-
-  const isNearBottom = useCallback((): boolean => {
-    const el = scrollRef.current
-    if (!el) return true
-    return el.scrollHeight - el.scrollTop - el.clientHeight < 96
-  }, [])
-
-  const updateJumpVisibility = useCallback((event?: React.UIEvent<HTMLDivElement>) => {
-    const el = event?.currentTarget ?? scrollRef.current
-    if (!el) return
-
-    const nearBottom = isNearBottom()
-    const scrollingUp = el.scrollTop < lastScrollTopRef.current
-    lastScrollTopRef.current = el.scrollTop
-
-    if (scrollingUp) {
-      stickToBottomRef.current = false
-      setShowJumpToBottom(!nearBottom)
-      return
-    }
-
-    stickToBottomRef.current = nearBottom
-    setShowJumpToBottom(!nearBottom)
-  }, [isNearBottom])
-
-  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
-    bottomRef.current?.scrollIntoView({ behavior })
-    requestAnimationFrame(() => {
-      const el = scrollRef.current
-      if (el) lastScrollTopRef.current = el.scrollTop
-    })
-    stickToBottomRef.current = true
-    setShowJumpToBottom(false)
-  }, [])
+  const turns = useMemo(() => toTurns(bubbles), [bubbles])
+  const ready = session.status === "ready"
+  const canSend = ready && !sending && input.trim().length > 0
 
   useEffect(() => {
-    requestAnimationFrame(() => {
-      if (stickToBottomRef.current) {
-        scrollToBottom("auto")
-      } else {
-        setShowJumpToBottom(true)
-      }
-    })
-  }, [bubbles, scrollToBottom, sending])
-
-  useEffect(() => {
-    const el = composerRef.current
-    if (!el) return
-    const update = () => setComposerHeight(el.offsetHeight)
-    update()
-    const ro = new ResizeObserver(update)
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [])
-
-  useEffect(() => {
-    const el = contentRef.current
-    if (!el) return
-
-    const observer = new ResizeObserver(() => {
-      if (!stickToBottomRef.current) return
-      requestAnimationFrame(() => scrollToBottom("auto"))
-    })
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [scrollToBottom])
-
-  useEffect(() => {
-    if (session.status !== "ready") return
+    if (!ready) return
     ensureSession(session.session_id)
-    let cancelled = false
-    loadHistory(session.session_id).then(() => {
-      if (cancelled) return
-      requestAnimationFrame(() => {
-        scrollToBottom("auto")
-        updateJumpVisibility()
-      })
-    }).catch(() => { /* ignore */ })
-    return () => { cancelled = true }
-  }, [ensureSession, loadHistory, scrollToBottom, session.session_id, session.status, updateJumpVisibility])
+    loadHistory(session.session_id).catch(() => { /* ignore */ })
+  }, [ensureSession, loadHistory, ready, session.session_id])
 
-  async function handleStop() {
-    await stopSession(session.session_id)
-  }
-
-  async function handleSend() {
-    if (!input.trim() || sending) return
+  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    if (!canSend) return
     const text = input.trim()
     setInput("")
     void sendMessage(session.session_id, text)
-    requestAnimationFrame(() => scrollToBottom("auto"))
-  }
-
-  function phaseLabel(phase: string | null): string {
-    switch (phase) {
-      case "handshake":       return "Connecting to agent"
-      case "handshake_error": return "Failed to connect to agent"
-      case "sandbox_error":   return "Sandbox failed to start"
-      default:                return phase ?? ""
-    }
   }
 
   return (
-    <div className="flex flex-col h-full bg-background">
-      <div className="relative flex-1 min-h-0">
-        <div
-          ref={scrollRef}
-          onScroll={updateJumpVisibility}
-          className="h-full overflow-y-auto px-4 md:px-8 pt-6"
-          style={{ paddingBottom: composerHeight + 16 }}
-        >
-          <div ref={contentRef} className="max-w-3xl mx-auto space-y-4">
-            {session.status === "creating" && (
-              <div className="flex items-center gap-2 rounded-lg border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
-                <Loader2 className="size-4 animate-spin" />
-                <span>Starting sandbox… {phaseLabel(session.phase)}</span>
-              </div>
-            )}
-            {session.status === "failed" && (
-              <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-                <AlertTriangle className="size-4 shrink-0 mt-0.5" />
-                <span>{phaseLabel(session.phase)}</span>
-              </div>
-            )}
-            {session.status === "ready" && bubbles.length === 0 && (
-              <div className="flex flex-col items-center justify-center text-center py-16">
-                <div className="rounded-full bg-muted p-3 mb-3">
-                  <Sparkles className="size-6 text-muted-foreground" />
-                </div>
-                <p className="text-sm font-medium">Session ready</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Send a message to start working with the agent.
-                </p>
-              </div>
-            )}
-            {bubbles.map((b) => (
-              <BubbleRow key={b.id} bubble={b} />
-            ))}
-            {sending && (
-              // Persistent loader anchored below the last message — stays until
-              // session.idle (or error) flips `sending` back to false.
-              <div className="flex justify-start pl-1">
-                <Loader2 className="size-4 animate-spin text-muted-foreground" />
-              </div>
-            )}
-            <div ref={bottomRef} />
-          </div>
+    <MessageScrollerProvider autoScroll>
+      <div className="flex h-full flex-col bg-background">
+        <div className="min-h-0 flex-1">
+          {session.status === "creating" ? (
+            <Empty className="h-full">
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <LoaderCircleIcon className="animate-spin" />
+                </EmptyMedia>
+                <EmptyTitle>Starting sandbox</EmptyTitle>
+                <EmptyDescription>{phaseLabel(session.phase)}</EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          ) : session.status === "failed" ? (
+            <Empty className="h-full">
+              <EmptyHeader>
+                <EmptyMedia variant="icon" className="text-destructive">
+                  <TriangleAlertIcon />
+                </EmptyMedia>
+                <EmptyTitle>Session failed to start</EmptyTitle>
+                <EmptyDescription>{phaseLabel(session.phase)}</EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          ) : turns.length === 0 ? (
+            <Empty className="h-full">
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <MessageCircleDashedIcon />
+                </EmptyMedia>
+                <EmptyTitle>What should we build?</EmptyTitle>
+                <EmptyDescription>
+                  The agent can read the project&apos;s files, run commands and make changes.
+                </EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          ) : (
+            <MessageScroller>
+              <MessageScrollerViewport>
+                <MessageScrollerContent aria-busy={sending} className="mx-auto max-w-3xl px-4 py-6 md:px-8">
+                  {turns.map((turn, i) =>
+                    turn.role === "user" ? (
+                      <MessageScrollerItem key={turn.id} messageId={turn.id} scrollAnchor>
+                        <Message align="end">
+                          <MessageContent>
+                            <BubbleUI align="end" variant="muted">
+                              <BubbleContent className="whitespace-pre-wrap">{turn.bubbles[0].content}</BubbleContent>
+                            </BubbleUI>
+                          </MessageContent>
+                        </Message>
+                      </MessageScrollerItem>
+                    ) : (
+                      <MessageScrollerItem key={turn.id} messageId={turn.id}>
+                        <AgentTurn
+                          bubbles={turn.bubbles}
+                          streaming={sending && i === turns.length - 1}
+                        />
+                      </MessageScrollerItem>
+                    ),
+                  )}
+                  {sending && turns.at(-1)?.role === "user" && (
+                    // Between submit and the first event of the reply.
+                    <MessageScrollerItem messageId="pending">
+                      <Trace>
+                        <TraceLine status="running">
+                          <TraceIcon><LoaderCircleIcon className="animate-spin" /></TraceIcon>
+                          <TraceTitle>Working</TraceTitle>
+                        </TraceLine>
+                      </Trace>
+                    </MessageScrollerItem>
+                  )}
+                </MessageScrollerContent>
+              </MessageScrollerViewport>
+              <MessageScrollerButton />
+            </MessageScroller>
+          )}
         </div>
-        {showJumpToBottom && (
-          <div
-            className="pointer-events-none absolute inset-x-4 md:inset-x-8"
-            style={{ bottom: composerHeight + 24 }}
-          >
-            <div className="mx-auto flex max-w-3xl justify-center">
-              <Button
-                type="button"
-                size="icon-sm"
-                variant="secondary"
-                title="Jump to bottom"
-                aria-label="Jump to bottom"
-                onClick={() => {
-                  scrollToBottom("smooth")
-                  setShowJumpToBottom(false)
-                }}
-                className="pointer-events-auto size-9 rounded-full border bg-background/70 backdrop-blur-md shadow-md hover:bg-background/85 [&_svg]:size-5"
-              >
-                <ArrowDown />
-              </Button>
-            </div>
-          </div>
-        )}
 
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 px-4 md:px-8 pb-4">
-          <div ref={composerRef} className="pointer-events-auto max-w-3xl mx-auto relative">
-            <div
-              aria-hidden
-              className="absolute inset-x-[-1rem] md:inset-x-[-2rem] top-1/2 bottom-[-1rem] bg-background"
-            />
-            <div
-              className={cn(
-                "relative group/composer rounded-2xl border bg-background/85 backdrop-blur-md shadow-sm transition-colors",
-                "focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/20",
-                session.status !== "ready" && "opacity-70",
-                sending && "bg-muted/60"
-              )}
-            >
-              <Textarea
-                className="w-full resize-none border-0 bg-transparent dark:bg-transparent disabled:bg-transparent dark:disabled:bg-transparent min-h-[44px] max-h-48 px-4 pt-4 pb-2 text-base md:text-sm shadow-none focus-visible:ring-0 focus-visible:border-0 outline-none [field-sizing:content]"
-                rows={1}
+        <div className="mx-auto w-full max-w-3xl px-4 pb-4 md:px-8">
+          <form ref={formRef} onSubmit={handleSubmit}>
+            <InputGroup className="bg-background">
+              <InputGroupTextarea
                 value={input}
-                disabled={session.status !== "ready" || sending}
+                disabled={!ready || sending}
                 onChange={e => setInput(e.target.value)}
+                placeholder={ready ? "Ask the agent…" : "Waiting for the sandbox…"}
+                aria-label="Message"
+                className="max-h-48 min-h-14 px-3 pt-3 text-base md:text-sm [field-sizing:content]"
                 onKeyDown={e => {
                   if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                     e.preventDefault()
-                    handleSend()
+                    formRef.current?.requestSubmit()
                   }
                 }}
               />
-              <div className="flex items-end justify-between px-4 pb-4">
-                <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground/70 select-none">
-                  <CornerDownLeft className="size-3" />
-                  <span>Send</span>
-                  <span className="text-muted-foreground/40">·</span>
-                  <span className="font-mono">⇧</span>
-                  <CornerDownLeft className="size-3" />
-                  <span>Newline</span>
+              <InputGroupAddon align="block-end" className="gap-1">
+                <span className="hidden text-[11px] font-normal text-muted-foreground/70 sm:inline">
+                  Enter to send · Shift+Enter for a new line
                 </span>
-                <div className="flex items-center gap-1">
-                <ModelPicker sessionId={session.session_id} model={session.model} disabled={sending} />
+                <ModelPicker
+                  sessionId={session.session_id}
+                  model={session.model}
+                  disabled={sending}
+                  className="ml-auto"
+                />
                 {sending ? (
-                  <Button
+                  <InputGroupButton
                     variant="destructive"
                     size="icon-sm"
-                    onClick={handleStop}
-                    title="Stop"
-                    className="size-9 rounded-full [&_svg]:size-[18px]"
+                    aria-label="Stop"
+                    className="rounded-full"
+                    onClick={() => void stopSession(session.session_id)}
                   >
-                    <Square />
-                  </Button>
+                    <SquareIcon />
+                  </InputGroupButton>
                 ) : (
-                  <Button
+                  <InputGroupButton
+                    type="submit"
+                    variant="default"
                     size="icon-sm"
-                    disabled={session.status !== "ready" || !input.trim()}
-                    onClick={handleSend}
-                    title="Send"
-                    className="size-9 rounded-full [&_svg]:size-5"
+                    aria-label="Send"
+                    className="rounded-full"
+                    disabled={!canSend}
                   >
-                    <ArrowUp />
-                  </Button>
+                    <ArrowUpIcon />
+                  </InputGroupButton>
                 )}
-                </div>
-              </div>
-            </div>
-          </div>
+              </InputGroupAddon>
+            </InputGroup>
+          </form>
         </div>
       </div>
-    </div>
+    </MessageScrollerProvider>
   )
 }
 
-function ThinkingBubble({ bubble }: { bubble: Bubble }) {
-  const [open, setOpen] = useState(true)
+function phaseLabel(phase: string | null): string {
+  switch (phase) {
+    case "handshake":       return "Connecting to agent"
+    case "handshake_error": return "Failed to connect to agent"
+    case "sandbox_error":   return "Sandbox failed to start"
+    default:                return phase ?? ""
+  }
+}
+
+function AgentTurn({ bubbles, streaming }: { bubbles: Bubble[]; streaming: boolean }) {
+  const segments = toSegments(bubbles)
+  const reply = segments
+    .filter(s => s.kind === "text")
+    .map(s => (s.kind === "text" ? s.bubble.content : ""))
+    .join("\n\n")
+
   return (
-    <div className="flex justify-start">
-      <div className="max-w-[90%] min-w-[50%] rounded-lg border border-dashed bg-muted/20">
-        <button
-          type="button"
-          onClick={() => setOpen(o => !o)}
-          className="flex w-full items-center gap-1.5 px-3 py-1.5 text-[11px] uppercase tracking-wide text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-        >
-          <Brain className="size-3" />
-          <span className="font-mono">thinking</span>
-          {!bubble.done && <Loader2 className="size-3 animate-spin ml-1" />}
-          <ChevronDown className={cn("size-3 ml-auto transition-transform", !open && "-rotate-90")} />
-        </button>
-        {open && (
-          <Markdown className="px-3 pb-2.5 text-xs text-muted-foreground italic [&_*]:text-inherit">
-            {bubble.content}
-          </Markdown>
+    <Message>
+      <MessageContent className="gap-3">
+        {segments.map(segment => {
+          if (segment.kind === "steps") {
+            return (
+              <Trace key={segment.id}>
+                {segment.bubbles.map(b =>
+                  b.kind === "thinking"
+                    ? <ReasoningRow key={b.id} bubble={b} />
+                    : <ToolRow key={b.id} bubble={b} />,
+                )}
+              </Trace>
+            )
+          }
+          if (segment.kind === "error") {
+            return (
+              <CodeBlock key={segment.id} variant="destructive" size="sm">
+                <CodeBlockContent wrap>{segment.bubble.content}</CodeBlockContent>
+              </CodeBlock>
+            )
+          }
+          return <Markdown key={segment.id}>{segment.bubble.content}</Markdown>
+        })}
+        {!streaming && reply && (
+          <MessageFooter className="px-0">
+            <CopyAction text={reply} />
+          </MessageFooter>
         )}
-      </div>
-    </div>
+      </MessageContent>
+    </Message>
   )
 }
 
-function BubbleRow({ bubble }: { bubble: Bubble }) {
-  if (bubble.kind === "thinking") {
-    return <ThinkingBubble bubble={bubble} />
-  }
+// AI Elements Reasoning: open while the thought streams, collapsed after.
+function ReasoningRow({ bubble }: { bubble: Bubble }) {
+  const running = !bubble.done
+  const [open, setOpen] = useState<boolean>()
 
-  if (bubble.kind === "error") {
-    return (
-      <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-xs text-destructive">
-        <CircleAlert className="size-4 shrink-0 mt-0.5" />
-        <pre className="whitespace-pre-wrap font-mono leading-relaxed flex-1 min-w-0">
+  return (
+    <TraceCollapsible open={open ?? running} onOpenChange={setOpen}>
+      <TraceCollapsibleTrigger>
+        <TraceLine status={running ? "running" : undefined}>
+          <TraceIcon>
+            {running ? <LoaderCircleIcon className="animate-spin" /> : <CircleCheckIcon />}
+          </TraceIcon>
+          <TraceTitle>{running ? "Thinking" : "Thought"}</TraceTitle>
+        </TraceLine>
+      </TraceCollapsibleTrigger>
+      <TraceCollapsibleContent>
+        <Markdown className="text-xs italic text-muted-foreground [&_*]:text-inherit">
           {bubble.content}
-        </pre>
-      </div>
-    )
+        </Markdown>
+      </TraceCollapsibleContent>
+    </TraceCollapsible>
+  )
+}
+
+const TOOL_VERBS: Record<string, [running: string, done: string]> = {
+  bash:  ["Running", "Ran"],
+  read:  ["Reading", "Read"],
+  write: ["Writing", "Wrote"],
+  edit:  ["Editing", "Edited"],
+  grep:  ["Searching", "Searched"],
+  glob:  ["Finding", "Found"],
+  ls:    ["Listing", "Listed"],
+}
+
+function toolIcon(tool: string | undefined) {
+  switch (tool) {
+    case "bash":  return <TerminalIcon />
+    case "read":  return <FileTextIcon />
+    case "write":
+    case "edit":  return <FilePenIcon />
+    case "grep":
+    case "glob":  return <SearchIcon />
+    case "ls":    return <FolderIcon />
+    default:      return <WrenchIcon />
   }
+}
 
-  if (bubble.kind === "tool") {
-    const toolKey = bubble.toolName?.toLowerCase()
-    const read = toolKey === "read" ? (bubble.toolParsed as ParsedFileRead | undefined) : undefined
-    const glob = toolKey === "glob" ? (bubble.toolParsed as ParsedGlob | undefined) : undefined
-    const header = formatToolInput(toolKey, bubble.content)
-    const primary = read?.path ?? header.primary
-    const secondaryPath = header.path
-    const primaryIsPath = !!read || toolKey === "read" || toolKey === "write" ||
-                          toolKey === "edit" || toolKey === "list"
-    const headerMeta =
-      read ? `${read.totalLines} lines` :
-      glob ? `${glob.paths.length} matches` :
-      null
+// AI Elements Tool / Terminal: one line per call, expandable to its output.
+function ToolRow({ bubble }: { bubble: Bubble }) {
+  const tool = bubble.toolName?.toLowerCase()
+  const running = bubble.toolStatus !== "completed"
+  const header = formatToolInput(tool, bubble.content)
+  const read = tool === "read" ? (bubble.toolParsed as ParsedFileRead | undefined) : undefined
+  const glob = tool === "glob" ? (bubble.toolParsed as ParsedGlob | undefined) : undefined
+  const [runningVerb, doneVerb] = (tool && TOOL_VERBS[tool]) ?? [bubble.toolName ?? "tool", bubble.toolName ?? "tool"]
+  const target = read?.path ?? header.primary
+  const meta =
+    read ? `${read.totalLines} lines` :
+    glob ? `${glob.paths.length} matches` :
+    header.path ? `in ${header.path}` :
+    null
 
-    return (
-      <div className="flex justify-start">
-        <div className="max-w-[90%] min-w-[50%] rounded-lg border bg-card overflow-hidden">
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-muted/40">
-            <ToolStatusIcon status={bubble.toolStatus} />
-            <Wrench className="size-3 text-muted-foreground shrink-0" />
-            <span className="font-mono text-xs font-semibold shrink-0 [font-variant-ligatures:none] [font-feature-settings:'liga'_0,'calt'_0]">{bubble.toolName}</span>
-            {primaryIsPath ? (
-              <span
-                dir="rtl"
-                className="font-mono text-xs text-muted-foreground truncate min-w-0 [font-variant-ligatures:none] [font-feature-settings:'liga'_0,'calt'_0]"
-                title={primary}
-              >
-                <bdi>{primary}</bdi>
-              </span>
-            ) : (
-              <span
-                className="font-mono text-xs text-muted-foreground truncate min-w-0 [font-variant-ligatures:none] [font-feature-settings:'liga'_0,'calt'_0]"
-                title={primary}
-              >
-                {primary}
-              </span>
-            )}
-            {secondaryPath && (
-              <span
-                dir="rtl"
-                className="font-mono text-xs text-muted-foreground/60 truncate min-w-0 [font-variant-ligatures:none] [font-feature-settings:'liga'_0,'calt'_0]"
-                title={secondaryPath}
-              >
-                <bdi>{secondaryPath}</bdi>
-              </span>
-            )}
-            {headerMeta && (
-              <span className="ml-auto font-mono text-[10px] text-muted-foreground/60 shrink-0">
-                {headerMeta}
-              </span>
-            )}
+  const line = (
+    <TraceLine status={running ? "running" : undefined} className="min-w-0">
+      <TraceIcon>{running ? <LoaderCircleIcon className="animate-spin" /> : toolIcon(tool)}</TraceIcon>
+      <TraceTitle className="min-w-0 truncate">
+        {running ? runningVerb : doneVerb}{" "}
+        <code className="font-mono text-xs [font-variant-ligatures:none]" title={target}>{target}</code>
+        {meta && <span className="ml-1.5 text-xs text-muted-foreground/60">{meta}</span>}
+      </TraceTitle>
+    </TraceLine>
+  )
+
+  const hasBody = !running && (read || glob || bubble.toolOutput)
+  if (!hasBody) return line
+
+  return (
+    <TraceCollapsible>
+      <TraceCollapsibleTrigger className="max-w-full">{line}</TraceCollapsibleTrigger>
+      <TraceCollapsibleContent>
+        {read ? (
+          <div className="max-h-64 overflow-y-auto rounded-lg border">
+            <FileViewer path={read.path} lines={read.lines} />
           </div>
-          {read ? (
-            <div className="max-h-64 overflow-y-auto border-t">
-              <FileViewer path={read.path} lines={read.lines} />
-            </div>
-          ) : glob ? (
-            <div className="max-h-64 overflow-y-auto border-t">
-              <GlobMatches paths={glob.paths} />
-            </div>
-          ) : bubble.toolOutput ? (
-            <pre className="max-h-40 overflow-auto px-3 py-2 text-[11px] font-mono text-muted-foreground whitespace-pre border-t [font-variant-ligatures:none] [font-feature-settings:'liga'_0,'calt'_0]">
+        ) : glob ? (
+          <div className="max-h-64 overflow-y-auto rounded-lg border">
+            <GlobMatches paths={glob.paths} />
+          </div>
+        ) : (
+          <CodeBlock size="sm">
+            <CodeBlockContent wrap={tool !== "bash"} className="max-h-64 [font-variant-ligatures:none]">
               {bubble.toolOutput}
-            </pre>
-          ) : null}
-        </div>
-      </div>
-    )
-  }
-
-  if (bubble.role === "user") {
-    return (
-      <div className="flex justify-end">
-        <div className="max-w-[75%] rounded-2xl bg-secondary text-secondary-foreground px-4 py-2.5 text-sm whitespace-pre-wrap break-words">
-          {bubble.content}
-        </div>
-      </div>
-    )
-  }
-
-  // An empty in-flight bubble renders nothing (no placeholder); the global
-  // spinner below the message list is the only loading indicator between
-  // submit and session.idle.
-  return (
-    <div className="flex justify-start">
-      <div className="group/msg max-w-[90%] min-w-[50%]">
-        <div>
-          <Markdown>{bubble.content}</Markdown>
-        </div>
-        {bubble.done && bubble.content && (
-          <div className="mt-1">
-            <CopyButton text={bubble.content} />
-          </div>
+            </CodeBlockContent>
+          </CodeBlock>
         )}
-      </div>
-    </div>
+      </TraceCollapsibleContent>
+    </TraceCollapsible>
   )
 }
 
-function CopyButton({ text }: { text: string }) {
+function CopyAction({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
-  const onClick = async () => {
-    try {
-      await navigator.clipboard.writeText(text)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-    } catch {
-      // ignore — clipboard may be blocked (e.g. http on a non-localhost host)
-    }
-  }
+
+  useEffect(() => {
+    if (!copied) return
+    const timeout = setTimeout(() => setCopied(false), 2000)
+    return () => clearTimeout(timeout)
+  }, [copied])
+
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={copied ? "Copied" : "Copy message"}
-      className="inline-flex cursor-pointer items-center justify-center size-6 rounded text-muted-foreground hover:bg-foreground/10 hover:text-foreground transition-colors"
-    >
-      {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-    </button>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={copied ? "Copied" : "Copy"}
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(text)
+                setCopied(true)
+              } catch {
+                // ignore — clipboard may be blocked (e.g. http on a non-localhost host)
+              }
+            }}
+          />
+        }
+      >
+        {copied ? <CheckIcon /> : <CopyIcon />}
+      </TooltipTrigger>
+      <TooltipContent>
+        <p>{copied ? "Copied" : "Copy"}</p>
+      </TooltipContent>
+    </Tooltip>
   )
 }
 
@@ -531,12 +525,3 @@ function GlobMatches({ paths }: { paths: string[] }) {
   )
 }
 
-function ToolStatusIcon({ status }: { status?: "pending" | "running" | "completed" }) {
-  if (status === "completed") {
-    return <CheckCircle2 className="size-3.5 text-emerald-500 shrink-0" />
-  }
-  if (status === "running") {
-    return <Loader2 className="size-3.5 text-amber-500 animate-spin shrink-0" />
-  }
-  return <Loader2 className="size-3.5 text-muted-foreground shrink-0" />
-}

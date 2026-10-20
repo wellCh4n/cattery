@@ -130,7 +130,7 @@ Stateless HS256 JWT (`backend/internal/auth/jwt.go`), 7-day TTL, no server-side 
 
 ### Notes for the frontend
 
-This Next.js version has breaking changes from training-data knowledge. When touching frontend code, consult `node_modules/next/dist/docs/` first; do not assume App Router APIs match older Next.js conventions. shadcn `Dialog` wraps `radix-ui` here, so `DialogTrigger` / `DialogClose` take `asChild`. Zustand selectors must return stored references (or primitives) — a selector that builds a fresh object each call re-renders forever.
+This Next.js version has breaking changes from training-data knowledge. When touching frontend code, consult `node_modules/next/dist/docs/` first; do not assume App Router APIs match older Next.js conventions. shadcn components here use the Base UI style (`base-nova` in `components.json`, built on `@base-ui/react`), not Radix: compose triggers with the `render` prop (`<TooltipTrigger render={<Button />}>`), not `asChild`. `cn` comes from shadcn's `cn` package (re-exported by `lib/utils.ts`). The chat (`chat-panel.tsx`) follows the shadcn AI Elements patterns (Message Scroller, Message, Bubble, Trace, Code Block, Input Group); `lib/code-highlighter.tsx` backs `ui/code-block`, separate from `lib/highlighter.ts` used by the file viewer and markdown. TypeScript stays on 6.x until typescript-eslint supports 7. Zustand selectors must return stored references (or primitives) — a selector that builds a fresh object each call re-renders forever.
 
 # Collaboration
 List Claude as a co-author when committing.
