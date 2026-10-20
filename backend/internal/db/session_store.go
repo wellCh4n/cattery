@@ -8,7 +8,7 @@ import (
 	"github.com/wellch4n/cattery/internal/model"
 )
 
-const sessionColumns = `session_id, project_id, model, status, phase, title, created_at, last_seen_at`
+const sessionColumns = `session_id, project_id, model, effort, status, phase, title, created_at, last_seen_at`
 
 type SessionStore struct{ db *sqlx.DB }
 
@@ -16,10 +16,10 @@ func NewSessionStore(db *sqlx.DB) *SessionStore { return &SessionStore{db} }
 
 func (s *SessionStore) Create(ctx context.Context, sess *model.Session) error {
 	return s.db.QueryRowxContext(ctx, `
-		INSERT INTO sessions (session_id, project_id, model, status)
-		VALUES ($1,$2,$3,$4)
+		INSERT INTO sessions (session_id, project_id, model, effort, status)
+		VALUES ($1,$2,$3,$4,$5)
 		RETURNING created_at`,
-		sess.SessionID, sess.ProjectID, sess.Model, sess.Status,
+		sess.SessionID, sess.ProjectID, sess.Model, sess.Effort, sess.Status,
 	).Scan(&sess.CreatedAt)
 }
 
@@ -62,9 +62,9 @@ func (s *SessionStore) UpdateTitle(ctx context.Context, id uuid.UUID, title stri
 	return err
 }
 
-func (s *SessionStore) UpdateModel(ctx context.Context, id uuid.UUID, model string) error {
+func (s *SessionStore) UpdateModel(ctx context.Context, id uuid.UUID, model, effort string) error {
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE sessions SET model=$1 WHERE session_id=$2`, model, id,
+		`UPDATE sessions SET model=$1, effort=$2 WHERE session_id=$3`, model, effort, id,
 	)
 	return err
 }

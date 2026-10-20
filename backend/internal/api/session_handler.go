@@ -38,8 +38,10 @@ func NewSessionHandler(
 }
 
 type modelProviderOption struct {
-	Name   string   `json:"name"`
-	Models []string `json:"models"`
+	Name          string   `json:"name"`
+	Models        []string `json:"models"`
+	Efforts       []string `json:"efforts"`
+	DefaultEffort string   `json:"default_effort"`
 }
 
 // Models lists the models sessions can use, grouped by provider — never the
@@ -47,7 +49,7 @@ type modelProviderOption struct {
 func (h *SessionHandler) Models(c echo.Context) error {
 	providers := make([]modelProviderOption, len(h.models.Providers))
 	for i, p := range h.models.Providers {
-		providers[i] = modelProviderOption{p.Name, p.Models}
+		providers[i] = modelProviderOption{p.Name, p.Models, p.Efforts, p.DefaultEffort()}
 	}
 	return c.JSON(http.StatusOK, map[string]any{"default": h.models.Default, "providers": providers})
 }
@@ -65,8 +67,19 @@ func (h *SessionHandler) resolveModel(id string) (string, error) {
 	return id, nil
 }
 
+// effortFor is the effort a session on modelID runs at: want when the model's
+// provider offers it, else the provider's default. modelID must be configured.
+func (h *SessionHandler) effortFor(modelID, want string) string {
+	m, _ := h.models.Get(modelID)
+	if m.Provider.HasEffort(want) {
+		return want
+	}
+	return m.Provider.DefaultEffort()
+}
+
 type createSessionRequest struct {
-	Model string `json:"model"`
+	Model  string `json:"model"`
+	Effort string `json:"effort"`
 }
 
 func (h *SessionHandler) Create(c echo.Context) error {
@@ -87,6 +100,7 @@ func (h *SessionHandler) Create(c echo.Context) error {
 		SessionID: uuid.New(),
 		ProjectID: access.Project.ProjectID,
 		Model:     modelID,
+		Effort:    h.effortFor(modelID, req.Effort),
 		Status:    "creating",
 	}
 	if err := h.sessionStore.Create(c.Request().Context(), sess); err != nil {
@@ -131,6 +145,7 @@ func (h *SessionHandler) ensureAgentSession(ctx context.Context, sandboxURL stri
 	}
 	return h.harnessClient.CreateSession(ctx, sandboxURL, sess.SessionID.String(), harness.AgentModel{
 		ID: m.ID, Provider: m.Provider.Type, BaseURL: m.Provider.Endpoint, APIKey: m.Provider.Key,
+		ThinkingLevel: h.effortFor(m.ID, sess.Effort),
 	})
 }
 
@@ -224,9 +239,11 @@ func (h *SessionHandler) SendMessage(c echo.Context) error {
 
 type updateSessionRequest struct {
 	Title *string `json:"title"`
-	// Model switches the session's model. It takes effect on the next prompt,
-	// which re-registers the session with the agent (see ensureAgentSession).
-	Model *string `json:"model"`
+	// Model and Effort switch the session's model / thinking effort. They take
+	// effect on the next prompt, which re-registers the session with the agent
+	// (see ensureAgentSession).
+	Model  *string `json:"model"`
+	Effort *string `json:"effort"`
 }
 
 func (h *SessionHandler) Update(c echo.Context) error {
@@ -235,7 +252,7 @@ func (h *SessionHandler) Update(c echo.Context) error {
 		return err
 	}
 	var req updateSessionRequest
-	if err := c.Bind(&req); err != nil || (req.Title == nil && req.Model == nil) {
+	if err := c.Bind(&req); err != nil || (req.Title == nil && req.Model == nil && req.Effort == nil) {
 		return echo.ErrBadRequest
 	}
 	ctx := c.Request().Context()
@@ -244,15 +261,30 @@ func (h *SessionHandler) Update(c echo.Context) error {
 			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 		}
 	}
-	if req.Model != nil {
-		if strings.TrimSpace(*req.Model) == "" {
-			return echo.NewHTTPError(http.StatusBadRequest, "model must not be empty")
+	if req.Model != nil || req.Effort != nil {
+		modelID := sess.Model
+		if req.Model != nil {
+			if strings.TrimSpace(*req.Model) == "" {
+				return echo.NewHTTPError(http.StatusBadRequest, "model must not be empty")
+			}
+			if modelID, err = h.resolveModel(*req.Model); err != nil {
+				return err
+			}
+		} else if _, ok := h.models.Get(modelID); !ok {
+			return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("model %q is no longer configured; switch to another model", modelID))
 		}
-		m, err := h.resolveModel(*req.Model)
-		if err != nil {
-			return err
+		// An explicit effort must be offered by the model's provider; on a
+		// model switch alone, keep the current effort if the new provider
+		// offers it, else fall back to its default.
+		effort := h.effortFor(modelID, sess.Effort)
+		if req.Effort != nil {
+			m, _ := h.models.Get(modelID)
+			if !m.Provider.HasEffort(*req.Effort) {
+				return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("effort %q is not offered for model %q", *req.Effort, modelID))
+			}
+			effort = *req.Effort
 		}
-		if err := h.sessionStore.UpdateModel(ctx, sess.SessionID, m); err != nil {
+		if err := h.sessionStore.UpdateModel(ctx, sess.SessionID, modelID, effort); err != nil {
 			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 		}
 	}

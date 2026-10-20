@@ -47,9 +47,12 @@ type User struct {
 // Session is one conversation with the agent in its project's sandbox. The
 // agent keys its transcript by SessionID, so there is no separate agent-side id.
 type Session struct {
-	SessionID  uuid.UUID  `db:"session_id"   json:"session_id"`
-	ProjectID  uuid.UUID  `db:"project_id"   json:"project_id"`
-	Model      string     `db:"model"        json:"model"`
+	SessionID uuid.UUID `db:"session_id"   json:"session_id"`
+	ProjectID uuid.UUID `db:"project_id"   json:"project_id"`
+	Model     string    `db:"model"        json:"model"`
+	// Effort is the thinking effort (a pi thinking level); empty means the
+	// model provider's default.
+	Effort     string     `db:"effort"       json:"effort"`
 	Status     string     `db:"status"       json:"status"`
 	Phase      *string    `db:"phase"        json:"phase"`
 	Title      *string    `db:"title"        json:"title"`

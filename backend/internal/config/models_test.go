@@ -41,6 +41,46 @@ models   = ["deepseek-flash", " deepseek-v4-pro "]
 	if _, ok := m.Get("gpt-5.5"); ok {
 		t.Error("Get(gpt-5.5) found an unconfigured model")
 	}
+	if e := got.Provider.Efforts; strings.Join(e, ",") != "low,medium,high" {
+		t.Errorf("default Efforts = %v, want low,medium,high", e)
+	}
+	if d := got.Provider.DefaultEffort(); d != "high" {
+		t.Errorf("DefaultEffort = %q, want high", d)
+	}
+}
+
+func TestProviderEfforts(t *testing.T) {
+	m, err := LoadModels(writeConfig(t, `
+[[providers]]
+name     = "DeepSeek"
+type     = "deepseek"
+endpoint = "https://api.deepseek.com"
+key      = "sk-test"
+models   = ["deepseek-flash"]
+efforts  = ["low", "high", "max"]
+
+[[providers]]
+name     = "Other"
+type     = "custom"
+endpoint = "https://example.com/v1"
+key      = "sk-test"
+models   = ["other"]
+efforts  = ["minimal", "low"]
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ds, _ := m.Get("deepseek-flash")
+	if !ds.Provider.HasEffort("max") || ds.Provider.HasEffort("medium") {
+		t.Errorf("DeepSeek efforts = %v", ds.Provider.Efforts)
+	}
+	if d := ds.Provider.DefaultEffort(); d != "high" {
+		t.Errorf("DeepSeek DefaultEffort = %q, want high", d)
+	}
+	other, _ := m.Get("other")
+	if d := other.Provider.DefaultEffort(); d != "low" {
+		t.Errorf("Other DefaultEffort = %q, want the highest offered (low)", d)
+	}
 }
 
 func TestLoadModelsRejects(t *testing.T) {
@@ -61,6 +101,7 @@ models   = ["deepseek-flash"]
 		{"unknown default", `default = "gpt-5.5"` + provider, "default model"},
 		{"duplicate model", provider + strings.Replace(provider, `"DeepSeek"`, `"Mirror"`, 1), "more than once"},
 		{"typo'd key", strings.Replace(provider, "endpoint", "endpiont", 1), "unknown keys"},
+		{"unknown effort", provider + `efforts = ["low", "turbo"]`, "effort \"turbo\""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

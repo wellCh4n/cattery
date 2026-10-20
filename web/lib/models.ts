@@ -4,7 +4,7 @@
 // Sessions can only use these models; the chat's model picker lists them.
 
 import { create } from "zustand"
-import { listModels, type ModelCatalog } from "@/lib/api"
+import { listModels, type ModelCatalog, type ModelProvider } from "@/lib/api"
 
 interface ModelsStore {
   catalog: ModelCatalog | null
@@ -33,7 +33,46 @@ export function catalogHas(catalog: ModelCatalog, model: string): boolean {
   return catalog.providers.some(p => p.models.includes(model))
 }
 
+export function providerOf(catalog: ModelCatalog, model: string): ModelProvider | undefined {
+  return catalog.providers.find(p => p.models.includes(model))
+}
+
+const EFFORT_LABELS: Record<string, string> = {
+  off: "Off",
+  minimal: "Minimal",
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  xhigh: "Extra high",
+  max: "Max",
+}
+
+export function effortLabel(effort: string): string {
+  return EFFORT_LABELS[effort] ?? effort
+}
+
 const LAST_MODEL_KEY = "cattery:last-model"
+const LAST_EFFORT_KEY = "cattery:last-effort"
+
+// The effort last picked in the chat; new sessions start on it when their
+// model's provider offers it.
+export function readLastEffort(): string {
+  if (typeof window === "undefined") return ""
+  try {
+    return window.localStorage.getItem(LAST_EFFORT_KEY) ?? ""
+  } catch {
+    return ""
+  }
+}
+
+export function writeLastEffort(effort: string) {
+  if (typeof window === "undefined") return
+  try {
+    window.localStorage.setItem(LAST_EFFORT_KEY, effort)
+  } catch {
+    // Ignore browser storage failures.
+  }
+}
 
 // The model last picked in the chat — "+ New session" starts on it. Empty when
 // none was picked yet (the backend then uses the catalog default).

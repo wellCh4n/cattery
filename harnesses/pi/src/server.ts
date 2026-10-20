@@ -3,7 +3,7 @@
  * HTTP contract:
  *
  *   GET    /session                        → [id]  (readiness probe)
- *   POST   /session {id, model, provider, baseUrl, apiKey}
+ *   POST   /session {id, model, provider, baseUrl, apiKey, thinkingLevel?}
  *                                          → { id }  (idempotent: reopens an existing transcript,
  *                                                     switching its model if it differs)
  *   GET    /session/:id                    → { id }
@@ -33,7 +33,7 @@ import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { Agent, type AgentEvent, type AgentMessage, type ThinkingLevel } from '@earendil-works/pi-agent-core'
-import { createModels, type Api, type AssistantMessage, type Model, type Provider } from '@earendil-works/pi-ai'
+import { clampThinkingLevel, createModels, type Api, type AssistantMessage, type Model, type ModelThinkingLevel, type Provider } from '@earendil-works/pi-ai'
 import { anthropicProvider } from '@earendil-works/pi-ai/providers/anthropic'
 import { deepseekProvider } from '@earendil-works/pi-ai/providers/deepseek'
 import { openaiProvider } from '@earendil-works/pi-ai/providers/openai'
@@ -334,8 +334,8 @@ app.get('/session', (_req, res) => {
 })
 
 app.post('/session', async (req, res) => {
-  const { id = randomUUID(), model, provider, baseUrl, apiKey } = (req.body ?? {}) as {
-    id?: string; model?: string; provider?: string; baseUrl?: string; apiKey?: string
+  const { id = randomUUID(), model, provider, baseUrl, apiKey, thinkingLevel } = (req.body ?? {}) as {
+    id?: string; model?: string; provider?: string; baseUrl?: string; apiKey?: string; thinkingLevel?: string
   }
   if (!validId(id)) return void res.status(400).json({ error: 'invalid id' })
   if (!model || !provider || !baseUrl || !apiKey) {
@@ -344,19 +344,27 @@ app.post('/session', async (req, res) => {
   const ref: ModelRef = { provider, id: model }
   const gateway: Gateway = { baseUrl: trimUrl(baseUrl), apiKey }
   const existing = await openSession(id)
+  let sess: Session
   if (!existing) {
-    await persist(await newSession(id, ref, gateway, []))
-    return void res.json({ id })
+    sess = await newSession(id, ref, gateway, [])
+  } else {
+    // Re-registering with a different model (or endpoint) switches it.
+    const changed = existing.model.id !== ref.id || existing.model.provider !== ref.provider ||
+      existing.gateway.baseUrl !== gateway.baseUrl
+    if (changed) {
+      if (existing.agent.state.isStreaming) return void res.status(409).json({ error: 'session is busy' })
+      await switchModel(existing, ref, gateway)
+    } else {
+      existing.gateway = gateway
+    }
+    sess = existing
   }
-  // Re-registering with a different model (or endpoint) switches it.
-  const changed = existing.model.id !== ref.id || existing.model.provider !== ref.provider ||
-    existing.gateway.baseUrl !== gateway.baseUrl
-  if (!changed) {
-    existing.gateway = gateway
-    return void res.json({ id })
+  // The session's effort, applied from the next turn and clamped to the
+  // levels the model supports (e.g. DeepSeek has no "medium").
+  if (thinkingLevel) {
+    sess.agent.state.thinkingLevel = clampThinkingLevel(sess.agent.state.model, thinkingLevel as ModelThinkingLevel) as ThinkingLevel
   }
-  if (existing.agent.state.isStreaming) return void res.status(409).json({ error: 'session is busy' })
-  await switchModel(existing, ref, gateway)
+  if (!existing) await persist(sess)
   res.json({ id })
 })
 

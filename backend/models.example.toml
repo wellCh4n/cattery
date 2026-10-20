@@ -8,6 +8,10 @@
 # type is the pi-ai provider id: anthropic | deepseek | openai reuse pi's
 # built-in catalog entry for each model (context window, thinking levels,
 # provider quirks); custom is any other OpenAI-compatible endpoint.
+#
+# efforts (optional) are the thinking efforts users can pick, lowest to
+# highest, from: off, minimal, low, medium, high, xhigh, max. Default:
+# low, medium, high. Sessions start on high if offered, else the highest.
 
 # Model new sessions start on (optional; defaults to the first model listed).
 default = "deepseek-flash"
@@ -18,6 +22,7 @@ type     = "deepseek"
 endpoint = "https://api.deepseek.com"
 key      = "sk-..."
 models   = ["deepseek-flash", "deepseek-v4-pro"]
+efforts  = ["low", "high", "max"]
 
 # [[providers]]
 # name     = "Anthropic"

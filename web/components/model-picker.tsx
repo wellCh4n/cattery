@@ -15,54 +15,68 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { InputGroupButton } from "@/components/ui/input-group"
-import { useModelsStore } from "@/lib/models"
+import { effortLabel, providerOf, useModelsStore } from "@/lib/models"
 import { useWorkspaceStore } from "@/lib/workspace-store"
 import { cn } from "@/lib/utils"
+
+// The two menus of the AI Elements Model Selector: the model the agent runs and
+// how hard it thinks. Both switch the session and take effect on the next prompt.
 
 interface Props {
   sessionId: string
   model: string
+  effort: string
   disabled?: boolean
   className?: string
 }
 
-// The AI Elements Model Selector: switches the session's model, grouped by
-// provider. The switch takes effect on the next prompt.
-export function ModelPicker({ sessionId, model, disabled, className }: Props) {
-  const catalog = useModelsStore(state => state.catalog)
-  const loadModels = useModelsStore(state => state.load)
-  const setSessionModel = useWorkspaceStore(state => state.setSessionModel)
+// useSwitch runs a session update, tracking its pending state and error.
+function useSwitch() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    void loadModels().catch(() => {})
-  }, [loadModels])
-
-  async function pick(next: string) {
-    if (next === model) return
+  async function run(update: () => Promise<unknown>) {
     setSaving(true)
     setError(null)
     try {
-      await setSessionModel(sessionId, next)
+      await update()
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to switch model")
+      setError(err instanceof Error ? err.message : "Failed to switch")
     } finally {
       setSaving(false)
     }
   }
 
+  return { saving, error, clearError: () => setError(null), run }
+}
+
+function useCatalog() {
+  const catalog = useModelsStore(state => state.catalog)
+  const load = useModelsStore(state => state.load)
+  useEffect(() => {
+    void load().catch(() => {})
+  }, [load])
+  return catalog
+}
+
+const pill = "rounded-full"
+
+export function ModelPicker({ sessionId, model, disabled, className }: Omit<Props, "effort">) {
+  const catalog = useCatalog()
+  const setSessionModel = useWorkspaceStore(state => state.setSessionModel)
+  const { saving, error, clearError, run } = useSwitch()
+
   return (
-    <DropdownMenu onOpenChange={open => open && setError(null)}>
+    <DropdownMenu onOpenChange={open => open && clearError()}>
       <DropdownMenuTrigger
         disabled={disabled || saving || !catalog}
         render={
           <InputGroupButton
             size="sm"
-            variant="ghost"
+            variant="outline"
             aria-label={`Model: ${model}`}
             title={error ?? undefined}
-            className={cn("max-w-56 font-mono text-xs", error && "text-destructive", className)}
+            className={cn(pill, "max-w-56", error && "text-destructive", className)}
           />
         }
       >
@@ -70,15 +84,20 @@ export function ModelPicker({ sessionId, model, disabled, className }: Props) {
         <span className="truncate">{model}</span>
         <ChevronDownIcon />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" side="top" className="w-56">
-        <DropdownMenuRadioGroup value={model} onValueChange={value => void pick(value as string)}>
+      <DropdownMenuContent align="start" className="w-56">
+        <DropdownMenuRadioGroup
+          value={model}
+          onValueChange={value => {
+            if (value !== model) void run(() => setSessionModel(sessionId, value as string))
+          }}
+        >
           {catalog?.providers.map((provider, index) => (
             <React.Fragment key={provider.name}>
               {index > 0 && <DropdownMenuSeparator />}
               <DropdownMenuGroup>
                 <DropdownMenuLabel>{provider.name}</DropdownMenuLabel>
                 {provider.models.map(id => (
-                  <DropdownMenuRadioItem key={id} value={id} closeOnClick className="font-mono text-xs">
+                  <DropdownMenuRadioItem key={id} value={id} closeOnClick>
                     <ModelIcon id={id} className="size-3.5" />
                     {id}
                   </DropdownMenuRadioItem>
@@ -87,6 +106,53 @@ export function ModelPicker({ sessionId, model, disabled, className }: Props) {
             </React.Fragment>
           ))}
         </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+export function EffortPicker({ sessionId, model, effort, disabled, className }: Props) {
+  const catalog = useCatalog()
+  const setSessionEffort = useWorkspaceStore(state => state.setSessionEffort)
+  const { saving, error, clearError, run } = useSwitch()
+  const provider = catalog ? providerOf(catalog, model) : undefined
+  // Sessions created before efforts existed have none stored yet.
+  const current = effort || provider?.default_effort || ""
+
+  return (
+    <DropdownMenu onOpenChange={open => open && clearError()}>
+      <DropdownMenuTrigger
+        disabled={disabled || saving || !provider}
+        render={
+          <InputGroupButton
+            size="sm"
+            variant="outline"
+            aria-label={`Effort: ${effortLabel(current)}`}
+            title={error ?? undefined}
+            className={cn(pill, error && "text-destructive", className)}
+          />
+        }
+      >
+        <span className="text-muted-foreground">Effort</span>
+        {saving ? <Loader2 className="animate-spin" /> : effortLabel(current)}
+        <ChevronDownIcon />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-36">
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Effort</DropdownMenuLabel>
+          <DropdownMenuRadioGroup
+            value={current}
+            onValueChange={value => {
+              if (value !== current) void run(() => setSessionEffort(sessionId, value as string))
+            }}
+          >
+            {provider?.efforts.map(e => (
+              <DropdownMenuRadioItem key={e} value={e} closeOnClick>
+                {effortLabel(e)}
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuGroup>
       </DropdownMenuContent>
     </DropdownMenu>
   )

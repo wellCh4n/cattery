@@ -43,7 +43,7 @@ import {
 } from "@/components/ui/trace"
 import { Markdown } from "@/components/markdown"
 import { FileViewer } from "@/components/file-viewer"
-import { ModelPicker } from "@/components/model-picker"
+import { EffortPicker, ModelPicker } from "@/components/model-picker"
 import { type Session } from "@/lib/api"
 import {
   useChatStreamStore,
@@ -208,15 +208,20 @@ export function ChatPanel({ session }: Props) {
         </div>
 
         <div className="mx-auto w-full max-w-3xl px-4 pb-4 md:px-8">
+          {/* The AI Elements Model Selector input: field, model and effort pills, send. */}
           <form ref={formRef} onSubmit={handleSubmit}>
-            <InputGroup className="bg-background">
+            {/* InputGroup fades as a whole when anything inside is disabled — here
+                that's the empty-field send button or the field while the agent
+                replies, which would grey out the pickers and Stop too. Disabled
+                controls already dim themselves, so keep the box as is. */}
+            <InputGroup className="rounded-3xl bg-background has-disabled:bg-background has-disabled:opacity-100 dark:has-disabled:bg-input/30">
               <InputGroupTextarea
                 value={input}
                 disabled={!ready || sending}
                 onChange={e => setInput(e.target.value)}
-                placeholder={ready ? "Ask the agent…" : "Waiting for the sandbox…"}
+                placeholder={ready ? "Ask the agent to change your code…" : "Waiting for the sandbox…"}
                 aria-label="Message"
-                className="max-h-48 min-h-14 px-3 pt-3 text-base md:text-sm [field-sizing:content]"
+                className="max-h-48 min-h-16 px-4 pt-4 text-base md:text-sm [field-sizing:content]"
                 onKeyDown={e => {
                   if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                     e.preventDefault()
@@ -224,15 +229,18 @@ export function ChatPanel({ session }: Props) {
                   }
                 }}
               />
-              <InputGroupAddon align="block-end" className="gap-1">
-                <span className="hidden text-[11px] font-normal text-muted-foreground/70 sm:inline">
-                  Enter to send · Shift+Enter for a new line
-                </span>
+              <InputGroupAddon align="block-end" className="gap-2 px-3 pb-3">
                 <ModelPicker
                   sessionId={session.session_id}
                   model={session.model}
                   disabled={sending}
                   className="ml-auto"
+                />
+                <EffortPicker
+                  sessionId={session.session_id}
+                  model={session.model}
+                  effort={session.effort}
+                  disabled={sending}
                 />
                 {sending ? (
                   <InputGroupButton

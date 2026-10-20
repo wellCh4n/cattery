@@ -38,6 +38,8 @@ export interface Session {
   session_id: string
   project_id: string
   model: string
+  // Thinking effort (a pi thinking level); empty means the provider default.
+  effort: string
   status: string
   phase: string | null
   title: string | null
@@ -154,9 +156,17 @@ export async function listSessions(projectId: string): Promise<Session[]> {
   return res.json()
 }
 
+export interface ModelProvider {
+  name: string
+  models: string[]
+  // Thinking efforts offered for this provider's models, lowest to highest.
+  efforts: string[]
+  default_effort: string
+}
+
 export interface ModelCatalog {
   default: string
-  providers: { name: string; models: string[] }[]
+  providers: ModelProvider[]
 }
 
 export async function listModels(): Promise<ModelCatalog> {
@@ -165,12 +175,13 @@ export async function listModels(): Promise<ModelCatalog> {
   return res.json()
 }
 
-// An empty model starts the session on the catalog default.
-export async function createSession(projectId: string, model: string): Promise<Session> {
+// An empty model starts the session on the catalog default; an effort the
+// model's provider doesn't offer falls back to the provider default.
+export async function createSession(projectId: string, model: string, effort: string): Promise<Session> {
   const res = await authedFetch(`${API_BASE}/api/v1/projects/${projectId}/sessions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model }),
+    body: JSON.stringify({ model, effort }),
   })
   if (!res.ok) throw new Error(await readErrorMessage(res, "failed to create session"))
   return res.json()
@@ -182,7 +193,7 @@ export async function getSession(sessionId: string): Promise<Session> {
   return res.json()
 }
 
-export async function updateSession(sessionId: string, data: { title?: string; model?: string }): Promise<Session> {
+export async function updateSession(sessionId: string, data: { title?: string; model?: string; effort?: string }): Promise<Session> {
   const res = await authedFetch(`${API_BASE}/api/v1/sessions/${sessionId}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },

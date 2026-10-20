@@ -19,6 +19,12 @@ const (
 	ProviderCustom    = "custom"
 )
 
+// Efforts are pi thinking levels, lowest to highest. A provider lists the ones
+// its models support; the agent still clamps to what each model accepts.
+var allEfforts = []string{"off", "minimal", "low", "medium", "high", "xhigh", "max"}
+
+var defaultEfforts = []string{"low", "medium", "high"}
+
 var knownProviders = map[string]bool{
 	ProviderAnthropic: true,
 	ProviderDeepSeek:  true,
@@ -35,6 +41,25 @@ type Provider struct {
 	Endpoint string   `toml:"endpoint"`
 	Key      string   `toml:"key"`
 	Models   []string `toml:"models"`
+	// Efforts users can pick for this provider's models, lowest to highest;
+	// defaults to low, medium, high.
+	Efforts []string `toml:"efforts"`
+}
+
+// DefaultEffort is the effort a session starts on: high when offered, else
+// the highest one.
+func (p *Provider) DefaultEffort() string {
+	for _, e := range p.Efforts {
+		if e == "high" {
+			return e
+		}
+	}
+	return p.Efforts[len(p.Efforts)-1]
+}
+
+// HasEffort reports whether the provider offers effort e.
+func (p *Provider) HasEffort(e string) bool {
+	return contains(p.Efforts, e)
 }
 
 // Models is the platform's model catalog, loaded from MODELS_CONFIG. Sessions
@@ -88,6 +113,14 @@ func (m *Models) validate() error {
 		case len(p.Models) == 0:
 			return fmt.Errorf("provider %q: models is empty", label)
 		}
+		if len(p.Efforts) == 0 {
+			p.Efforts = append([]string(nil), defaultEfforts...)
+		}
+		for _, e := range p.Efforts {
+			if !contains(allEfforts, e) {
+				return fmt.Errorf("provider %q: effort %q must be one of %s", label, e, strings.Join(allEfforts, ", "))
+			}
+		}
 		for j, id := range p.Models {
 			id = strings.TrimSpace(id)
 			switch {
@@ -109,6 +142,15 @@ func (m *Models) validate() error {
 		return fmt.Errorf("default model %q is not offered by any provider", m.Default)
 	}
 	return nil
+}
+
+func contains(list []string, s string) bool {
+	for _, x := range list {
+		if x == s {
+			return true
+		}
+	}
+	return false
 }
 
 // Get returns the configured model with the given id.

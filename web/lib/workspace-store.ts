@@ -17,7 +17,7 @@ import {
   type Project,
   type Session,
 } from "@/lib/api"
-import { catalogHas, readLastModel, useModelsStore, writeLastModel } from "@/lib/models"
+import { catalogHas, readLastEffort, readLastModel, useModelsStore, writeLastEffort, writeLastModel } from "@/lib/models"
 
 export interface ProjectWithSessions extends Project {
   sessions: Session[]
@@ -59,6 +59,8 @@ interface WorkspaceStore {
   // New sessions start on the last model the user picked.
   createSession: (projectId: string) => Promise<Session>
   setSessionModel: (sessionId: string, model: string) => Promise<Session>
+  setSessionEffort: (sessionId: string, effort: string) => Promise<Session>
+  applySessionUpdate: (updated: Session) => void
   deleteSession: (sessionId: string) => Promise<void>
   refreshSession: (sessionId: string) => Promise<Session>
   refreshProject: (projectId: string) => Promise<void>
@@ -166,12 +168,25 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   setSessionModel: async (sessionId: string, model: string) => {
     const updated = await updateSession(sessionId, { model })
     writeLastModel(updated.model)
+    get().applySessionUpdate(updated)
+    return updated
+  },
+
+  setSessionEffort: async (sessionId: string, effort: string) => {
+    const updated = await updateSession(sessionId, { effort })
+    writeLastEffort(updated.effort)
+    get().applySessionUpdate(updated)
+    return updated
+  },
+
+  // A model switch can also change the effort (the new provider may not offer
+  // it), so both are taken from the server's answer.
+  applySessionUpdate: (updated: Session) => {
     set(state => ({
       projects: mapSessions(state.projects, updated.project_id, sessions =>
-        sessions.map(s => s.session_id === sessionId ? { ...s, model: updated.model } : s),
+        sessions.map(s => s.session_id === updated.session_id ? { ...s, model: updated.model, effort: updated.effort } : s),
       ),
     }))
-    return updated
   },
 
   createSession: async (projectId: string) => {
@@ -179,7 +194,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
     // the default (empty) rather than failing.
     const last = readLastModel()
     const catalog = await useModelsStore.getState().load().catch(() => null)
-    const session = await apiCreateSession(projectId, catalog && catalogHas(catalog, last) ? last : "")
+    const session = await apiCreateSession(projectId, catalog && catalogHas(catalog, last) ? last : "", readLastEffort())
     set(state => ({
       projects: mapSessions(state.projects, projectId, sessions => [session, ...sessions]),
     }))

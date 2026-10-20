@@ -29,6 +29,8 @@ type AgentModel struct {
 	Provider string `json:"provider"`
 	BaseURL  string `json:"baseUrl"`
 	APIKey   string `json:"apiKey"`
+	// ThinkingLevel is the session's effort (a pi thinking level).
+	ThinkingLevel string `json:"thinkingLevel"`
 }
 
 // CreateSession 在 sandbox 内创建（或确认已存在）一个 agent session。agent 用
