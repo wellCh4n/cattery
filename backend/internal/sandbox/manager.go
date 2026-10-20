@@ -1,12 +1,12 @@
-// Package sandbox 负责 harness sandbox 的生命周期（启动 / 等待就绪 / 停止）。
-// 既给 harness 创建路径用（创建即起），也给 session 创建路径兜底（确保 ready）。
+// Package sandbox 负责 project agent sandbox 的生命周期（启动 / 等待就绪 / 停止）。
+// 每个 project 一个 sandbox，按需拉起（创建 session / 发消息 / 读历史时）。
 package sandbox
 
 import (
 	"context"
 	"fmt"
 	"log"
-	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -14,10 +14,10 @@ import (
 	"github.com/wellch4n/cattery/internal/db"
 	"github.com/wellch4n/cattery/internal/harness"
 	"github.com/wellch4n/cattery/internal/k8s"
-	"github.com/wellch4n/cattery/internal/model"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
-// Port 是所有 harness sandbox 容器对外暴露的统一端口。
+// Port 是 agent sandbox 容器对外暴露的端口。
 const Port = 1114
 
 // FileMgrPort 是 filemgr Pod 监听的端口。一个 project 启动时会拉起一个独立
@@ -46,234 +46,162 @@ const SkillMgrPodName = "cattery-skillmgr"
 // sandbox RO 挂载。单节点测试用 RWO 即可；生产多节点需要把该 PVC 供给为 RWX。
 const SkillsPVCName = "cattery-skills-work"
 
-var images = map[string]string{
-	"opencode":    "opencode-sandbox:dev",
-	"claude-code": "claude-code-sandbox:dev",
-	"codex":       "codex-sandbox:dev",
-	"hermes":      "hermes-sandbox:dev",
-}
+// Image is the agent sandbox image (harnesses/pi). `make build-harness` builds it.
+const Image = "cattery-pi:dev"
 
-// skillsMountPaths maps a harness type to the in-container path where that
-// harness loads skills from. Harnesses absent from this map don't consume the
-// global skill library and get no skills volume. Every entry points at a
-// read-only discovery location that matches the flat <slug>/SKILL.md layout
-// the skillmgr PVC stores; all of these harnesses auto-discover skills with no
-// config-file entry needed.
-//   - claude-code reads personal skills from ~/.claude/skills (HOME=/home/node).
-//   - codex auto-discovers Agent Skills from user-level ~/.agents/skills
-//     (HOME=/home/node).
-//   - opencode auto-discovers from ~/.agents/skills among other paths; its
-//     image runs as root, so HOME=/root.
-//   - hermes treats ~/.hermes/skills as a writable "source of truth" it saves
-//     learned skills into, so we mount the read-only library at ~/.agents/skills
-//     instead; the hermes bridge (server.ts) registers it via skills.external_dirs
-//     when it rewrites ~/.hermes/config.yaml on container start (HOME=/home/node).
-var skillsMountPaths = map[string]string{
-	"claude-code": "/home/node/.claude/skills",
-	"codex":       "/home/node/.agents/skills",
-	"opencode":    "/root/.agents/skills",
-	"hermes":      "/home/node/.agents/skills",
-}
+// SkillsMountPath is where the global skill library is mounted (read-only) in
+// the agent container. The pi harness lists <slug>/SKILL.md entries from here
+// in its system prompt (HOME=/home/node).
+const SkillsMountPath = "/home/node/.agents/skills"
 
 type Manager struct {
-	store         *db.HarnessStore
+	store         *db.ProjectStore
 	k8sClient     *k8s.Client
 	harnessClient *harness.Client
 	cfg           *config.Config
+
+	// locks serializes EnsureReady per project so concurrent session creates
+	// and message sends don't race each other into a double start.
+	locks sync.Map // uuid.UUID → *sync.Mutex
 }
 
-func NewManager(store *db.HarnessStore, k8sClient *k8s.Client, harnessClient *harness.Client, cfg *config.Config) *Manager {
-	return &Manager{store, k8sClient, harnessClient, cfg}
+func NewManager(store *db.ProjectStore, k8sClient *k8s.Client, harnessClient *harness.Client, cfg *config.Config) *Manager {
+	return &Manager{store: store, k8sClient: k8sClient, harnessClient: harnessClient, cfg: cfg}
 }
 
-// NameFor 生成 K8s Sandbox 资源名，形如 `cattery-<type>-<harness_id>`。
-// type 为空时回落到旧格式，避免删除老 sandbox 时漏掉资源。
-func NameFor(inst *model.Harness) string {
-	if inst.Type == "" {
-		return fmt.Sprintf("cattery-%s", inst.HarnessID.String())
-	}
-	return fmt.Sprintf("cattery-%s-%s", inst.Type, inst.HarnessID.String())
-}
-
-func PVCNameFor(inst *model.Harness) string {
-	return PVCNameForProjectID(inst.ProjectID)
+// NameFor 生成 project 的 K8s Sandbox 资源名，形如 `cattery-sandbox-<project_id>`。
+func NameFor(projectID uuid.UUID) string {
+	return fmt.Sprintf("cattery-sandbox-%s", projectID.String())
 }
 
 func PVCNameForProjectID(projectID uuid.UUID) string {
 	return fmt.Sprintf("cattery-project-%s-work", projectID.String())
 }
 
-// EnsureReady 确保 inst 对应的 sandbox 已就绪。
-//   - 已 ready: 立刻返回 URL
-//   - starting: 等待
-//   - idle / failed / 空: 重新拉起后等待
+func (m *Manager) lock(projectID uuid.UUID) func() {
+	v, _ := m.locks.LoadOrStore(projectID, &sync.Mutex{})
+	mu := v.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
+}
+
+// EnsureReady 确保 project 的 agent sandbox 在线并返回其 URL：
+//   - 已在运行：直接返回（pod IP 每次都从 K8s 现查，不入库）
+//   - 否则：拉起 Sandbox CR 并等待 ready
 //
-// 调用方应在 goroutine 里调用（耗时可达分钟级）。
-func (m *Manager) EnsureReady(ctx context.Context, inst *model.Harness) (string, error) {
-	name := NameFor(inst)
+// 耗时可达分钟级；同一 project 的并发调用会排队，后到的直接复用结果。
+func (m *Manager) EnsureReady(ctx context.Context, projectID uuid.UUID) (string, error) {
+	name := NameFor(projectID)
+	if url, ok := m.k8sClient.ResolveURL(ctx, name); ok {
+		return url, nil
+	}
 
-	if inst.SandboxStatus == "ready" {
-		// The pod IP is not cached in the DB — resolve it live from K8s.
-		if url, ok := m.k8sClient.ResolveURL(ctx, name); ok {
-			return url, nil
+	unlock := m.lock(projectID)
+	defer unlock()
+	// Someone may have finished bringing it up while we waited for the lock.
+	if url, ok := m.k8sClient.ResolveURL(ctx, name); ok {
+		_ = m.store.UpdateSandboxStatus(ctx, projectID, "ready")
+		return url, nil
+	}
+
+	env := map[string]string{
+		"PORT":       fmt.Sprintf("%d", Port),
+		"PROJECT_ID": projectID.String(),
+	}
+	// Model endpoints and keys are not baked into the pod: the backend passes
+	// them with each session registration (see SessionHandler.ensureAgentSession).
+
+	// On failure also drop the CR: its pod uses restartPolicy Never, so a
+	// crashed one would otherwise sit un-Ready and every retry would wait on
+	// it (RunTask tolerates AlreadyExists) instead of starting fresh.
+	fail := func(err error) (string, error) {
+		bg := context.Background()
+		if stopErr := m.k8sClient.StopTask(bg, name); stopErr != nil && !apierrors.IsNotFound(stopErr) {
+			log.Printf("warn: clean up sandbox %s: %v", name, stopErr)
 		}
-		// Status says ready but the pod isn't resolvable (rescheduled/deleted) —
-		// wait for the existing CR to republish an IP instead of failing.
-		return m.waitURL(ctx, name, inst.HarnessID)
+		_ = m.store.UpdateSandboxStatus(bg, projectID, "failed")
+		return "", err
 	}
 
-	if inst.SandboxStatus == "starting" {
-		return m.waitURL(ctx, name, inst.HarnessID)
-	}
-
-	image, ok := images[inst.Type]
-	if !ok {
-		image = images["opencode"]
-	}
-
-	env := make(map[string]string, len(inst.EnvVars)+5)
-	for k, v := range inst.EnvVars {
-		env[k] = v
-	}
-	env["MODEL"] = inst.Model
-	env["PORT"] = fmt.Sprintf("%d", Port)
-	env["AGENT_ID"] = inst.HarnessID.String()
-	env["PROJECT_ID"] = inst.ProjectID.String()
-
-	provider, ok := model.ProviderForModel(inst.Model)
-	if !ok {
-		_ = m.store.UpdateSandboxStatus(ctx, inst.HarnessID, "failed")
-		return "", fmt.Errorf("unknown provider for model %q", inst.Model)
-	}
-	anthropicBase := strings.TrimRight(m.cfg.AnthropicBaseURL, "/")
-	openaiBase := strings.TrimRight(m.cfg.OpenAIBaseURL, "/")
-	if provider == model.ProviderAnthropic {
-		if anthropicBase == "" || m.cfg.AnthropicAPIKey == "" {
-			_ = m.store.UpdateSandboxStatus(ctx, inst.HarnessID, "failed")
-			return "", fmt.Errorf("anthropic config is required for model %q", inst.Model)
-		}
-		env["ANTHROPIC_BASE_URL"] = anthropicBase
-		env["ANTHROPIC_API_KEY"] = m.cfg.AnthropicAPIKey
-	} else {
-		if openaiBase == "" || m.cfg.OpenAIAPIKey == "" {
-			_ = m.store.UpdateSandboxStatus(ctx, inst.HarnessID, "failed")
-			return "", fmt.Errorf("openai config is required for model %q", inst.Model)
-		}
-		env["OPENAI_BASE_URL"] = openaiBase
-		env["OPENAI_API_KEY"] = m.cfg.OpenAIAPIKey
-	}
-	// claude-code SDK always wants ANTHROPIC_*; GPT models run through the
-	// configured OpenAI-compatible gateway exposed via Anthropic env names.
-	if inst.Type == "claude-code" {
-		if provider == model.ProviderAnthropic {
-			env["ANTHROPIC_BASE_URL"] = anthropicBase
-			env["ANTHROPIC_API_KEY"] = m.cfg.AnthropicAPIKey
-		} else {
-			env["ANTHROPIC_BASE_URL"] = anthropicBase
-			env["ANTHROPIC_API_KEY"] = m.cfg.AnthropicAPIKey
-		}
-	}
-	// codex CLI and codex-relay both read OPENAI_*; Anthropic models use the
-	// Anthropic-compatible gateway behind the OpenAI env names.
-	if inst.Type == "codex" {
-		if provider == model.ProviderAnthropic {
-			env["OPENAI_BASE_URL"] = withPathSuffix(anthropicBase, "/v1")
-			env["OPENAI_API_KEY"] = m.cfg.AnthropicAPIKey
-		} else {
-			env["OPENAI_BASE_URL"] = openaiBase
-			env["OPENAI_API_KEY"] = m.cfg.OpenAIAPIKey
-		}
-	}
-
-	pvcName := PVCNameFor(inst)
+	pvcName := PVCNameForProjectID(projectID)
 	if err := m.k8sClient.EnsurePVC(ctx, pvcName, k8s.ComponentWorkspace, map[string]string{
-		k8s.LabelProjectID: inst.ProjectID.String(),
+		k8s.LabelProjectID: projectID.String(),
 	}); err != nil {
-		_ = m.store.UpdateSandboxStatus(ctx, inst.HarnessID, "failed")
-		return "", fmt.Errorf("ensure workspace pvc: %w", err)
+		return fail(fmt.Errorf("ensure workspace pvc: %w", err))
 	}
-
-	spec := k8s.SandboxSpec{
-		Name:          name,
-		SessionID:     inst.HarnessID.String(),
-		HarnessID:     inst.HarnessID.String(),
-		ProjectID:     inst.ProjectID.String(),
-		HarnessImage:  image,
-		ContainerPort: Port,
-		Env:           env,
-		WorkspacePVC:  pvcName,
-	}
-
-	// Mount the global skill library read-only for harnesses that consume it.
 	// The skills PVC is normally created by the skillmgr path, but ensure it
 	// here too: on a fresh cluster nobody may have opened the Skills panel yet,
 	// and a missing PVC would block the sandbox Pod from scheduling.
-	if mount, ok := skillsMountPaths[inst.Type]; ok {
-		if err := m.k8sClient.EnsurePVC(ctx, SkillsPVCName, k8s.ComponentSkills, nil); err != nil {
-			_ = m.store.UpdateSandboxStatus(ctx, inst.HarnessID, "failed")
-			return "", fmt.Errorf("ensure skills pvc: %w", err)
-		}
-		spec.SkillsPVC = SkillsPVCName
-		spec.SkillsMount = mount
+	if err := m.k8sClient.EnsurePVC(ctx, SkillsPVCName, k8s.ComponentSkills, nil); err != nil {
+		return fail(fmt.Errorf("ensure skills pvc: %w", err))
 	}
 
-	_ = m.store.UpdateSandboxStarting(ctx, inst.HarnessID, name)
-	if err := m.k8sClient.RunTask(ctx, spec); err != nil {
-		_ = m.store.UpdateSandboxStatus(ctx, inst.HarnessID, "failed")
-		return "", fmt.Errorf("run sandbox: %w", err)
+	_ = m.store.UpdateSandboxStatus(ctx, projectID, "starting")
+	if err := m.k8sClient.RunTask(ctx, k8s.SandboxSpec{
+		Name:          name,
+		ProjectID:     projectID.String(),
+		Image:         Image,
+		ContainerPort: Port,
+		Env:           env,
+		WorkspacePVC:  pvcName,
+		SkillsPVC:     SkillsPVCName,
+		SkillsMount:   SkillsMountPath,
+	}); err != nil {
+		return fail(fmt.Errorf("run sandbox: %w", err))
 	}
 
-	return m.waitURL(ctx, name, inst.HarnessID)
-}
-
-func (m *Manager) waitURL(ctx context.Context, name string, harnessID uuid.UUID) (string, error) {
 	url, err := m.k8sClient.WaitReady(ctx, name, 3*time.Minute)
 	if err != nil {
-		_ = m.store.UpdateSandboxStatus(ctx, harnessID, "failed")
-		return "", err
+		return fail(err)
 	}
 	if err := m.harnessClient.WaitHTTPReady(ctx, url, 2*time.Minute); err != nil {
-		_ = m.store.UpdateSandboxStatus(ctx, harnessID, "failed")
-		return "", err
+		return fail(err)
 	}
-	_ = m.store.UpdateSandboxReady(ctx, harnessID)
+	_ = m.store.UpdateSandboxStatus(ctx, projectID, "ready")
 	return url, nil
 }
 
-// URL resolves the harness sandbox's current address straight from K8s. There
+// Await is EnsureReady for request handlers: the bring-up runs detached so a
+// client that disconnects mid-start doesn't cancel it (a cancelled start would
+// count as a failure and tear the sandbox down), while the caller stops
+// waiting as soon as ctx is done.
+func (m *Manager) Await(ctx context.Context, projectID uuid.UUID) (string, error) {
+	if url, ok := m.URL(ctx, projectID); ok {
+		return url, nil
+	}
+	type result struct {
+		url string
+		err error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		url, err := m.EnsureReady(context.Background(), projectID)
+		ch <- result{url, err}
+	}()
+	select {
+	case r := <-ch:
+		return r.url, r.err
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+}
+
+// URL resolves the project sandbox's current address straight from K8s. There
 // is no DB cache of the pod IP (it's ephemeral and goes stale on reschedule),
 // so callers resolve it fresh — once per connection. Returns ("", false) when
-// the sandbox isn't Ready / has no published pod IP yet, which handlers treat
-// as "sandbox not ready".
-func (m *Manager) URL(ctx context.Context, inst *model.Harness) (string, bool) {
-	return m.k8sClient.ResolveURL(ctx, NameFor(inst))
+// the sandbox isn't Ready / has no published pod IP yet.
+func (m *Manager) URL(ctx context.Context, projectID uuid.UUID) (string, bool) {
+	return m.k8sClient.ResolveURL(ctx, NameFor(projectID))
 }
 
-func withPathSuffix(base, suffix string) string {
-	base = strings.TrimRight(base, "/")
-	if strings.HasSuffix(base, suffix) {
-		return base
-	}
-	return base + suffix
-}
-
-// Stop 删除对应的 Sandbox CR；本地状态置 idle。
-func (m *Manager) Stop(ctx context.Context, inst *model.Harness) {
-	name := NameFor(inst)
+// Stop 删除 project 的 Sandbox CR；本地状态置 idle。Session transcript 在
+// workspace PVC 上，下次拉起后可继续。
+func (m *Manager) Stop(ctx context.Context, projectID uuid.UUID) {
+	name := NameFor(projectID)
 	go func() {
-		if err := m.k8sClient.StopTask(context.Background(), name); err != nil {
+		if err := m.k8sClient.StopTask(context.Background(), name); err != nil && !apierrors.IsNotFound(err) {
 			log.Printf("warn: stop sandbox %s: %v", name, err)
 		}
 	}()
-	_ = m.store.UpdateSandboxStatus(ctx, inst.HarnessID, "idle")
-}
-
-// EnsureReadyAsync 是 EnsureReady 的 fire-and-forget 包装，用于 HarnessHandler.Create：
-// 用户拿到 201 立刻返回，sandbox 在后台继续拉起，状态写到 DB 等前端轮询。
-func (m *Manager) EnsureReadyAsync(inst *model.Harness) {
-	go func() {
-		if _, err := m.EnsureReady(context.Background(), inst); err != nil {
-			log.Printf("warn: bring up sandbox for harness %s: %v", inst.HarnessID, err)
-		}
-	}()
+	_ = m.store.UpdateSandboxStatus(ctx, projectID, "idle")
 }

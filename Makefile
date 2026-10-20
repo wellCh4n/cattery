@@ -50,34 +50,12 @@ docker-reset-db:
 	@$(COMPOSE) down -v
 	@$(COMPOSE) up -d postgres
 
-# make build-harness HARNESS=opencode      — build one harness
-# make build-harness HARNESS=claude-code    — build one harness
-# make build-harness HARNESS=codex          — build one harness
-# make build-harness HARNESS=hermes         — build one harness
-# make build-harness                        — build all harnesses
-HARNESS ?=
+# make build-harness — build the pi agent sandbox image
 build-harness:
-	$(if $(HARNESS), \
-		$(MAKE) _build-harness-$(HARNESS), \
-		$(MAKE) _build-harness-opencode _build-harness-claude-code _build-harness-codex _build-harness-hermes)
+	@echo "→ building cattery-pi:dev"
+	@docker build -t cattery-pi:dev harnesses/pi/
 
-_build-harness-opencode:
-	@echo "→ building opencode-sandbox:dev"
-	@docker build -t opencode-sandbox:dev harnesses/opencode/
-
-_build-harness-claude-code:
-	@echo "→ building claude-code-sandbox:dev"
-	@docker build -t claude-code-sandbox:dev harnesses/claude-code/
-
-_build-harness-codex:
-	@echo "→ building codex-sandbox:dev"
-	@docker build -t codex-sandbox:dev harnesses/codex/
-
-_build-harness-hermes:
-	@echo "→ building hermes-sandbox:dev"
-	@docker build -t hermes-sandbox:dev harnesses/hermes/
-
-# Standalone Pod images (run as their own Pod, not as harness sidecars).
+# Standalone Pod images (run as their own Pod, not as sandbox sidecars).
 # make build-pod              — build all pod images
 # make build-pod POD=filemgr  — build one
 # make build-pod POD=skillmgr — build one

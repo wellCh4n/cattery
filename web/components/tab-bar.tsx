@@ -1,47 +1,28 @@
 "use client"
 
 // TabBar — VSCode-style editor tabs across the top of the main pane. Every
-// session/harness/skill/file route the user visits becomes a tab (opened
+// session/skill/file route the user visits becomes a tab (opened
 // lazily on navigation); the active tab tracks the current pathname. Tabs are
 // closable (× button, middle-click, or right-click menu), and closing the
 // active tab falls back to a neighbouring tab — or home when none are left.
 // Titles, icons and status all resolve live from the workspace store, so
-// renames and session title updates reflect immediately. Session/harness tabs
-// whose entity has been deleted are pruned once the workspace has loaded.
+// renames and session title updates reflect immediately. Session tabs
+// whose session has been deleted are pruned once the workspace has loaded.
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import { usePathname, useRouter } from "next/navigation"
-import { Bot, File as FileIcon, MessageSquare, Puzzle, Shield, Terminal, X } from "lucide-react"
-import { HarnessIcon } from "@/components/harness-icon"
+import { File as FileIcon, MessageSquare, Puzzle, Shield, X } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { type ProjectWithHarnesses, useWorkspaceStore } from "@/lib/workspace-store"
+import { findSession, type ProjectWithSessions, useWorkspaceStore } from "@/lib/workspace-store"
 import { type Tab, sameTab, tabForPath, tabHref, tabKey, useTabsStore } from "@/lib/tabs-store"
 
 interface ResolvedTab {
   title: string
-  // Parent context shown under the title: harness name for a session tab,
-  // project name for a harness tab.
+  // Parent context shown under the title: project name for session and file
+  // tabs.
   subtitle: string
   exists: boolean
   icon: React.ReactNode
-}
-
-function findSession(projects: ProjectWithHarnesses[], id: string) {
-  for (const project of projects) {
-    for (const harness of project.harnesses) {
-      const session = harness.sessions.find(s => s.session_id === id)
-      if (session) return { session, harness }
-    }
-  }
-  return null
-}
-
-function findHarness(projects: ProjectWithHarnesses[], id: string) {
-  for (const project of projects) {
-    const harness = project.harnesses.find(h => h.harness_id === id)
-    if (harness) return { harness, project }
-  }
-  return null
 }
 
 // Mirror the sidebar's status coloring: failed stands out, transitional states
@@ -52,30 +33,17 @@ function sessionIconColor(status: string): string {
   return "text-muted-foreground"
 }
 
-function resolveTab(tab: Tab, projects: ProjectWithHarnesses[]): ResolvedTab {
+function resolveTab(tab: Tab, projects: ProjectWithSessions[]): ResolvedTab {
   if (tab.kind === "session") {
     const found = findSession(projects, tab.id)
     if (!found) {
       return { title: "Session", subtitle: "", exists: false, icon: <MessageSquare className="size-3.5 shrink-0 text-muted-foreground" /> }
     }
-    const Icon = found.harness.transport_kind === "terminal" ? Terminal : MessageSquare
     return {
       title: found.session.title ?? "New Session",
-      subtitle: found.harness.harness_name ?? "Untitled",
-      exists: true,
-      icon: <Icon className={cn("size-3.5 shrink-0", sessionIconColor(found.session.status))} />,
-    }
-  }
-  if (tab.kind === "harness") {
-    const found = findHarness(projects, tab.id)
-    if (!found) {
-      return { title: "Harness", subtitle: "", exists: false, icon: <Bot className="size-3.5 shrink-0 text-muted-foreground" /> }
-    }
-    return {
-      title: found.harness.harness_name ?? "Untitled",
       subtitle: found.project.project_name ?? "Untitled Project",
       exists: true,
-      icon: <HarnessIcon id={found.harness.type} className="size-3.5 shrink-0 text-muted-foreground" />,
+      icon: <MessageSquare className={cn("size-3.5 shrink-0", sessionIconColor(found.session.status))} />,
     }
   }
   if (tab.kind === "skill") {
@@ -144,16 +112,12 @@ export function TabBar() {
   const validKeys = useMemo(() => {
     const keys = new Set<string>()
     for (const project of projects) {
-      for (const harness of project.harnesses) {
-        keys.add(tabKey({ kind: "harness", id: harness.harness_id }))
-        for (const session of harness.sessions) keys.add(tabKey({ kind: "session", id: session.session_id }))
-      }
+      for (const session of project.sessions) keys.add(tabKey({ kind: "session", id: session.session_id }))
     }
     return keys
   }, [projects])
 
-  // Once the workspace is loaded, drop tabs whose entity is gone (deleted
-  // harness/session). Never prune the route we're currently viewing — a
+  // Once the workspace is loaded, drop tabs whose session is gone. Never prune the route we're currently viewing — a
   // freshly-created session can briefly lag the store mid-poll.
   useEffect(() => {
     if (!loaded) return

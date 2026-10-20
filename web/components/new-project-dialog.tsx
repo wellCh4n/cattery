@@ -12,12 +12,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { useWorkspaceStore, type ProjectWithHarnesses } from "@/lib/workspace-store"
+import { useWorkspaceStore, type ProjectWithSessions } from "@/lib/workspace-store"
 
 interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
-  onCreated?: (project: ProjectWithHarnesses) => void
+  onCreated?: (project: ProjectWithSessions) => void
 }
 
 export function NewProjectDialog({ open, onOpenChange, onCreated }: Props) {
@@ -49,7 +49,7 @@ function NewProjectForm({
 }: {
   savingRef: { current: boolean }
   onOpenChange: (open: boolean) => void
-  onCreated?: (project: ProjectWithHarnesses) => void
+  onCreated?: (project: ProjectWithSessions) => void
 }) {
   const createProject = useWorkspaceStore(state => state.createProject)
   const [value, setValue] = useState("")

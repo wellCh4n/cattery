@@ -19,11 +19,11 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import { Badge } from "@/components/ui/badge"
 import { Markdown } from "@/components/markdown"
 import { FileViewer } from "@/components/file-viewer"
+import { ModelPicker } from "@/components/model-picker"
 import { cn } from "@/lib/utils"
-import { answerSession, type Session, type Harness, type QuestionAnswer } from "@/lib/api"
+import { type Session } from "@/lib/api"
 import {
   useChatStreamStore,
   type Bubble,
@@ -33,12 +33,11 @@ import {
 
 interface Props {
   session: Session
-  harness: Harness
 }
 
 const EMPTY_BUBBLES: Bubble[] = []
 
-export function ChatPanel({ session, harness }: Props) {
+export function ChatPanel({ session }: Props) {
   const [input, setInput] = useState("")
   const [showJumpToBottom, setShowJumpToBottom] = useState(false)
   const [composerHeight, setComposerHeight] = useState(0)
@@ -186,12 +185,12 @@ export function ChatPanel({ session, harness }: Props) {
                 </div>
                 <p className="text-sm font-medium">Session ready</p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Send a message to start working with {harness.harness_name ?? "the harness"}.
+                  Send a message to start working with the agent.
                 </p>
               </div>
             )}
             {bubbles.map((b) => (
-              <BubbleRow key={b.id} bubble={b} sessionId={session.session_id} />
+              <BubbleRow key={b.id} bubble={b} />
             ))}
             {sending && (
               // Persistent loader anchored below the last message — stays until
@@ -262,11 +261,9 @@ export function ChatPanel({ session, harness }: Props) {
                   <span className="font-mono">⇧</span>
                   <CornerDownLeft className="size-3" />
                   <span>Newline</span>
-                  <span className="text-muted-foreground/40">·</span>
-                  <span className="font-mono font-medium text-[10px]">
-                    {harness.model}
-                  </span>
                 </span>
+                <div className="flex items-center gap-1">
+                <ModelPicker sessionId={session.session_id} model={session.model} disabled={sending} />
                 {sending ? (
                   <Button
                     variant="destructive"
@@ -288,6 +285,7 @@ export function ChatPanel({ session, harness }: Props) {
                     <ArrowUp />
                   </Button>
                 )}
+                </div>
               </div>
             </div>
           </div>
@@ -322,11 +320,7 @@ function ThinkingBubble({ bubble }: { bubble: Bubble }) {
   )
 }
 
-function BubbleRow({ bubble, sessionId }: { bubble: Bubble; sessionId: string }) {
-  if (bubble.kind === "question") {
-    return <QuestionBubble bubble={bubble} sessionId={sessionId} />
-  }
-
+function BubbleRow({ bubble }: { bubble: Bubble }) {
   if (bubble.kind === "thinking") {
     return <ThinkingBubble bubble={bubble} />
   }
@@ -484,23 +478,15 @@ function formatToolInput(tool: string | undefined, raw: string): ToolHeader {
       case "read":
       case "write":
       case "edit": {
-        const fp = str("file_path")
-        if (fp) return { primary: fp }
-        break
-      }
-      case "list": {
         const p = str("path")
         if (p) return { primary: p }
         break
       }
+      case "ls":
+        return { primary: str("path") ?? "." }
       case "bash": {
         const cmd = str("command")
         if (cmd) return { primary: cmd }
-        break
-      }
-      case "task": {
-        const d = str("description") ?? str("prompt")
-        if (d) return { primary: d }
         break
       }
     }
@@ -553,116 +539,4 @@ function ToolStatusIcon({ status }: { status?: "pending" | "running" | "complete
     return <Loader2 className="size-3.5 text-amber-500 animate-spin shrink-0" />
   }
   return <Loader2 className="size-3.5 text-muted-foreground shrink-0" />
-}
-
-function QuestionBubble({ bubble, sessionId }: { bubble: Bubble; sessionId: string }) {
-  const questions = bubble.questions ?? []
-  const answered = !!bubble.questionAnswers
-  const appendQuestionAnswer = useChatStreamStore(state => state.appendQuestionAnswer)
-  const [selected, setSelected] = useState<string[][]>(() => questions.map(() => []))
-  const [submitting, setSubmitting] = useState(false)
-
-  function toggle(qIdx: number, label: string, multi: boolean): void {
-    setSelected(prev => {
-      const next = prev.map(row => [...row])
-      if (multi) {
-        const row = next[qIdx]
-        const at = row.indexOf(label)
-        if (at >= 0) row.splice(at, 1)
-        else row.push(label)
-      } else {
-        next[qIdx] = [label]
-      }
-      return next
-    })
-  }
-
-  async function submit(): Promise<void> {
-    if (submitting || answered) return
-    const ready = questions.every((q, i) => selected[i].length >= (q.multiSelect ? 1 : 1))
-    if (!ready) return
-    setSubmitting(true)
-    try {
-      const answers: QuestionAnswer[] = questions.map((q, i) => ({
-        question: q.question,
-        selectedLabels: selected[i],
-      }))
-      await answerSession(sessionId, bubble.id, answers)
-      appendQuestionAnswer(sessionId, bubble.id, answers)
-    } catch (err) {
-      console.error("answer submit failed:", err)
-      setSubmitting(false)
-    }
-  }
-
-  return (
-    <div className="flex justify-start">
-      <div className="max-w-[90%] min-w-[50%] rounded-lg border border-primary/40 bg-primary/5 overflow-hidden">
-        <div className="flex items-center gap-1.5 px-3 py-1.5 border-b bg-primary/5 text-[11px] uppercase tracking-wide text-muted-foreground">
-          <CornerDownLeft className="size-3" />
-          <span className="font-mono">{answered ? "answered" : "question"}</span>
-        </div>
-        <div className="px-3 py-2.5 space-y-3">
-          {questions.map((q, qIdx) => {
-            const userAnswer = bubble.questionAnswers?.[qIdx]
-            return (
-              <div key={qIdx} className="space-y-1.5">
-                <div className="flex items-center gap-1.5">
-                  {q.header && (
-                    <Badge variant="secondary" className="text-[10px] uppercase">{q.header}</Badge>
-                  )}
-                  <div className="text-sm font-medium">{q.question}</div>
-                </div>
-                <div className="grid gap-1.5">
-                  {q.options.map((opt, oIdx) => {
-                    const isPicked = answered
-                      ? userAnswer?.selectedLabels.includes(opt.label) ?? false
-                      : selected[qIdx]?.includes(opt.label) ?? false
-                    return (
-                      <button
-                        key={oIdx}
-                        type="button"
-                        disabled={answered || submitting}
-                        onClick={() => toggle(qIdx, opt.label, !!q.multiSelect)}
-                        className={cn(
-                          "text-left rounded border px-2.5 py-1.5 text-xs transition-colors cursor-pointer",
-                          isPicked
-                            ? "border-primary bg-primary/10"
-                            : "border-border hover:bg-muted/40",
-                          (answered || submitting) && "cursor-not-allowed opacity-80",
-                        )}
-                      >
-                        <div className="flex items-center gap-1.5">
-                          {isPicked && <CheckCircle2 className="size-3 text-primary" />}
-                          <span className="font-medium">{opt.label}</span>
-                        </div>
-                        {opt.description && (
-                          <div className="mt-0.5 text-[11px] text-muted-foreground">{opt.description}</div>
-                        )}
-                        {opt.preview && (
-                          <pre className="mt-1 max-h-32 overflow-auto rounded bg-muted/50 p-1.5 font-mono text-[10px] whitespace-pre-wrap">
-                            {opt.preview}
-                          </pre>
-                        )}
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-            )
-          })}
-          {!answered && (
-            <Button
-              size="sm"
-              onClick={submit}
-              disabled={submitting || selected.some(row => row.length === 0)}
-              className="w-full"
-            >
-              {submitting ? <Loader2 className="size-3 animate-spin" /> : "Submit"}
-            </Button>
-          )}
-        </div>
-      </div>
-    </div>
-  )
 }

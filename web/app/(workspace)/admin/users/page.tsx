@@ -452,7 +452,7 @@ function DeleteUserConfirm({
         </DialogDescription>
       </DialogHeader>
       <p className="text-xs text-destructive leading-relaxed">
-        This permanently removes the user, all their harnesses, sessions, and stops every
+        This permanently removes the user, all their projects, sessions, and stops every
         associated sandbox. Workspace data inside those sandboxes is lost.
       </p>
       {error && <p className="text-xs text-destructive">{error}</p>}

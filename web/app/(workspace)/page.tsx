@@ -8,7 +8,7 @@ export default function EmptyPage() {
       </div>
       <p className="text-sm font-medium">No session selected</p>
       <p className="text-xs text-muted-foreground mt-1 max-w-sm">
-        Pick an existing session from the sidebar, or click <span className="font-mono">+</span> on an agent to start a new one.
+        Pick an existing session from the sidebar, or click <span className="font-mono">+</span> to start a new one.
       </p>
     </div>
   )

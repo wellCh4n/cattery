@@ -3,9 +3,8 @@
 import { use, useEffect, useState } from "react"
 import { AlertTriangle, Loader2 } from "lucide-react"
 import { ChatPanel } from "@/components/chat-panel"
-import { TerminalView } from "@/components/terminal-view"
 import { useDocumentTitle } from "@/lib/use-document-title"
-import { useWorkspaceStore } from "@/lib/workspace-store"
+import { findSession, useWorkspaceStore } from "@/lib/workspace-store"
 
 interface PageParams {
   session_id: string
@@ -13,26 +12,10 @@ interface PageParams {
 
 export default function SessionPage({ params }: { params: Promise<PageParams> }) {
   const { session_id } = use(params)
-  const session = useWorkspaceStore(state => {
-    for (const project of state.projects) {
-      for (const harness of project.harnesses) {
-        const session = harness.sessions.find(s => s.session_id === session_id)
-        if (session) return session
-      }
-    }
-    return null
-  })
-  const harness = useWorkspaceStore(state => {
-    if (!session) return null
-    for (const project of state.projects) {
-      const harness = project.harnesses.find(h => h.harness_id === session.harness_id)
-      if (harness) return harness
-    }
-    return null
-  })
+  const session = useWorkspaceStore(state => findSession(state.projects, session_id)?.session ?? null)
   const refreshSession = useWorkspaceStore(state => state.refreshSession)
   const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(session === null || harness === null)
+  const [loading, setLoading] = useState(session === null)
 
   useDocumentTitle(session ? (session.title ?? "New Session") : null)
 
@@ -41,7 +24,7 @@ export default function SessionPage({ params }: { params: Promise<PageParams> })
     let timer: ReturnType<typeof setTimeout>
     queueMicrotask(() => {
       if (cancelled) return
-      setLoading(session === null || harness === null)
+      setLoading(session === null)
       setError(null)
     })
 
@@ -60,9 +43,9 @@ export default function SessionPage({ params }: { params: Promise<PageParams> })
       }
     }
 
-    if (!session || !harness || session.status === "creating") void poll()
+    if (!session || session.status === "creating") void poll()
     return () => { cancelled = true; clearTimeout(timer) }
-  }, [harness, refreshSession, session, session_id])
+  }, [refreshSession, session, session_id])
 
   if (error) {
     return (
@@ -76,7 +59,7 @@ export default function SessionPage({ params }: { params: Promise<PageParams> })
     )
   }
 
-  if (loading || !session || !harness) {
+  if (loading || !session) {
     return (
       <div className="flex h-full items-center justify-center text-muted-foreground">
         <Loader2 className="size-5 animate-spin" />
@@ -84,17 +67,5 @@ export default function SessionPage({ params }: { params: Promise<PageParams> })
     )
   }
 
-  return harness.transport_kind === "terminal" ? (
-    <TerminalView
-      key={session.session_id}
-      session={session}
-      harness={harness}
-    />
-  ) : (
-    <ChatPanel
-      key={session.session_id}
-      session={session}
-      harness={harness}
-    />
-  )
+  return <ChatPanel key={session.session_id} session={session} />
 }

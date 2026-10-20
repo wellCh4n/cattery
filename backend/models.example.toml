@@ -1,0 +1,27 @@
+# Cattery model catalog. Copy to models.toml (gitignored: it holds API keys),
+# or point MODELS_CONFIG at another path. Read once at backend startup.
+#
+# Each [[providers]] entry is one endpoint + key; users can pick any of its
+# models in the chat. Model ids are sent to the endpoint as-is and must be
+# unique across providers.
+#
+# type is the pi-ai provider id: anthropic | deepseek | openai reuse pi's
+# built-in catalog entry for each model (context window, thinking levels,
+# provider quirks); custom is any other OpenAI-compatible endpoint.
+
+# Model new sessions start on (optional; defaults to the first model listed).
+default = "deepseek-flash"
+
+[[providers]]
+name     = "DeepSeek"
+type     = "deepseek"
+endpoint = "https://api.deepseek.com"
+key      = "sk-..."
+models   = ["deepseek-flash", "deepseek-v4-pro"]
+
+# [[providers]]
+# name     = "Anthropic"
+# type     = "anthropic"
+# endpoint = "https://api.anthropic.com"
+# key      = "sk-ant-..."
+# models   = ["claude-sonnet-4-6"]

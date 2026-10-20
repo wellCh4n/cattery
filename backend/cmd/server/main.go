@@ -22,6 +22,11 @@ func main() {
 	}
 	defer database.Close()
 
+	models, err := config.LoadModels(cfg.ModelsConfig)
+	if err != nil {
+		log.Fatalf("%v (copy backend/models.example.toml to get started)", err)
+	}
+
 	signer, err := auth.NewSigner(cfg.JWTSecret)
 	if err != nil {
 		log.Fatalf("auth signer: %v", err)
@@ -37,23 +42,21 @@ func main() {
 		log.Fatalf("k8s client: %v", err)
 	}
 
-	harnessStore := db.NewHarnessStore(database)
 	projectStore := db.NewProjectStore(database)
 	memberStore := db.NewMemberStore(database)
 	sessionStore := db.NewSessionStore(database)
 	harnessClient := harness.NewClient()
-	sandboxMgr := sandbox.NewManager(harnessStore, k8s, harnessClient, cfg)
+	sandboxMgr := sandbox.NewManager(projectStore, k8s, harnessClient, cfg)
 
-	projectH := api.NewProjectHandler(projectStore, harnessStore, memberStore, userStore, sandboxMgr, k8s)
-	harnessH := api.NewHarnessHandler(harnessStore, projectStore, sandboxMgr)
-	sessionH := api.NewSessionHandler(sessionStore, harnessStore, harnessClient, sandboxMgr)
+	projectH := api.NewProjectHandler(projectStore, memberStore, userStore, sandboxMgr, k8s)
+	sessionH := api.NewSessionHandler(sessionStore, projectStore, harnessClient, sandboxMgr, models)
 	filesH := api.NewFilesHandler(projectStore, k8s)
 	skillsH := api.NewSkillsHandler(k8s)
 	authH := api.NewAuthHandler(userStore, signer)
-	adminH := api.NewAdminHandler(userStore, harnessStore, projectStore, sandboxMgr)
+	adminH := api.NewAdminHandler(userStore, projectStore, sandboxMgr)
 	usersH := api.NewUsersHandler(userStore)
 
-	router := api.NewRouter(database, harnessH, projectH, sessionH, filesH, skillsH, authH, adminH, usersH, signer)
+	router := api.NewRouter(database, projectH, sessionH, filesH, skillsH, authH, adminH, usersH, signer)
 	log.Printf("starting server on :%s", cfg.Port)
 	log.Fatal(router.Start(":" + cfg.Port))
 }

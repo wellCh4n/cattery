@@ -22,42 +22,27 @@ async function readErrorMessage(res: Response, fallback: string): Promise<string
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080"
 
-export type TransportKind = "http" | "terminal"
-
 export interface Project {
   project_id: string
   owner_user_id: string
   project_name: string | null
   access_role: "owner" | "member"
   owner_username: string
-  created_at: string
-}
-
-export interface Harness {
-  harness_id: string
-  project_id: string
-  harness_name: string | null
-  model: string
-  type: string
-  transport_kind: TransportKind
-  access_role: "owner" | "member"
-  owner_username: string
-  env_vars: Record<string, string>
+  // The project's agent sandbox, shared by all its sessions:
+  // idle | starting | ready | failed. Started on demand.
   sandbox_status: string
   created_at: string
-  project?: Project
 }
 
 export interface Session {
   session_id: string
-  harness_id: string
+  project_id: string
+  model: string
   status: string
   phase: string | null
   title: string | null
-  harness_session_id: string | null
   created_at: string
   last_seen_at: string | null
-  stopped_at: string | null
 }
 
 export async function listProjects(): Promise<Project[]> {
@@ -98,42 +83,13 @@ export async function deleteProject(projectId: string): Promise<void> {
   await authedFetch(`${API_BASE}/api/v1/projects/${projectId}`, { method: "DELETE" })
 }
 
-export async function listHarnesses(projectId: string): Promise<Harness[]> {
-  const res = await authedFetch(`${API_BASE}/api/v1/projects/${projectId}/harnesses`, { cache: "no-store" })
-  if (!res.ok) throw new Error("failed to list harnesses")
-  return res.json()
-}
-
-export type CreateHarnessRequest = Pick<Harness, "harness_name" | "model" | "type" | "env_vars">
-
-export async function createHarness(projectId: string, data: CreateHarnessRequest): Promise<Harness> {
-  const res = await authedFetch(`${API_BASE}/api/v1/projects/${projectId}/harnesses`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  })
-  if (!res.ok) throw new Error("failed to create harness")
-  return res.json()
-}
-
-export async function getHarness(harnessId: string): Promise<Harness> {
-  const res = await authedFetch(`${API_BASE}/api/v1/harnesses/${harnessId}`, { cache: "no-store" })
-  if (!res.ok) throw new Error("failed to get harness")
-  return res.json()
-}
-
-export async function updateHarness(harnessId: string, data: { harness_name: string }): Promise<Harness> {
-  const res = await authedFetch(`${API_BASE}/api/v1/harnesses/${harnessId}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  })
-  if (!res.ok) throw new Error("failed to update harness")
-  return res.json()
-}
-
-export async function deleteHarness(harnessId: string): Promise<void> {
-  await authedFetch(`${API_BASE}/api/v1/harnesses/${harnessId}`, { method: "DELETE" })
+// stopSandbox stops the project's agent sandbox. Sessions are kept; the
+// sandbox restarts on the next message.
+export async function stopSandbox(projectId: string): Promise<void> {
+  const res = await authedFetch(`${API_BASE}/api/v1/projects/${projectId}/sandbox`, { method: "DELETE" })
+  if (!res.ok && res.status !== 204) {
+    throw new Error(await readErrorMessage(res, `stop sandbox failed (${res.status})`))
+  }
 }
 
 export interface ProjectMember {
@@ -183,19 +139,31 @@ export async function deleteProjectMember(projectId: string, userId: string): Pr
   }
 }
 
-export async function listSessions(harnessId: string): Promise<Session[]> {
-  const res = await authedFetch(`${API_BASE}/api/v1/harnesses/${harnessId}/sessions`, { cache: "no-store" })
+export async function listSessions(projectId: string): Promise<Session[]> {
+  const res = await authedFetch(`${API_BASE}/api/v1/projects/${projectId}/sessions`, { cache: "no-store" })
   if (!res.ok) throw new Error("failed to list sessions")
   return res.json()
 }
 
-export async function createSession(harnessId: string, theme: "light" | "dark"): Promise<Session> {
-  const res = await authedFetch(`${API_BASE}/api/v1/harnesses/${harnessId}/sessions`, {
+export interface ModelCatalog {
+  default: string
+  providers: { name: string; models: string[] }[]
+}
+
+export async function listModels(): Promise<ModelCatalog> {
+  const res = await authedFetch(`${API_BASE}/api/v1/models`, { cache: "no-store" })
+  if (!res.ok) throw new Error("failed to list models")
+  return res.json()
+}
+
+// An empty model starts the session on the catalog default.
+export async function createSession(projectId: string, model: string): Promise<Session> {
+  const res = await authedFetch(`${API_BASE}/api/v1/projects/${projectId}/sessions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ theme }),
+    body: JSON.stringify({ model }),
   })
-  if (!res.ok) throw new Error("failed to create session")
+  if (!res.ok) throw new Error(await readErrorMessage(res, "failed to create session"))
   return res.json()
 }
 
@@ -205,7 +173,7 @@ export async function getSession(sessionId: string): Promise<Session> {
   return res.json()
 }
 
-export async function updateSessionTitle(sessionId: string, data: { title: string }): Promise<Session> {
+export async function updateSession(sessionId: string, data: { title?: string; model?: string }): Promise<Session> {
   const res = await authedFetch(`${API_BASE}/api/v1/sessions/${sessionId}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
@@ -235,28 +203,9 @@ export async function sendSessionMessageStream(
     signal,
   })
   if (!res.ok || !res.body) {
-    throw new Error("failed to send message")
+    throw new Error(await readErrorMessage(res, "failed to send message"))
   }
   return res.body.getReader()
-}
-
-export interface QuestionAnswer {
-  question: string
-  selectedLabels: string[]
-  notes?: string
-}
-
-export async function answerSession(
-  sessionId: string,
-  questionId: string,
-  answers: QuestionAnswer[],
-): Promise<void> {
-  const res = await authedFetch(`${API_BASE}/api/v1/sessions/${sessionId}/answer`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ questionId, answers }),
-  })
-  if (!res.ok) throw new Error("failed to submit answer")
 }
 
 export interface PlatformHistoryItem {
@@ -275,24 +224,6 @@ export async function getHistory(sessionId: string): Promise<PlatformHistoryItem
   const res = await authedFetch(`${API_BASE}/api/v1/sessions/${sessionId}/history`, { cache: "no-store" })
   if (!res.ok) throw new Error("failed to get history")
   return res.json()
-}
-
-// termURL generates the terminal WS endpoint. The bearer token is NOT in the
-// URL — see termSubprotocols.
-export function termURL(sessionId: string): string {
-  const base = API_BASE.replace(/^http(s?):/, "ws$1:")
-  return `${base}/api/v1/sessions/${sessionId}/term`
-}
-
-// termSubprotocols returns the WebSocket constructor's second argument for the
-// terminal connection. Browsers can't set an Authorization header on a WS
-// upgrade, so we smuggle the token through Sec-WebSocket-Protocol (which IS
-// settable, via the subprotocol list) instead of `?token=` in the URL — the
-// latter leaks into proxy/ingress access logs. The backend reads the token
-// from the entry next to this marker and echoes the marker back.
-export function termSubprotocols(): string[] {
-  const token = getStoredToken()
-  return token ? ["cattery.bearer", token] : []
 }
 
 // ---- filemgr (standalone per-project Pod, proxied through backend) ----

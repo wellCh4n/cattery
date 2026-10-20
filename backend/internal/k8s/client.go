@@ -45,7 +45,6 @@ const (
 
 	// Business dimensions — custom keys, DNS-subdomain-prefixed per the K8s
 	// label conventions (bare/unprefixed keys are reserved for end users).
-	LabelHarnessID = "cattery.dev/harness-id"
 	LabelProjectID = "cattery.dev/project-id"
 )
 
@@ -115,21 +114,18 @@ func NewClient(namespace, storageClass, pvcAccessMode string) (*Client, error) {
 
 type SandboxSpec struct {
 	Name          string
-	SessionID     string
-	HarnessID     string
 	ProjectID     string
-	HarnessImage  string
+	Image         string
 	ContainerPort int
 	Env           map[string]string
 	WorkspacePVC  string
 	// WorkVolumeMount is the path the workspace volume is mounted at in the
-	// harness container. Defaults to "/work" when zero.
+	// agent container. Defaults to "/work" when zero.
 	WorkVolumeMount string
 	// SkillsPVC, when non-empty, mounts the global skills PVC read-only into the
-	// harness container at SkillsMount. Empty = no skills volume (e.g. harnesses
-	// that don't consume skills). The PVC is shared with the skillmgr Pod; on a
-	// single node RWO permits both mounts, multi-node needs the PVC reprovisioned
-	// as RWX.
+	// agent container at SkillsMount. Empty = no skills volume. The PVC is
+	// shared with the skillmgr Pod; on a single node RWO permits both mounts,
+	// multi-node needs the PVC reprovisioned as RWX.
 	SkillsPVC   string
 	SkillsMount string
 }
@@ -162,8 +158,8 @@ func (c *Client) RunTask(ctx context.Context, spec SandboxSpec) error {
 
 	containers := []interface{}{
 		map[string]interface{}{
-			"name":  "harness",
-			"image": spec.HarnessImage,
+			"name":  "agent",
+			"image": spec.Image,
 			"ports": []interface{}{
 				map[string]interface{}{"containerPort": int64(spec.ContainerPort)},
 			},
@@ -173,7 +169,6 @@ func (c *Client) RunTask(ctx context.Context, spec SandboxSpec) error {
 	}
 
 	labels := commonLabels(ComponentSandbox, spec.Name)
-	labels[LabelHarnessID] = spec.HarnessID
 	labels[LabelProjectID] = spec.ProjectID
 	workspaceVolume := map[string]interface{}{
 		"name":     workVolumeName,
@@ -215,10 +210,9 @@ func (c *Client) RunTask(ctx context.Context, spec SandboxSpec) error {
 					},
 					"spec": map[string]interface{}{
 						"restartPolicy": "Never",
-						// emptyDir defaults to root:root, but claude-code / codex / hermes
-						// run as the unprivileged `node` user (uid 1000) and need write
-						// access to /work. fsGroup makes K8s chown the volume to gid 1000
-						// so node can write; opencode (root) ignores ownership anyway.
+						// The pi image runs as the unprivileged `node` user (uid 1000)
+						// and needs write access to /work. fsGroup makes K8s chown the
+						// volume to gid 1000 so node can write.
 						"securityContext": map[string]interface{}{
 							"fsGroup": int64(1000),
 						},
@@ -231,6 +225,11 @@ func (c *Client) RunTask(ctx context.Context, spec SandboxSpec) error {
 	}
 
 	_, err := c.dynamic.Resource(sandboxGVR).Namespace(c.namespace).Create(ctx, sandbox, metav1.CreateOptions{})
+	if apierrors.IsAlreadyExists(err) {
+		// A previous start is still around (e.g. backend restarted mid-start);
+		// callers wait on its Ready condition either way.
+		return nil
+	}
 	return err
 }
 
@@ -291,7 +290,7 @@ func (c *Client) WaitReady(ctx context.Context, name string, timeout time.Durati
 }
 
 // ResolveURL does a single, non-polling read of the Sandbox CR and returns its
-// current harness URL if the CR is Ready and a pod IP is published. Unlike
+// current agent URL if the CR is Ready and a pod IP is published. Unlike
 // WaitReady it never blocks: callers use it to resolve the address fresh on
 // each connection rather than trusting a persisted (and quickly-stale) value —
 // the pod IP is ephemeral and changes whenever the pod is rescheduled.
@@ -303,7 +302,7 @@ func (c *Client) ResolveURL(ctx context.Context, name string) (string, bool) {
 	return c.readyURL(ctx, obj.Object)
 }
 
-// readyURL extracts the harness URL from a Sandbox CR object when its Ready
+// readyURL extracts the agent URL from a Sandbox CR object when its Ready
 // condition is True and a routable pod IP is available.
 func (c *Client) readyURL(ctx context.Context, obj map[string]interface{}) (string, bool) {
 	conditions, _, _ := unstructured.NestedSlice(obj, "status", "conditions")

@@ -3,8 +3,8 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -12,95 +12,134 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
+	"github.com/wellch4n/cattery/internal/config"
 	"github.com/wellch4n/cattery/internal/db"
 	"github.com/wellch4n/cattery/internal/harness"
-	_ "github.com/wellch4n/cattery/internal/harness/claudecode" // register claude-code translators
-	_ "github.com/wellch4n/cattery/internal/harness/codex"      // register codex (terminal kind)
-	_ "github.com/wellch4n/cattery/internal/harness/hermes"     // register hermes (terminal kind)
-	_ "github.com/wellch4n/cattery/internal/harness/opencode"   // register opencode translators
 	"github.com/wellch4n/cattery/internal/model"
 	"github.com/wellch4n/cattery/internal/sandbox"
 )
 
 type SessionHandler struct {
 	sessionStore  *db.SessionStore
-	harnessStore  *db.HarnessStore
+	projectStore  *db.ProjectStore
 	harnessClient *harness.Client
 	sandbox       *sandbox.Manager
+	models        *config.Models
 }
 
 func NewSessionHandler(
 	sessionStore *db.SessionStore,
-	harnessStore *db.HarnessStore,
+	projectStore *db.ProjectStore,
 	harnessClient *harness.Client,
 	sandboxMgr *sandbox.Manager,
+	models *config.Models,
 ) *SessionHandler {
-	return &SessionHandler{sessionStore, harnessStore, harnessClient, sandboxMgr}
+	return &SessionHandler{sessionStore, projectStore, harnessClient, sandboxMgr, models}
+}
+
+type modelProviderOption struct {
+	Name   string   `json:"name"`
+	Models []string `json:"models"`
+}
+
+// Models lists the models sessions can use, grouped by provider — never the
+// providers' endpoints or keys.
+func (h *SessionHandler) Models(c echo.Context) error {
+	providers := make([]modelProviderOption, len(h.models.Providers))
+	for i, p := range h.models.Providers {
+		providers[i] = modelProviderOption{p.Name, p.Models}
+	}
+	return c.JSON(http.StatusOK, map[string]any{"default": h.models.Default, "providers": providers})
+}
+
+// resolveModel picks the requested model, or the default when empty. Only
+// configured models are accepted.
+func (h *SessionHandler) resolveModel(id string) (string, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return h.models.Default, nil
+	}
+	if _, ok := h.models.Get(id); !ok {
+		return "", echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("unknown model %q", id))
+	}
+	return id, nil
+}
+
+type createSessionRequest struct {
+	Model string `json:"model"`
 }
 
 func (h *SessionHandler) Create(c echo.Context) error {
-	access, err := requireWritableHarness(c, h.harnessStore)
+	access, err := requireWritableProject(c, h.projectStore)
 	if err != nil {
 		return err
 	}
-	inst := access.Harness
-	if inst.SandboxStatus != "ready" {
-		return echo.NewHTTPError(http.StatusConflict, "sandbox is not ready")
+	var req createSessionRequest
+	if err := c.Bind(&req); err != nil {
+		return echo.ErrBadRequest
 	}
-
-	// theme 仅 terminal harness（codex）使用 —— 用来生成正确的 OSC 10/11 应答色，
-	// 让 codex 启动时按当前页面主题挑亮色/暗色调色板。前端如果未传则默认 dark。
-	var req struct {
-		Theme string `json:"theme"`
-	}
-	_ = c.Bind(&req)
-	theme := req.Theme
-	if theme != "light" {
-		theme = "dark"
+	modelID, err := h.resolveModel(req.Model)
+	if err != nil {
+		return err
 	}
 
 	sess := &model.Session{
 		SessionID: uuid.New(),
-		HarnessID: inst.HarnessID,
+		ProjectID: access.Project.ProjectID,
+		Model:     modelID,
 		Status:    "creating",
 	}
 	if err := h.sessionStore.Create(c.Request().Context(), sess); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
-	go h.bringUp(sess.SessionID, inst, theme)
+	go h.bringUp(sess)
 
 	return c.JSON(http.StatusCreated, sess)
 }
 
-// bringUp 确保 harness 的 sandbox 在线，然后在里面创建 harness session。
-// Harness 创建时已经异步起过 sandbox，这里通常只是等它 ready；万一是
-// idle / failed 状态（被 stop 或上次拉起失败），manager 会负责重新拉起。
-func (h *SessionHandler) bringUp(sessionID uuid.UUID, inst *model.Harness, theme string) {
+// bringUp 确保 project 的 sandbox 在线（必要时拉起），然后在 agent 里登记 session。
+// 前端轮询 session.status：creating → ready / failed。
+func (h *SessionHandler) bringUp(sess *model.Session) {
 	ctx := context.Background()
 
-	sandboxURL, err := h.sandbox.EnsureReady(ctx, inst)
+	sandboxURL, err := h.sandbox.EnsureReady(ctx, sess.ProjectID)
 	if err != nil {
-		_ = h.sessionStore.UpdateStatus(ctx, sessionID, "failed", "sandbox_error")
+		log.Printf("warn: bring up sandbox for project %s: %v", sess.ProjectID, err)
+		_ = h.sessionStore.UpdateStatus(ctx, sess.SessionID, "failed", "sandbox_error")
 		return
 	}
 
-	_ = h.sessionStore.UpdateStatus(ctx, sessionID, "creating", "handshake")
-	harnessSessionID, err := h.harnessClient.CreateSession(ctx, sandboxURL, theme)
-	if err != nil {
-		_ = h.sessionStore.UpdateStatus(ctx, sessionID, "failed", "handshake_error")
+	_ = h.sessionStore.UpdateStatus(ctx, sess.SessionID, "creating", "handshake")
+	if err := h.ensureAgentSession(ctx, sandboxURL, sess); err != nil {
+		log.Printf("warn: handshake session %s: %v", sess.SessionID, err)
+		_ = h.sessionStore.UpdateStatus(ctx, sess.SessionID, "failed", "handshake_error")
 		return
 	}
 
-	_ = h.sessionStore.UpdateReady(ctx, sessionID, harnessSessionID)
+	_ = h.sessionStore.UpdateStatus(ctx, sess.SessionID, "ready", "")
 }
 
-func (h *SessionHandler) ListByHarness(c echo.Context) error {
-	access, err := requireReadableHarness(c, h.harnessStore)
+// ensureAgentSession registers the session with the agent, along with its
+// model's endpoint and key. Idempotent on the agent side (an existing
+// transcript is reopened, switching model if it changed), so it's called
+// before every prompt — which is also how a model switch reaches the agent.
+func (h *SessionHandler) ensureAgentSession(ctx context.Context, sandboxURL string, sess *model.Session) error {
+	m, ok := h.models.Get(sess.Model)
+	if !ok {
+		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("model %q is no longer configured; switch to another model", sess.Model))
+	}
+	return h.harnessClient.CreateSession(ctx, sandboxURL, sess.SessionID.String(), harness.AgentModel{
+		ID: m.ID, Provider: m.Provider.Type, BaseURL: m.Provider.Endpoint, APIKey: m.Provider.Key,
+	})
+}
+
+func (h *SessionHandler) ListByProject(c echo.Context) error {
+	access, err := requireReadableProject(c, h.projectStore)
 	if err != nil {
 		return err
 	}
-	sessions, err := h.sessionStore.ListByHarness(c.Request().Context(), access.Harness.HarnessID)
+	sessions, err := h.sessionStore.ListByProject(c.Request().Context(), access.Project.ProjectID)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
@@ -111,7 +150,7 @@ func (h *SessionHandler) ListByHarness(c echo.Context) error {
 }
 
 func (h *SessionHandler) Get(c echo.Context) error {
-	sess, _, err := requireReadableSession(c, h.sessionStore, h.harnessStore)
+	sess, _, err := requireReadableSession(c, h.sessionStore, h.projectStore)
 	if err != nil {
 		return err
 	}
@@ -119,17 +158,12 @@ func (h *SessionHandler) Get(c echo.Context) error {
 }
 
 func (h *SessionHandler) SendMessage(c echo.Context) error {
-	sess, access, err := requireWritableSession(c, h.sessionStore, h.harnessStore)
+	sess, _, err := requireWritableSession(c, h.sessionStore, h.projectStore)
 	if err != nil {
 		return err
 	}
-	inst := access.Harness
 	if sess.Status != "ready" {
 		return echo.NewHTTPError(http.StatusBadRequest, "session not ready")
-	}
-	sandboxURL, ok := h.sandbox.URL(c.Request().Context(), inst)
-	if !ok {
-		return echo.NewHTTPError(http.StatusBadRequest, "sandbox not ready")
 	}
 
 	var req struct {
@@ -139,11 +173,26 @@ func (h *SessionHandler) SendMessage(c echo.Context) error {
 		return echo.ErrBadRequest
 	}
 
-	if err := h.harnessClient.PromptAsync(c.Request().Context(), sandboxURL, *sess.HarnessSessionID, req.Text); err != nil {
+	ctx := c.Request().Context()
+	// The project's sandbox may have been stopped since the session was
+	// created; transcripts live on the workspace PVC, so restart and resume.
+	sandboxURL, err := h.sandbox.Await(ctx, sess.ProjectID)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "sandbox unavailable: "+err.Error())
+	}
+	if err := h.ensureAgentSession(ctx, sandboxURL, sess); err != nil {
+		var he *echo.HTTPError
+		if errors.As(err, &he) {
+			return he
+		}
 		return echo.NewHTTPError(http.StatusBadGateway, err.Error())
 	}
 
 	sessionID := sess.SessionID
+	if err := h.harnessClient.PromptAsync(ctx, sandboxURL, sessionID.String(), req.Text); err != nil {
+		return echo.NewHTTPError(http.StatusBadGateway, err.Error())
+	}
+
 	go h.sessionStore.MarkSeen(context.Background(), sessionID)
 
 	c.Response().Header().Set("Content-Type", "text/event-stream")
@@ -152,7 +201,7 @@ func (h *SessionHandler) SendMessage(c echo.Context) error {
 	c.Response().Header().Set("X-Accel-Buffering", "no")
 	c.Response().WriteHeader(http.StatusOK)
 
-	// 流式事件中如果出现 session.title，把 title 落库（opencode 第一条消息后会发）
+	// 流式事件中如果出现 session.title，把 title 落库（agent 在首条消息时发）
 	onEvent := func(ev *harness.PlatformEvent) {
 		if ev.Type != harness.EventSessionTitle {
 			return
@@ -170,27 +219,44 @@ func (h *SessionHandler) SendMessage(c echo.Context) error {
 		}(d.Title)
 	}
 
-	translate := harness.TranslatorFor(inst.Type)
-	return h.harnessClient.StreamEventsUntilIdle(c.Request().Context(), sandboxURL, *sess.HarnessSessionID, c.Response(), translate, onEvent)
+	return h.harnessClient.StreamEventsUntilIdle(ctx, sandboxURL, sessionID.String(), c.Response(), onEvent)
 }
 
 type updateSessionRequest struct {
 	Title *string `json:"title"`
+	// Model switches the session's model. It takes effect on the next prompt,
+	// which re-registers the session with the agent (see ensureAgentSession).
+	Model *string `json:"model"`
 }
 
-func (h *SessionHandler) UpdateTitle(c echo.Context) error {
-	sess, _, err := requireWritableSession(c, h.sessionStore, h.harnessStore)
+func (h *SessionHandler) Update(c echo.Context) error {
+	sess, _, err := requireWritableSession(c, h.sessionStore, h.projectStore)
 	if err != nil {
 		return err
 	}
 	var req updateSessionRequest
-	if err := c.Bind(&req); err != nil || req.Title == nil {
+	if err := c.Bind(&req); err != nil || (req.Title == nil && req.Model == nil) {
 		return echo.ErrBadRequest
 	}
-	if err := h.sessionStore.UpdateTitle(c.Request().Context(), sess.SessionID, *req.Title); err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	ctx := c.Request().Context()
+	if req.Title != nil {
+		if err := h.sessionStore.UpdateTitle(ctx, sess.SessionID, *req.Title); err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+		}
 	}
-	sess, err = h.sessionStore.GetByID(c.Request().Context(), sess.SessionID)
+	if req.Model != nil {
+		if strings.TrimSpace(*req.Model) == "" {
+			return echo.NewHTTPError(http.StatusBadRequest, "model must not be empty")
+		}
+		m, err := h.resolveModel(*req.Model)
+		if err != nil {
+			return err
+		}
+		if err := h.sessionStore.UpdateModel(ctx, sess.SessionID, m); err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+		}
+	}
+	sess, err = h.sessionStore.GetByID(ctx, sess.SessionID)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusNotFound, "session not found")
 	}
@@ -198,14 +264,15 @@ func (h *SessionHandler) UpdateTitle(c echo.Context) error {
 }
 
 func (h *SessionHandler) Delete(c echo.Context) error {
-	sess, access, err := requireWritableSession(c, h.sessionStore, h.harnessStore)
+	sess, _, err := requireWritableSession(c, h.sessionStore, h.projectStore)
 	if err != nil {
 		return err
 	}
-	inst := access.Harness
-	if sess.HarnessSessionID != nil {
-		if sandboxURL, ok := h.sandbox.URL(c.Request().Context(), inst); ok {
-			_ = h.harnessClient.Abort(c.Request().Context(), sandboxURL, *sess.HarnessSessionID)
+	// Only touch the agent if its sandbox is already up — no point starting a
+	// sandbox just to delete a transcript.
+	if sandboxURL, ok := h.sandbox.URL(c.Request().Context(), sess.ProjectID); ok {
+		if err := h.harnessClient.DeleteSession(c.Request().Context(), sandboxURL, sess.SessionID.String()); err != nil {
+			log.Printf("warn: delete agent session %s: %v", sess.SessionID, err)
 		}
 	}
 	if err := h.sessionStore.HardDelete(c.Request().Context(), sess.SessionID); err != nil {
@@ -216,79 +283,57 @@ func (h *SessionHandler) Delete(c echo.Context) error {
 
 // Abort 中止当前 session 的进行中对话
 func (h *SessionHandler) Abort(c echo.Context) error {
-	sess, access, err := requireWritableSession(c, h.sessionStore, h.harnessStore)
+	sess, _, err := requireWritableSession(c, h.sessionStore, h.projectStore)
 	if err != nil {
 		return err
 	}
-	inst := access.Harness
-	if sess.HarnessSessionID == nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "session not active")
-	}
-	sandboxURL, ok := h.sandbox.URL(c.Request().Context(), inst)
+	sandboxURL, ok := h.sandbox.URL(c.Request().Context(), sess.ProjectID)
 	if !ok {
-		return echo.NewHTTPError(http.StatusBadRequest, "session not active")
+		// Nothing can be running without a sandbox.
+		return c.NoContent(http.StatusNoContent)
 	}
-	if err := h.harnessClient.Abort(c.Request().Context(), sandboxURL, *sess.HarnessSessionID); err != nil {
+	if err := h.harnessClient.Abort(c.Request().Context(), sandboxURL, sess.SessionID.String()); err != nil {
 		return echo.NewHTTPError(http.StatusBadGateway, err.Error())
 	}
 	return c.NoContent(http.StatusNoContent)
 }
 
-// Answer 把用户对 AskUserQuestion 的回答透传到 harness。
-// 请求体由前端构造，后端不做 schema 检查 —— 不同 harness 的应答结构未必一致。
-func (h *SessionHandler) Answer(c echo.Context) error {
-	sess, access, err := requireWritableSession(c, h.sessionStore, h.harnessStore)
+// history loads a session's platform history, starting the sandbox if needed.
+func (h *SessionHandler) history(ctx context.Context, sess *model.Session) ([]harness.PlatformHistoryItem, error) {
+	if sess.Status != "ready" {
+		return []harness.PlatformHistoryItem{}, nil
+	}
+	sandboxURL, err := h.sandbox.Await(ctx, sess.ProjectID)
 	if err != nil {
-		return err
+		return nil, echo.NewHTTPError(http.StatusServiceUnavailable, "sandbox unavailable: "+err.Error())
 	}
-	inst := access.Harness
-	if sess.HarnessSessionID == nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "session not active")
-	}
-	sandboxURL, ok := h.sandbox.URL(c.Request().Context(), inst)
-	if !ok {
-		return echo.NewHTTPError(http.StatusBadRequest, "session not active")
-	}
-	body, err := io.ReadAll(c.Request().Body)
+	items, err := h.harnessClient.History(ctx, sandboxURL, sess.SessionID.String())
 	if err != nil {
-		return echo.ErrBadRequest
+		return nil, echo.NewHTTPError(http.StatusBadGateway, err.Error())
 	}
-	if err := h.harnessClient.Answer(c.Request().Context(), sandboxURL, *sess.HarnessSessionID, body); err != nil {
-		return echo.NewHTTPError(http.StatusBadGateway, err.Error())
+	if items == nil {
+		items = []harness.PlatformHistoryItem{}
 	}
-	return c.NoContent(http.StatusNoContent)
+	return items, nil
 }
 
 // History 拉取 session 的历史消息（统一平台格式）
 func (h *SessionHandler) History(c echo.Context) error {
-	sess, access, err := requireReadableSession(c, h.sessionStore, h.harnessStore)
+	sess, _, err := requireReadableSession(c, h.sessionStore, h.projectStore)
 	if err != nil {
 		return err
 	}
-	inst := access.Harness
-	sandboxURL, ok := h.sandbox.URL(c.Request().Context(), inst)
-	if !ok || sess.HarnessSessionID == nil {
-		return c.JSON(http.StatusOK, []harness.PlatformHistoryItem{})
-	}
-	raw, err := h.harnessClient.History(c.Request().Context(), sandboxURL, *sess.HarnessSessionID)
+	items, err := h.history(c.Request().Context(), sess)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadGateway, err.Error())
-	}
-	items, err := harness.HistoryTranslatorFor(inst.Type)(raw)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-	if items == nil {
-		items = []harness.PlatformHistoryItem{}
+		return err
 	}
 	return c.JSON(http.StatusOK, items)
 }
 
 // Export 把 session 的完整历史导出为 markdown 或 json 文件。
 // 默认 markdown；?format=json 返回原始 PlatformHistoryItem 数组。
-// Terminal 类 harness 没有可读历史 — 返回只有 header 的空骨架，前端 UI 这层先 gate 一下。
 func (h *SessionHandler) Export(c echo.Context) error {
-	sess, access, err := requireReadableSession(c, h.sessionStore, h.harnessStore)
+	sess, _, err := requireReadableSession(c, h.sessionStore, h.projectStore)
 	if err != nil {
 		return err
 	}
@@ -300,20 +345,9 @@ func (h *SessionHandler) Export(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "format must be md or json")
 	}
 
-	inst := access.Harness
-	var items []harness.PlatformHistoryItem
-	if sandboxURL, ok := h.sandbox.URL(c.Request().Context(), inst); ok && sess.HarnessSessionID != nil {
-		raw, err := h.harnessClient.History(c.Request().Context(), sandboxURL, *sess.HarnessSessionID)
-		if err != nil {
-			return echo.NewHTTPError(http.StatusBadGateway, err.Error())
-		}
-		items, err = harness.HistoryTranslatorFor(inst.Type)(raw)
-		if err != nil {
-			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-		}
-	}
-	if items == nil {
-		items = []harness.PlatformHistoryItem{}
+	items, err := h.history(c.Request().Context(), sess)
+	if err != nil {
+		return err
 	}
 
 	filename := exportFilename(sess, format)
@@ -322,16 +356,6 @@ func (h *SessionHandler) Export(c echo.Context) error {
 	if format == "json" {
 		return c.JSON(http.StatusOK, items)
 	}
-	body := renderTranscriptMarkdown(sess, inst, items)
+	body := renderTranscriptMarkdown(sess, items)
 	return c.Blob(http.StatusOK, "text/markdown; charset=utf-8", []byte(body))
-}
-
-// StopSandbox 停止 harness 的 sandbox（harness 级操作）
-func (h *SessionHandler) StopSandbox(c echo.Context) error {
-	access, err := requireManageableHarness(c, h.harnessStore)
-	if err != nil {
-		return err
-	}
-	h.sandbox.Stop(c.Request().Context(), access.Harness)
-	return c.NoContent(http.StatusNoContent)
 }

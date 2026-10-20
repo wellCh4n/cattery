@@ -3,7 +3,7 @@ module github.com/wellch4n/cattery
 go 1.26.3
 
 require (
-	github.com/coder/websocket v1.8.14
+	github.com/BurntSushi/toml v1.6.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
 	github.com/jmoiron/sqlx v1.4.0

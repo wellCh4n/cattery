@@ -1,37 +1,24 @@
 package model
 
 import (
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
 )
 
 const (
-	ProviderAnthropic = "anthropic"
-	ProviderOpenAI    = "openai"
-
 	AccessOwner  = "owner"
 	AccessMember = "member"
 )
-
-type Harness struct {
-	HarnessID     uuid.UUID         `db:"harness_id"     json:"harness_id"`
-	ProjectID     uuid.UUID         `db:"project_id"     json:"project_id"`
-	HarnessName   *string           `db:"harness_name"   json:"harness_name"`
-	Model         string            `db:"model"          json:"model"`
-	Type          string            `db:"type"           json:"type"`
-	EnvVars       map[string]string `db:"env_vars"       json:"env_vars"`
-	SandboxStatus string            `db:"sandbox_status" json:"sandbox_status"`
-	TaskName      *string           `db:"task_name"      json:"task_name"`
-	CreatedAt     time.Time         `db:"created_at"     json:"created_at"`
-}
 
 type Project struct {
 	ProjectID   uuid.UUID `db:"project_id"    json:"project_id"`
 	OwnerUserID uuid.UUID `db:"owner_user_id" json:"owner_user_id"`
 	ProjectName *string   `db:"project_name"  json:"project_name"`
-	CreatedAt   time.Time `db:"created_at"    json:"created_at"`
+	// SandboxStatus tracks the project's single agent sandbox:
+	// idle | starting | ready | failed.
+	SandboxStatus string    `db:"sandbox_status" json:"sandbox_status"`
+	CreatedAt     time.Time `db:"created_at"    json:"created_at"`
 }
 
 type ProjectAccess struct {
@@ -48,13 +35,6 @@ type ProjectMember struct {
 	CreatedAt time.Time `db:"created_at" json:"created_at"`
 }
 
-type HarnessAccess struct {
-	Harness       *Harness `json:"harness"`
-	AccessRole    string   `json:"access_role"`
-	OwnerUsername string   `json:"owner_username"`
-	Project       *Project `json:"project,omitempty"`
-}
-
 type User struct {
 	UserID       uuid.UUID  `db:"user_id"       json:"user_id"`
 	Username     string     `db:"username"      json:"username"`
@@ -64,33 +44,15 @@ type User struct {
 	LastLoginAt  *time.Time `db:"last_login_at" json:"last_login_at"`
 }
 
+// Session is one conversation with the agent in its project's sandbox. The
+// agent keys its transcript by SessionID, so there is no separate agent-side id.
 type Session struct {
-	SessionID        uuid.UUID  `db:"session_id"         json:"session_id"`
-	HarnessID        uuid.UUID  `db:"harness_id"         json:"harness_id"`
-	Status           string     `db:"status"             json:"status"`
-	Phase            *string    `db:"phase"              json:"phase"`
-	Title            *string    `db:"title"              json:"title"`
-	HarnessSessionID *string    `db:"harness_session_id" json:"harness_session_id"`
-	CreatedAt        time.Time  `db:"created_at"         json:"created_at"`
-	LastSeenAt       *time.Time `db:"last_seen_at"       json:"last_seen_at"`
-	StoppedAt        *time.Time `db:"stopped_at"         json:"stopped_at"`
-}
-
-var ModelProviders = map[string]string{
-	"deepseek-flash":    ProviderOpenAI,
-	"deepseek-v4-pro":   ProviderOpenAI,
-	"claude-sonnet-4-6": ProviderAnthropic,
-	"claude-opus-4-6":   ProviderAnthropic,
-	"claude-opus-4-7":   ProviderAnthropic,
-	"gpt-5.4":           ProviderOpenAI,
-	"gpt-5.5":           ProviderOpenAI,
-}
-
-// ProviderForModel returns the canonical provider family for configured model IDs.
-func ProviderForModel(modelID string) (string, bool) {
-	normalized := strings.ToLower(strings.TrimSpace(modelID))
-	if provider, ok := ModelProviders[normalized]; ok {
-		return provider, true
-	}
-	return ProviderOpenAI, false
+	SessionID  uuid.UUID  `db:"session_id"   json:"session_id"`
+	ProjectID  uuid.UUID  `db:"project_id"   json:"project_id"`
+	Model      string     `db:"model"        json:"model"`
+	Status     string     `db:"status"       json:"status"`
+	Phase      *string    `db:"phase"        json:"phase"`
+	Title      *string    `db:"title"        json:"title"`
+	CreatedAt  time.Time  `db:"created_at"   json:"created_at"`
+	LastSeenAt *time.Time `db:"last_seen_at" json:"last_seen_at"`
 }

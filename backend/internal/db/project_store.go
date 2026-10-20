@@ -12,7 +12,7 @@ import (
 
 var ErrProjectNotFound = errors.New("project not found")
 
-const projectColumns = `project_id, owner_user_id, project_name, created_at`
+const projectColumns = `project_id, owner_user_id, project_name, sandbox_status, created_at`
 
 type ProjectStore struct{ db *sqlx.DB }
 
@@ -22,9 +22,9 @@ func (s *ProjectStore) Create(ctx context.Context, p *model.Project) error {
 	return s.db.QueryRowxContext(ctx, `
 		INSERT INTO projects (project_id, owner_user_id, project_name)
 		VALUES ($1,$2,$3)
-		RETURNING created_at`,
+		RETURNING sandbox_status, created_at`,
 		p.ProjectID, p.OwnerUserID, p.ProjectName,
-	).Scan(&p.CreatedAt)
+	).Scan(&p.SandboxStatus, &p.CreatedAt)
 }
 
 func (s *ProjectStore) GetByID(ctx context.Context, id uuid.UUID) (*model.Project, error) {
@@ -125,8 +125,20 @@ func (s *ProjectStore) DeleteForOwner(ctx context.Context, id, ownerID uuid.UUID
 	return nil
 }
 
+func (s *ProjectStore) UpdateSandboxStatus(ctx context.Context, id uuid.UUID, status string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE projects SET sandbox_status=$1 WHERE project_id=$2`,
+		status, id,
+	)
+	return err
+}
+
+type scanner interface {
+	Scan(dest ...any) error
+}
+
 func prefixedProjectColumns(alias string) string {
-	cols := []string{"project_id", "owner_user_id", "project_name", "created_at"}
+	cols := []string{"project_id", "owner_user_id", "project_name", "sandbox_status", "created_at"}
 	out := ""
 	for i, col := range cols {
 		if i > 0 {
@@ -139,7 +151,7 @@ func prefixedProjectColumns(alias string) string {
 
 func scanProject(row scanner) (*model.Project, error) {
 	var p model.Project
-	err := row.Scan(&p.ProjectID, &p.OwnerUserID, &p.ProjectName, &p.CreatedAt)
+	err := row.Scan(&p.ProjectID, &p.OwnerUserID, &p.ProjectName, &p.SandboxStatus, &p.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrProjectNotFound
 	}
@@ -153,7 +165,7 @@ func scanProjectAccess(row scanner) (*model.ProjectAccess, error) {
 	var p model.Project
 	var role string
 	var ownerUsername string
-	err := row.Scan(&p.ProjectID, &p.OwnerUserID, &p.ProjectName, &p.CreatedAt, &role, &ownerUsername)
+	err := row.Scan(&p.ProjectID, &p.OwnerUserID, &p.ProjectName, &p.SandboxStatus, &p.CreatedAt, &role, &ownerUsername)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrProjectNotFound
 	}

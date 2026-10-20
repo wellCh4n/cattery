@@ -46,49 +46,15 @@ func requireManageableProject(c echo.Context, store *db.ProjectStore) (*model.Pr
 	return access, nil
 }
 
-// requireReadableHarness loads :harness_id and verifies the caller can read
-// it via the parent project. Bad ID, missing row, and access mismatch all
-// surface as 404 — we don't want to confirm the existence of someone else's
-// harness via a 403.
-func requireReadableHarness(c echo.Context, store *db.HarnessStore) (*model.HarnessAccess, error) {
-	userID, ok := UserIDFromContext(c)
-	if !ok {
-		return nil, echo.ErrUnauthorized
-	}
-	id, err := uuid.Parse(c.Param("harness_id"))
-	if err != nil {
-		return nil, echo.NewHTTPError(http.StatusNotFound, "harness not found")
-	}
-	access, err := store.GetAccessible(c.Request().Context(), id, userID)
-	if err != nil {
-		return nil, echo.NewHTTPError(http.StatusNotFound, "harness not found")
-	}
-	return access, nil
-}
-
-func requireWritableHarness(c echo.Context, store *db.HarnessStore) (*model.HarnessAccess, error) {
-	return requireReadableHarness(c, store)
-}
-
-func requireManageableHarness(c echo.Context, store *db.HarnessStore) (*model.HarnessAccess, error) {
-	access, err := requireReadableHarness(c, store)
-	if err != nil {
-		return nil, err
-	}
-	if access.AccessRole != model.AccessOwner {
-		return nil, echo.NewHTTPError(http.StatusForbidden, "owner access required")
-	}
-	return access, nil
-}
-
 // requireReadableSession loads :session_id and verifies the caller can read
-// the parent harness. Returns the session and harness access, or 404 on any
-// lookup/access failure.
+// its project. Returns the session and project access, or 404 on any
+// lookup/access failure — we don't confirm the existence of someone else's
+// session via a 403.
 func requireReadableSession(
 	c echo.Context,
 	sessions *db.SessionStore,
-	harnesses *db.HarnessStore,
-) (*model.Session, *model.HarnessAccess, error) {
+	projects *db.ProjectStore,
+) (*model.Session, *model.ProjectAccess, error) {
 	userID, ok := UserIDFromContext(c)
 	if !ok {
 		return nil, nil, echo.ErrUnauthorized
@@ -101,7 +67,7 @@ func requireReadableSession(
 	if err != nil {
 		return nil, nil, echo.NewHTTPError(http.StatusNotFound, "session not found")
 	}
-	access, err := harnesses.GetAccessible(c.Request().Context(), sess.HarnessID, userID)
+	access, err := projects.GetAccessible(c.Request().Context(), sess.ProjectID, userID)
 	if err != nil {
 		return nil, nil, echo.NewHTTPError(http.StatusNotFound, "session not found")
 	}
@@ -111,7 +77,7 @@ func requireReadableSession(
 func requireWritableSession(
 	c echo.Context,
 	sessions *db.SessionStore,
-	harnesses *db.HarnessStore,
-) (*model.Session, *model.HarnessAccess, error) {
-	return requireReadableSession(c, sessions, harnesses)
+	projects *db.ProjectStore,
+) (*model.Session, *model.ProjectAccess, error) {
+	return requireReadableSession(c, sessions, projects)
 }

@@ -8,7 +8,7 @@ import (
 	"github.com/wellch4n/cattery/internal/model"
 )
 
-const sessionColumns = `session_id, harness_id, status, phase, title, harness_session_id, created_at, last_seen_at, stopped_at`
+const sessionColumns = `session_id, project_id, model, status, phase, title, created_at, last_seen_at`
 
 type SessionStore struct{ db *sqlx.DB }
 
@@ -16,10 +16,10 @@ func NewSessionStore(db *sqlx.DB) *SessionStore { return &SessionStore{db} }
 
 func (s *SessionStore) Create(ctx context.Context, sess *model.Session) error {
 	return s.db.QueryRowxContext(ctx, `
-		INSERT INTO sessions (session_id, harness_id, status)
-		VALUES ($1,$2,$3)
+		INSERT INTO sessions (session_id, project_id, model, status)
+		VALUES ($1,$2,$3,$4)
 		RETURNING created_at`,
-		sess.SessionID, sess.HarnessID, sess.Status,
+		sess.SessionID, sess.ProjectID, sess.Model, sess.Status,
 	).Scan(&sess.CreatedAt)
 }
 
@@ -34,20 +34,12 @@ func (s *SessionStore) GetByID(ctx context.Context, id uuid.UUID) (*model.Sessio
 	return &sess, nil
 }
 
-func (s *SessionStore) ListByHarness(ctx context.Context, harnessID uuid.UUID) ([]*model.Session, error) {
+func (s *SessionStore) ListByProject(ctx context.Context, projectID uuid.UUID) ([]*model.Session, error) {
 	var sessions []*model.Session
 	err := s.db.SelectContext(ctx, &sessions,
-		`SELECT `+sessionColumns+` FROM sessions WHERE harness_id=$1 AND status != 'dead' ORDER BY created_at DESC`, harnessID,
+		`SELECT `+sessionColumns+` FROM sessions WHERE project_id=$1 ORDER BY created_at DESC`, projectID,
 	)
 	return sessions, err
-}
-
-func (s *SessionStore) UpdateReady(ctx context.Context, id uuid.UUID, harnessSessionID string) error {
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE sessions SET status='ready', harness_session_id=$1 WHERE session_id=$2`,
-		harnessSessionID, id,
-	)
-	return err
 }
 
 func (s *SessionStore) UpdateStatus(ctx context.Context, id uuid.UUID, status, phase string) error {
@@ -70,15 +62,15 @@ func (s *SessionStore) UpdateTitle(ctx context.Context, id uuid.UUID, title stri
 	return err
 }
 
-func (s *SessionStore) MarkStopped(ctx context.Context, id uuid.UUID) error {
+func (s *SessionStore) UpdateModel(ctx context.Context, id uuid.UUID, model string) error {
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE sessions SET status='dead', stopped_at=NOW() WHERE session_id=$1`, id,
+		`UPDATE sessions SET model=$1 WHERE session_id=$2`, model, id,
 	)
 	return err
 }
 
 // HardDelete removes the row entirely. Caller is responsible for first aborting
-// the harness-side session so we don't leave it running.
+// the agent-side run so we don't leave it going.
 func (s *SessionStore) HardDelete(ctx context.Context, id uuid.UUID) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE session_id=$1`, id)
 	return err

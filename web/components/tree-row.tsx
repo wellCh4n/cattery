@@ -1,7 +1,7 @@
 "use client"
 
 // TreeRow + TreeRowAction — shared row chrome for tree-like lists. Used by
-// both the harness/session tree (sidebar) and the file tree (file browser).
+// both the session list (sidebar) and the file tree (file browser).
 //
 // Each tree owns its own data and indent scheme; this primitive just pins
 // down the row-level visual chrome (height, gap, hover, selected state) and

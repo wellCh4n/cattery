@@ -1,6 +1,6 @@
 "use client"
 
-import { siAnthropic } from "simple-icons"
+import { siAnthropic, siDeepseek } from "simple-icons"
 import { Sparkles } from "lucide-react"
 
 type SimpleIcon = { path: string; title: string }
@@ -36,5 +36,6 @@ function OpenAIMark({ className }: { className?: string }) {
 export function ModelIcon({ id, className }: { id: string; className?: string }) {
   if (id.startsWith("claude")) return <BrandSvg icon={siAnthropic} className={className} />
   if (id.startsWith("gpt")) return <OpenAIMark className={className} />
+  if (id.startsWith("deepseek")) return <BrandSvg icon={siDeepseek} className={className} />
   return <Sparkles className={className} />
 }

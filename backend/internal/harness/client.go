@@ -22,25 +22,38 @@ func NewClient() *Client {
 	}
 }
 
-type createSessionResponse struct {
-	ID string `json:"id"`
+// AgentModel is the model a session runs on, with the endpoint and key the
+// agent should reach it through. Provider is a pi-ai provider id.
+type AgentModel struct {
+	ID       string `json:"model"`
+	Provider string `json:"provider"`
+	BaseURL  string `json:"baseUrl"`
+	APIKey   string `json:"apiKey"`
 }
 
-// CreateSession 在 sandbox 内创建一个 harness session。theme（"light" | "dark"）
-// 只有 terminal harness（codex）会读，用来决定 OSC 10/11 应答色。HTTP harness
-// 收到也无害，会被忽略。
-func (c *Client) CreateSession(ctx context.Context, sandboxURL, theme string) (string, error) {
-	body, _ := json.Marshal(map[string]string{"theme": theme})
-	resp, err := c.httpClient.Post(sandboxURL+"/session", "application/json", bytes.NewReader(body))
+// CreateSession 在 sandbox 内创建（或确认已存在）一个 agent session。agent 用
+// 平台的 session id 作为 transcript 的 key，所以不需要另存一份 agent 侧 id。
+// 对已存在的 session 再次调用会切换到 m（agent 只把 endpoint/key 留在内存里）。
+func (c *Client) CreateSession(ctx context.Context, sandboxURL, sessionID string, m AgentModel) error {
+	body, _ := json.Marshal(struct {
+		ID string `json:"id"`
+		AgentModel
+	}{sessionID, m})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, sandboxURL+"/session", bytes.NewReader(body))
 	if err != nil {
-		return "", fmt.Errorf("harness create session: %w", err)
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("agent create session: %w", err)
 	}
 	defer resp.Body.Close()
-	var result createSessionResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", err
+	if resp.StatusCode >= 400 {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("agent create session status %d: %s", resp.StatusCode, b)
 	}
-	return result.ID, nil
+	return nil
 }
 
 type messagePart struct {
@@ -52,12 +65,12 @@ type sendMessageRequest struct {
 	Parts []messagePart `json:"parts"`
 }
 
-func (c *Client) PromptAsync(ctx context.Context, sandboxURL, harnessSessionID, text string) error {
+func (c *Client) PromptAsync(ctx context.Context, sandboxURL, sessionID, text string) error {
 	body, _ := json.Marshal(sendMessageRequest{
 		Parts: []messagePart{{Type: "text", Text: text}},
 	})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		fmt.Sprintf("%s/session/%s/prompt_async", sandboxURL, harnessSessionID),
+		fmt.Sprintf("%s/session/%s/prompt_async", sandboxURL, sessionID),
 		bytes.NewReader(body),
 	)
 	if err != nil {
@@ -66,99 +79,77 @@ func (c *Client) PromptAsync(ctx context.Context, sandboxURL, harnessSessionID, 
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("harness prompt_async: %w", err)
+		return fmt.Errorf("agent prompt_async: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNoContent {
 		b, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("harness prompt_async status %d: %s", resp.StatusCode, b)
+		return fmt.Errorf("agent prompt_async status %d: %s", resp.StatusCode, b)
 	}
 	return nil
 }
 
-func (c *Client) Abort(ctx context.Context, sandboxURL, harnessSessionID string) error {
+func (c *Client) Abort(ctx context.Context, sandboxURL, sessionID string) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		fmt.Sprintf("%s/session/%s/abort", sandboxURL, harnessSessionID), nil,
+		fmt.Sprintf("%s/session/%s/abort", sandboxURL, sessionID), nil,
 	)
 	if err != nil {
 		return err
 	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("harness abort: %w", err)
+		return fmt.Errorf("agent abort: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
 		b, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("harness abort status %d: %s", resp.StatusCode, b)
+		return fmt.Errorf("agent abort status %d: %s", resp.StatusCode, b)
 	}
 	return nil
 }
 
-// Answer 把用户对 AskUserQuestion 的回答透传给 harness。body 由前端原样构造。
-func (c *Client) Answer(ctx context.Context, sandboxURL, harnessSessionID string, body []byte) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		fmt.Sprintf("%s/session/%s/answer", sandboxURL, harnessSessionID),
-		bytes.NewReader(body),
+// DeleteSession 中止并删除 agent 侧的 session transcript。
+func (c *Client) DeleteSession(ctx context.Context, sandboxURL, sessionID string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete,
+		fmt.Sprintf("%s/session/%s", sandboxURL, sessionID), nil,
 	)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("harness answer: %w", err)
+		return fmt.Errorf("agent delete session: %w", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
+	if resp.StatusCode >= 400 && resp.StatusCode != http.StatusNotFound {
 		b, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("harness answer status %d: %s", resp.StatusCode, b)
+		return fmt.Errorf("agent delete session status %d: %s", resp.StatusCode, b)
 	}
 	return nil
 }
 
-// History 拉取 harness 内的历史消息原文（数组），原样返回 JSON。
-func (c *Client) History(ctx context.Context, sandboxURL, harnessSessionID string) ([]byte, error) {
+// History 拉取 agent 的历史消息（已是 PlatformHistoryItem[] 格式）。
+func (c *Client) History(ctx context.Context, sandboxURL, sessionID string) ([]PlatformHistoryItem, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		fmt.Sprintf("%s/session/%s/message", sandboxURL, harnessSessionID), nil,
+		fmt.Sprintf("%s/session/%s/message", sandboxURL, sessionID), nil,
 	)
 	if err != nil {
 		return nil, err
 	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("harness history: %w", err)
+		return nil, fmt.Errorf("agent history: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
 		b, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("harness history status %d: %s", resp.StatusCode, b)
+		return nil, fmt.Errorf("agent history status %d: %s", resp.StatusCode, b)
 	}
-	return io.ReadAll(resp.Body)
-}
-
-// GetSession 拉取 harness 内 session 的元信息（用于读取 title 等字段）
-func (c *Client) GetSession(ctx context.Context, sandboxURL, harnessSessionID string) (map[string]any, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		fmt.Sprintf("%s/session/%s", sandboxURL, harnessSessionID), nil,
-	)
-	if err != nil {
+	var items []PlatformHistoryItem
+	if err := json.NewDecoder(resp.Body).Decode(&items); err != nil {
 		return nil, err
 	}
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("harness get session: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		b, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("harness get session status %d: %s", resp.StatusCode, b)
-	}
-	var info map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
-		return nil, err
-	}
-	return info, nil
+	return items, nil
 }
 
 func (c *Client) WaitHTTPReady(ctx context.Context, sandboxURL string, timeout time.Duration) error {
@@ -178,55 +169,54 @@ func (c *Client) WaitHTTPReady(ctx context.Context, sandboxURL string, timeout t
 		case <-time.After(500 * time.Millisecond):
 		}
 	}
-	return fmt.Errorf("timeout waiting for harness HTTP at %s", sandboxURL)
+	return fmt.Errorf("timeout waiting for agent HTTP at %s", sandboxURL)
 }
 
-// StreamEventsUntilIdle 连接 sandbox /event SSE，将原始事件翻译为平台统一格式后写入 w，
-// 直到 primary session 进入 idle 状态。translate 由调用方按 harness 类型传入。
-// onEvent（可选）在每个平台事件被转发前调用，调用方可借此把感兴趣的事件落库。
-func (c *Client) StreamEventsUntilIdle(ctx context.Context, sandboxURL, harnessSessionID string, w io.Writer, translate TranslateFunc, onEvent func(*PlatformEvent)) error {
-	streamClient := &http.Client{}
+// sessionEvent 是 agent /event 总线上的一帧：平台事件外面包了一层 sessionId 用于路由。
+type sessionEvent struct {
+	SessionID string          `json:"sessionId"`
+	Type      string          `json:"type"`
+	Data      json.RawMessage `json:"data"`
+}
+
+// StreamEventsUntilIdle 连接 sandbox /event SSE，把属于 sessionID 的平台事件写入 w，
+// 直到该 session 进入 idle。onEvent（可选）在每个事件转发前调用，调用方可借此落库。
+func (c *Client) StreamEventsUntilIdle(ctx context.Context, sandboxURL, sessionID string, w io.Writer, onEvent func(*PlatformEvent)) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, sandboxURL+"/event", nil)
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Accept", "text/event-stream")
-	resp, err := streamClient.Do(req)
+	resp, err := (&http.Client{}).Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 
-	childSessions := map[string]bool{}
-	state := map[string]any{}
 	scanner := bufio.NewScanner(resp.Body)
-	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
-
-	var dataLine string
+	scanner.Buffer(make([]byte, 1024*1024), 4*1024*1024)
 	for scanner.Scan() {
 		line := scanner.Text()
-		if strings.HasPrefix(line, "data:") {
-			dataLine = strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if !strings.HasPrefix(line, "data:") {
 			continue
 		}
-		if line != "" || dataLine == "" {
+		var ev sessionEvent
+		if err := json.Unmarshal([]byte(strings.TrimSpace(strings.TrimPrefix(line, "data:"))), &ev); err != nil {
 			continue
 		}
-		// 空行 = 事件结束，处理 dataLine
-		platEv, isIdle := translate(dataLine, harnessSessionID, childSessions, state)
-		dataLine = ""
-
-		if platEv != nil {
-			if onEvent != nil {
-				onEvent(platEv)
-			}
-			b, _ := json.Marshal(platEv)
-			fmt.Fprintf(w, "event: message\ndata: %s\n\n", b)
-			if f, ok := w.(http.Flusher); ok {
-				f.Flush()
-			}
+		if ev.SessionID != sessionID {
+			continue
 		}
-		if isIdle {
+		platEv := &PlatformEvent{Type: ev.Type, Data: ev.Data}
+		if onEvent != nil {
+			onEvent(platEv)
+		}
+		b, _ := json.Marshal(platEv)
+		fmt.Fprintf(w, "event: message\ndata: %s\n\n", b)
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		if ev.Type == EventSessionIdle {
 			return nil
 		}
 	}

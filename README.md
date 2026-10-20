@@ -1,11 +1,8 @@
 # Cattery
 
-Self-hosted, team-oriented AI coding agent platform. Work is organised into **Projects** — shared workspaces with their own files, members, and one or more **Harnesses** (agent templates). Each Harness runs inside an isolated Kubernetes Sandbox Pod, and users interact with it through **Sessions**.
+Self-hosted, team-oriented AI coding agent platform. Work is organised into **Projects**: shared workspaces with their own files and members. Users talk to the agent through **Sessions**. Each project runs one isolated Kubernetes Sandbox Pod that all of its sessions share.
 
-The platform is harness-agnostic. Two transports are supported:
-
-- **HTTP harnesses** (e.g. `opencode`, `claude-code`) — implement a common HTTP contract; the backend translates their event streams into a uniform protocol the frontend can render.
-- **Terminal harnesses** (e.g. `codex`, `hermes`) — wrap a TUI; the backend proxies raw PTY bytes over WebSocket to a terminal view.
+The agent is [pi](https://github.com/earendil-works/pi): the harness in [`harnesses/pi`](harnesses/pi) embeds `@earendil-works/pi-agent-core` + `pi-ai`, provides the coding tools (read/write/edit/bash/grep/glob/ls), and emits the platform event protocol directly. The model is chosen per session.
 
 ```mermaid
 graph TD
@@ -15,24 +12,13 @@ graph TD
         Auth["AuthMiddleware\n(JWT)"]
         Router["Router /api/v1"]
         SandboxMgr["sandbox.Manager\nEnsureReady / Stop"]
-        HarnessReg["harness.Registry\nKindHTTP / KindTerminal"]
         K8sClient["k8s.Client\nRunTask · EnsurePVC · ResolveURL"]
-        DB["PostgreSQL\nprojects · harnesses · sessions · users"]
+        DB["PostgreSQL\nusers · projects · sessions"]
     end
 
     subgraph K8s["Kubernetes Cluster"]
-        SandboxCR["Sandbox CR\nagents.x-k8s.io/v1beta1\n(one per Harness)\nmounts workspace PVC rw + skills PVC ro"]
-
-        subgraph HTTPPods["HTTP Harnesses (SSE + translator)"]
-            OpenCode["opencode Pod"]
-            ClaudeCode["claude-code Pod"]
-        end
-
-        subgraph TermPods["Terminal Harnesses (raw PTY over WS)"]
-            Codex["codex Pod"]
-            Hermes["hermes Pod"]
-        end
-
+        SandboxCR["Sandbox CR\nagents.x-k8s.io/v1beta1\n(one per Project)"]
+        Pi["pi agent Pod\nsessions + transcripts"]
         FileMgr["filemgr Pod\n(one per Project)"]
         SkillMgr["skillmgr Pod\n(cluster-wide)"]
 
@@ -40,33 +26,23 @@ graph TD
         SkillPVC["skills PVC\ncattery-skills-work"]
     end
 
-    ModelAPI["External Model API\nAnthropic / OpenAI-compatible gateway"]
+    ModelAPI["Model providers\n(models.toml: endpoint + key per provider)"]
 
-    Browser -->|"REST / SSE / WebSocket"| Auth
+    Browser -->|"REST / SSE"| Auth
     Auth --> Router
     Router -->|"session/message"| SandboxMgr
     Router -->|"handlers → stores"| DB
     Router -->|"proxy /files/*"| FileMgr
     Router -->|"proxy /skills/*"| SkillMgr
     SandboxMgr --> K8sClient
-    SandboxMgr -->|"KindFor(harnessID)"| HarnessReg
-    K8sClient -->|"create/delete Sandbox CR\n(spec includes PVC mounts)"| SandboxCR
+    K8sClient -->|"create/delete Sandbox CR"| SandboxCR
     K8sClient -->|"create Pod"| FileMgr
     K8sClient -->|"create Pod"| SkillMgr
-    K8sClient -->|"EnsurePVC"| WorkPVC
-    K8sClient -->|"EnsurePVC"| SkillPVC
-    SandboxCR --> OpenCode
-    SandboxCR --> ClaudeCode
-    SandboxCR --> Codex
-    SandboxCR --> Hermes
-    OpenCode -->|"SSE events → translator → PlatformEvent"| Router
-    ClaudeCode -->|"SSE events → translator → PlatformEvent"| Router
-    Codex -->|"PTY bytes"| Router
-    Hermes -->|"PTY bytes"| Router
-    OpenCode --> ModelAPI
-    ClaudeCode --> ModelAPI
-    Codex --> ModelAPI
-    Hermes --> ModelAPI
+    SandboxCR --> Pi
+    Pi -->|"platform events (SSE)"| Router
+    Pi --> ModelAPI
+    Pi -->|"mount rw"| WorkPVC
+    Pi -->|"mount ro"| SkillPVC
     FileMgr -->|"mount rw"| WorkPVC
     SkillMgr -->|"mount rw"| SkillPVC
 ```
@@ -78,8 +54,8 @@ graph TD
 - **PostgreSQL** 14+ — run it yourself, or let the bundled `docker-compose.yml` start one for you
 - **Go** ≥ 1.22 (only if you run the backend on the host instead of in compose)
 - **Bun** ≥ 1.0 (only if you run the frontend on the host)
-- **Docker** — required for harness images, plus the optional compose stack
-- **An OpenAI- or Anthropic-compatible model gateway** (e.g. NewAPI, LiteLLM, the upstream provider directly)
+- **Docker** — required for the agent image, plus the optional compose stack
+- **At least one model provider** — an Anthropic-, OpenAI- or DeepSeek-compatible endpoint and key (the upstream provider directly, or a gateway such as NewAPI)
 
 ### Install the cluster prerequisites
 
@@ -116,17 +92,17 @@ cat > backend/.env <<EOF
 DATABASE_URL=postgres://postgres:postgres@localhost:5432/cattery?sslmode=disable
 PORT=8080
 K8S_NAMESPACE=default
-ANTHROPIC_BASE_URL=https://api.anthropic.com
-ANTHROPIC_API_KEY=sk-ant-...
-OPENAI_BASE_URL=https://api.openai.com/v1
-OPENAI_API_KEY=sk-...
+JWT_SECRET=$(openssl rand -hex 32)
 EOF
 
-# 3. build harness images so the cluster can pull them
-make build-harness                       # builds opencode, claude-code, codex, hermes
+# 2b. model providers: set each provider's endpoint, key and models
+cp backend/models.example.toml backend/models.toml
+
+# 3. build the agent image so the cluster can pull it
+make build-harness                       # builds cattery-pi:dev
 # tag and push to your registry as needed:
-# docker tag opencode-sandbox:dev your-registry/opencode-sandbox:dev
-# docker push  your-registry/opencode-sandbox:dev
+# docker tag cattery-pi:dev your-registry/cattery-pi:dev
+# docker push  your-registry/cattery-pi:dev
 
 # 4. run — pick one of the modes below
 ```
@@ -142,7 +118,7 @@ DATABASE_URL='postgres://user:pw@host.docker.internal:5432/cattery?sslmode=disab
   docker compose -f docker/docker-compose.yml up -d --no-deps backend web
 ```
 
-Open <http://localhost:3000>, sign in with the bootstrap admin credentials (see [Authentication](#authentication)), then create your first **Project** from the sidebar — Harnesses live inside Projects.
+Open <http://localhost:3000>, sign in with the bootstrap admin credentials (see [Authentication](#authentication)), then create your first **Project** from the sidebar and start a **Session** in it.
 
 Database schema changes are versioned under
 [`backend/internal/db/migrations`](backend/internal/db/migrations) and applied
@@ -157,7 +133,7 @@ automatically by the backend on startup using `goose`.
 | `make dev-front`    | Frontend dev server (`bun dev`)                                    |
 | `make build`        | Compile the Go server to `backend/bin/server`                      |
 | `make stop`         | Kill processes on `:8080` and `:3000`                              |
-| `make build-harness`| Build all harness Docker images; pass `HARNESS=<name>` to build one |
+| `make build-harness`| Build the pi agent image (`cattery-pi:dev`)                         |
 | `make build-pod`    | Build all standalone Pod images (`filemgr`, `skillmgr`); pass `POD=<name>` to build one |
 
 ## Configuration
@@ -169,10 +145,7 @@ Backend env vars (file: `backend/.env`, gitignored):
 | `DATABASE_URL`     | `postgres://postgres@localhost:5432/cattery?sslmode=disable`       | Postgres DSN                                                    |
 | `PORT`             | `8080`                                                             | HTTP listen port                                                |
 | `K8S_NAMESPACE`    | `default`                                                          | Namespace where Sandbox CRs are created                         |
-| `ANTHROPIC_BASE_URL` | —                                                                | Anthropic-compatible API base URL                               |
-| `ANTHROPIC_API_KEY`  | —                                                                | Auth token for Anthropic models                                 |
-| `OPENAI_BASE_URL`    | —                                                                | OpenAI-compatible API base URL, including `/v1`                 |
-| `OPENAI_API_KEY`     | —                                                                | Auth token for OpenAI models                                    |
+| `MODELS_CONFIG`      | `models.toml`                                                    | Path of the model catalog: one `[[providers]]` entry per provider with its `endpoint`, `key` and `models` (see `backend/models.example.toml`). Read at startup; users can only pick these models. |
 | `JWT_SECRET`         | —                                                                | **Required.** Signing key for login tokens. Use `openssl rand -hex 32`. Rotating it invalidates every issued token. |
 
 The backend uses `clientcmd.RecommendedHomeFile` (`~/.kube/config`) when not running in-cluster.
@@ -201,17 +174,16 @@ Capture the password from the logs, sign in, and change it. **Lost the password?
 - Logging out only clears the token from the browser. The token itself stays valid until expiry — keep `JWT_SECRET` confidential.
 - Admin role changes propagate immediately for the affected user's *next* HTTP request that depends on `/auth/me`, but `/admin/*` endpoints accept the token's claim until it expires. **Plan up to a 7-day window for full role-change propagation.** To shorten this, lower the TTL in `internal/auth/jwt.go` or rotate `JWT_SECRET` (kicks everyone out).
 
-Deleting a user cascades to their harnesses and sessions, and stops their K8s sandboxes; their existing token also becomes unusable on the next `/auth/me` probe (the frontend re-validates every 60 s).
+Deleting a user cascades to their projects and sessions, and stops their K8s sandboxes; their existing token also becomes unusable on the next `/auth/me` probe (the frontend re-validates every 60 s).
 
 ## Resource model
 
-- **Project** — a shared workspace owned by one user with optional members at `owner` / `member` roles. Each project has its own PVC-backed file workspace, served by a per-project `filemgr` Pod.
-- **Harness** — an agent template (model, prompt, harness_id, repo, env_vars) scoped to a Project. Owns a single long-lived sandbox.
-- **Sandbox** — one Kubernetes `agents.x-k8s.io/v1beta1` Sandbox CR per Harness, named `cattery-<harness_id>`. Status is mirrored to the Harness row.
-- **Session** — a conversation inside a Harness's sandbox. Multiple sessions share one sandbox.
-- **Skill** — a `<slug>/SKILL.md (+assets)` directory in the global skills library. Skills are cluster-wide, independent of Projects, served by a single `skillmgr` Pod and read-only mounted into every harness sandbox at the path that harness auto-discovers (e.g. `~/.claude/skills`, `~/.agents/skills`).
+- **Project** — a shared workspace owned by one user with optional members at `owner` / `member` roles. Each project has its own PVC-backed file workspace, served by a per-project `filemgr` Pod, and one agent sandbox.
+- **Sandbox** — one Kubernetes `agents.x-k8s.io/v1beta1` Sandbox CR per Project, named `cattery-sandbox-<project_id>`, running the pi agent. It starts on demand (first session, or the first message after a stop) and its status is mirrored to `projects.sandbox_status`.
+- **Session** — a conversation with the agent, with its own model. All sessions of a project share the sandbox and the workspace. Transcripts are stored on the workspace PVC (`/work/.cattery/sessions/`), so they survive sandbox restarts.
+- **Skill** — a `<slug>/SKILL.md (+assets)` directory in the global skills library. Skills are cluster-wide, independent of Projects, served by a single `skillmgr` Pod and mounted read-only into every sandbox at `~/.agents/skills`; the agent lists them in its system prompt.
 
-Project members see all of the project's harnesses, files, and sessions; their access role gates which mutations they can perform. Deleting a project tears down its filemgr Pod, all harness sandboxes, and the workspace PVC.
+Project members see all of the project's files and sessions; their access role gates which mutations they can perform. Deleting a project tears down its sandbox, filemgr Pod, and the workspace PVC.
 
 ## Operational endpoints
 
@@ -220,29 +192,20 @@ Project members see all of the project's harnesses, files, and sessions; their a
 
 Both probes are excluded from the request log to keep K8s polling traffic out of stdout.
 
-## Adding a new harness
+## The agent harness
 
-Pick a transport kind in `backend/internal/harness/registry.go`:
-
-### HTTP harness (translated SSE)
-
-Implement this contract on `agent.container_port` (default `4096`):
+The backend talks to the agent through a small HTTP contract on port `1114` (see `backend/internal/harness/client.go`):
 
 ```
-POST /session                       → { id }
-POST /session/:id/prompt_async      → 204
-GET  /session/:id/message           → history
-POST /session/:id/abort
-GET  /event                         → SSE stream of harness-native events
+POST   /session {id, model, provider, baseUrl, apiKey}  → { id }   (idempotent; switches model if it differs)
+DELETE /session/:id                    → 204
+GET    /session/:id/message            → PlatformHistoryItem[]
+POST   /session/:id/prompt_async       → 204
+POST   /session/:id/abort              → 204
+GET    /event                          → SSE stream of platform events, tagged with sessionId
 ```
 
-Add a subpackage at `backend/internal/harness/<name>/` with `translator.go` (stream) and `history.go` (replay) that emit `PlatformEvent`s, then call `harness.Register(id, stream, history)` from `init()`. See `harness/opencode/` for a reference.
-
-### Terminal harness (raw PTY over WebSocket)
-
-For TUI-style agents, just call `harness.RegisterTerminal(id)` from `init()` — the session is served at `GET /api/v1/sessions/:id/term` and bytes are proxied both directions. See `harness/codex/register.go` and `harness/hermes/register.go`.
-
-See [`CLAUDE.md`](./CLAUDE.md) for the full protocol spec.
+The pi harness emits platform events directly, so the backend only routes them by session id. See [`CLAUDE.md`](./CLAUDE.md) for the event protocol.
 
 ## License
 

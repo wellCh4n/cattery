@@ -1,14 +1,14 @@
 "use client"
 
-// Tree — single tree primitive shared by the sidebar's harness/session tree
-// and the file browser's folder/file tree. Consumers build a TreeNode[]
+// Tree — single tree primitive shared by the sidebar's session list and the
+// file browser's folder/file tree. Consumers build a TreeNode[]
 // description of their data; this component owns row chrome (height, gap,
 // hover, selected highlight), indent-by-depth, the chevron, lazy-load
 // spinners, and drop targets. New trees should reuse this rather than
 // hand-rolling another row layout.
 //
-// The two existing trees are 2-level (harness → session) and N-level
-// (folder/file recursion); both fit the same data model — `children` may
+// The existing trees are flat (sessions) and N-level (folder/file
+// recursion); both fit the same data model — `children` may
 // be undefined (not loaded yet), [] (loaded, empty), or populated.
 
 import { ChevronRight, Loader2 } from "lucide-react"

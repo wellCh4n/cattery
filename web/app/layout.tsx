@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Cattery",
-  description: "AI Harness Platform",
+  description: "Team AI coding agent platform",
 };
 
 export default function RootLayout({

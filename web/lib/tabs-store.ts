@@ -1,19 +1,19 @@
 "use client"
 
 // Open-tabs store — the VSCode-style editor tabs across the top of the main
-// pane. A tab is a pointer to a routed view: a session, a harness, a skill, or
-// a file (file tabs also carry the owning projectId). Titles and icons are
+// pane. A tab is a pointer to a routed view: a session, a skill, an admin
+// page, or a file (file tabs also carry the owning projectId). Titles and icons are
 // resolved live at render time (see tab-bar) so renames show up without
 // touching this store. Order is the open order; the active tab is derived from
 // the current pathname, not stored here.
 
 import { create } from "zustand"
 
-export type TabKind = "session" | "harness" | "skill" | "file" | "admin"
+export type TabKind = "session" | "skill" | "file" | "admin"
 
 export interface Tab {
   kind: TabKind
-  // session_id / harness_id / skill slug / file path (absolute, e.g. /src/a.go) / admin sub-section ("users")
+  // session_id / skill slug / file path (absolute, e.g. /src/a.go) / admin sub-section ("users")
   id: string
   // Only set for file tabs — the project the file lives in.
   projectId?: string
@@ -32,7 +32,6 @@ export function sameTab(a: Tab, b: Tab): boolean {
 export function tabHref(tab: Tab): string {
   switch (tab.kind) {
     case "session": return `/sessions/${tab.id}`
-    case "harness": return `/harnesses/${tab.id}`
     case "skill":   return `/skills/${encodeURIComponent(tab.id)}`
     case "admin":   return `/admin/${tab.id}`
     case "file": {
@@ -47,7 +46,6 @@ export function tabHref(tab: Tab): string {
 export function tabForPath(pathname: string): Tab | null {
   const parts = pathname.split("/").filter(Boolean)
   if (parts.length === 2 && parts[0] === "sessions") return { kind: "session", id: parts[1] }
-  if (parts.length === 2 && parts[0] === "harnesses") return { kind: "harness", id: parts[1] }
   if (parts.length === 2 && parts[0] === "skills") return { kind: "skill", id: decodeURIComponent(parts[1]) }
   if (parts.length === 2 && parts[0] === "admin") return { kind: "admin", id: parts[1] }
   if (parts.length >= 3 && parts[0] === "files") {
@@ -67,7 +65,7 @@ function readTabs(): Tab[] {
     return parsed.filter((t): t is Tab => {
       if (!t || typeof t.id !== "string") return false
       if (t.kind === "file") return typeof t.projectId === "string"
-      return t.kind === "session" || t.kind === "harness" || t.kind === "skill" || t.kind === "admin"
+      return t.kind === "session" || t.kind === "skill" || t.kind === "admin"
     })
   } catch {
     return []
@@ -89,7 +87,7 @@ interface TabsStore {
   closeTab: (tab: Tab) => void
   closeOthers: (tab: Tab) => void
   closeAll: () => void
-  // Drop session/harness tabs whose entity no longer exists. Callers pass the
+  // Drop session tabs whose session no longer exists. Callers pass the
   // set of valid tabKey()s; file/skill tabs are never pruned (we can't cheaply
   // validate them). Only mutates when something actually changed.
   pruneTabs: (validKeys: Set<string>) => void
@@ -132,7 +130,7 @@ export const useTabsStore = create<TabsStore>(set => ({
   pruneTabs: validKeys =>
     set(state => {
       const tabs = state.tabs.filter(
-        t => (t.kind !== "session" && t.kind !== "harness") || validKeys.has(tabKey(t)),
+        t => t.kind !== "session" || validKeys.has(tabKey(t)),
       )
       if (tabs.length === state.tabs.length) return state
       writeTabs(tabs)

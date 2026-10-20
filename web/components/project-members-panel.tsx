@@ -1,7 +1,7 @@
 "use client"
 
 // ProjectMembersPanel — sidebar view for project membership. Shape mirrors
-// the harness panel: h-9 title bar ("MEMBERS" + manage button), then a body
+// the sessions panel: h-9 title bar ("MEMBERS" + manage button), then a body
 // that lists the project owner (always first) followed by the members. Every
 // member has full access; only the owner can add/remove members. Managing
 // members is a transfer-box modal off the + button: all users on the left,

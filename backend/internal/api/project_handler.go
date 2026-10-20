@@ -15,15 +15,14 @@ import (
 
 type ProjectHandler struct {
 	projects *db.ProjectStore
-	harness  *db.HarnessStore
 	members  *db.MemberStore
 	users    *db.UserStore
 	sandbox  *sandbox.Manager
 	k8s      *k8s.Client
 }
 
-func NewProjectHandler(projects *db.ProjectStore, harnessStore *db.HarnessStore, members *db.MemberStore, users *db.UserStore, sandboxMgr *sandbox.Manager, k8sClient *k8s.Client) *ProjectHandler {
-	return &ProjectHandler{projects: projects, harness: harnessStore, members: members, users: users, sandbox: sandboxMgr, k8s: k8sClient}
+func NewProjectHandler(projects *db.ProjectStore, members *db.MemberStore, users *db.UserStore, sandboxMgr *sandbox.Manager, k8sClient *k8s.Client) *ProjectHandler {
+	return &ProjectHandler{projects: projects, members: members, users: users, sandbox: sandboxMgr, k8s: k8sClient}
 }
 
 type projectDTO struct {
@@ -61,8 +60,8 @@ func (h *ProjectHandler) Create(c echo.Context) error {
 	if err := h.projects.Create(c.Request().Context(), project); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
-	// Project 一经创建立刻把工作区 PVC 和 filemgr Pod 备好。harness 起
-	// sandbox 时复用同一块 PVC；filemgr Pod 让文件浏览/上传在没有 harness
+	// Project 一经创建立刻把工作区 PVC 和 filemgr Pod 备好。agent sandbox
+	// 按需拉起时复用同一块 PVC；filemgr Pod 让文件浏览/上传在 sandbox 没有
 	// 运行的时候也可用。失败时记日志不阻塞 API：files_handler 在第一次访问
 	// 时还会重新 EnsurePVC + EnsureFileMgrPod 兜底。
 	pvcName := sandbox.PVCNameForProjectID(project.ProjectID)
@@ -146,18 +145,12 @@ func (h *ProjectHandler) Delete(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	harnesses, err := h.harness.ListByProject(c.Request().Context(), access.Project.ProjectID)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-	for _, inst := range harnesses {
-		h.sandbox.Stop(c.Request().Context(), inst)
-	}
+	h.sandbox.Stop(c.Request().Context(), access.Project.ProjectID)
 	if err := h.k8s.DeletePod(c.Request().Context(), sandbox.FileMgrPodNameForProject(access.Project.ProjectID)); err != nil {
 		log.Printf("warn: delete filemgr pod for project %s: %v", access.Project.ProjectID, err)
 	}
-	// Drop the workspace PVC last — filemgr Pod (which mounts it) must be
-	// terminating first, otherwise the PVC delete blocks on the in-use
+	// Drop the workspace PVC last — the sandbox and filemgr Pods (which mount
+	// it) must be terminating first, otherwise the PVC delete blocks on the in-use
 	// finalizer until the Pod releases the volume.
 	if err := h.k8s.DeletePVC(c.Request().Context(), sandbox.PVCNameForProjectID(access.Project.ProjectID)); err != nil {
 		log.Printf("warn: delete workspace pvc for project %s: %v", access.Project.ProjectID, err)
@@ -171,20 +164,15 @@ func (h *ProjectHandler) Delete(c echo.Context) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
-func (h *ProjectHandler) ListHarnesses(c echo.Context) error {
-	access, err := requireReadableProject(c, h.projects)
+// StopSandbox stops the project's agent sandbox. Sessions survive: their
+// transcripts live on the workspace PVC and the sandbox restarts on next use.
+func (h *ProjectHandler) StopSandbox(c echo.Context) error {
+	access, err := requireManageableProject(c, h.projects)
 	if err != nil {
 		return err
 	}
-	harnesses, err := h.harness.ListByProject(c.Request().Context(), access.Project.ProjectID)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-	out := make([]*harnessDTO, 0, len(harnesses))
-	for _, inst := range harnesses {
-		out = append(out, toDTO(inst, access.AccessRole, access.OwnerUsername, access.Project))
-	}
-	return c.JSON(http.StatusOK, out)
+	h.sandbox.Stop(c.Request().Context(), access.Project.ProjectID)
+	return c.NoContent(http.StatusNoContent)
 }
 
 func (h *ProjectHandler) ListMembers(c echo.Context) error {

@@ -5,31 +5,14 @@ import {
   abortSession,
   getHistory,
   sendSessionMessageStream,
-  type QuestionAnswer,
 } from "@/lib/api"
-import { useWorkspaceStore } from "@/lib/workspace-store"
+import { selectSession, useWorkspaceStore } from "@/lib/workspace-store"
 
 export interface MessageDeltaData  { partId: string; text: string }
 export interface ToolStartData     { toolId: string; tool: string; input?: string }
 export interface ToolDoneData      { toolId: string; tool: string; output?: string; parsed?: unknown }
 export interface SessionErrorData  { message: string }
 export interface SessionTitleData  { title: string }
-
-export interface QuestionOption {
-  label: string
-  description: string
-  preview?: string
-}
-
-export interface QuestionItem {
-  question: string
-  header: string
-  options: QuestionOption[]
-  multiSelect?: boolean
-}
-
-export interface QuestionAskedData     { partId: string; questions: QuestionItem[] }
-export interface QuestionAnsweredData  { partId: string; answers: QuestionAnswer[] }
 
 export interface ParsedFileRead {
   path: string
@@ -45,14 +28,12 @@ export interface ParsedGlob {
 export interface Bubble {
   id: string
   role: "user" | "assistant"
-  kind: "text" | "thinking" | "tool" | "error" | "question"
+  kind: "text" | "thinking" | "tool" | "error"
   content: string
   toolName?: string
   toolStatus?: "pending" | "running" | "completed"
   toolOutput?: string
   toolParsed?: unknown
-  questions?: QuestionItem[]
-  questionAnswers?: QuestionAnswer[]
   done: boolean
 }
 
@@ -62,8 +43,6 @@ export interface PlatformEvent {
     | "message.thinking"
     | "tool.start"
     | "tool.done"
-    | "question.asked"
-    | "question.answered"
     | "session.idle"
     | "session.error"
     | "session.title"
@@ -73,8 +52,6 @@ export interface PlatformEvent {
     | ToolDoneData
     | SessionErrorData
     | SessionTitleData
-    | QuestionAskedData
-    | QuestionAnsweredData
     | Record<string, never>
 }
 
@@ -93,7 +70,6 @@ interface ChatStreamStore {
   sendMessage: (sessionId: string, text: string) => Promise<void>
   stopSession: (sessionId: string) => Promise<void>
   handleEvent: (sessionId: string, ev: PlatformEvent) => void
-  appendQuestionAnswer: (sessionId: string, questionId: string, answers: QuestionAnswer[]) => void
 }
 
 const emptySession = (): ChatSessionState => ({
@@ -163,27 +139,16 @@ function restoreHistory(items: Awaited<ReturnType<typeof getHistory>>): Bubble[]
           existing.toolParsed = d.parsed
           existing.done = true
         }
-      } else if (ev.type === "question.asked") {
-        const d = ev.data as Partial<QuestionAskedData>
-        if (!d.partId || !d.questions) continue
-        if (!restored.find(b => b.id === d.partId)) {
-          restored.push({
-            id: d.partId,
-            role: "assistant",
-            kind: "question",
-            content: "",
-            questions: d.questions,
-            done: false,
-          })
-        }
-      } else if (ev.type === "question.answered") {
-        const d = ev.data as Partial<QuestionAnsweredData>
-        if (!d.partId) continue
-        const existing = restored.find(b => b.id === d.partId)
-        if (existing) {
-          existing.questionAnswers = d.answers ?? []
-          existing.done = true
-        }
+      } else if (ev.type === "session.error") {
+        const d = ev.data as { message?: string }
+        if (!d.message) continue
+        restored.push({
+          id: `${item.messageId}-err-${restored.length}`,
+          role: "assistant",
+          kind: "error",
+          content: d.message,
+          done: true,
+        })
       }
     }
   }
@@ -311,12 +276,25 @@ export const useChatStreamStore = create<ChatStreamStore>((set, get) => ({
                 ...session,
                 sending: false,
                 abortController: null,
+                bubbles: [
+                  ...session.bubbles.filter(b => !(b.kind === "text" && !b.done && b.content === "")),
+                  {
+                    id: `err-${Date.now()}`,
+                    role: "assistant",
+                    kind: "error",
+                    content: e instanceof Error ? e.message : "failed to send message",
+                    done: true,
+                  },
+                ],
               },
             },
           }
         })
       }
     } finally {
+      // Sending may have (re)started the project's sandbox; pick up its status.
+      const projectId = selectSession(sessionId)?.project.project_id
+      if (projectId) void useWorkspaceStore.getState().refreshProject(projectId).catch(() => {})
       let clearedCurrent = false
       set(state => {
         const session = state.sessions[sessionId] ?? emptySession()
@@ -452,36 +430,6 @@ export const useChatStreamStore = create<ChatStreamStore>((set, get) => ({
         break
       }
 
-      case "question.asked": {
-        const d = ev.data as QuestionAskedData
-        if (!d.partId || !d.questions) break
-        set(state => {
-          const session = state.sessions[sessionId] ?? emptySession()
-          const next = session.bubbles
-            .filter(b => !(b.kind === "text" && !b.done && b.content === ""))
-            .map(b => (b.kind === "text" || b.kind === "thinking") && !b.done ? { ...b, done: true } : b)
-          if (next.find(b => b.id === d.partId)) {
-            return { sessions: { ...state.sessions, [sessionId]: { ...session, bubbles: next } } }
-          }
-          const bubbles = [...next, {
-            id: d.partId,
-            role: "assistant" as const,
-            kind: "question" as const,
-            content: "",
-            questions: d.questions,
-            done: false,
-          }]
-          return { sessions: { ...state.sessions, [sessionId]: { ...session, bubbles } } }
-        })
-        break
-      }
-
-      case "question.answered": {
-        const d = ev.data as QuestionAnsweredData
-        get().appendQuestionAnswer(sessionId, d.partId, d.answers)
-        break
-      }
-
       case "session.idle": {
         useWorkspaceStore.getState().setSessionBusy(sessionId, false)
         set(state => {
@@ -536,15 +484,5 @@ export const useChatStreamStore = create<ChatStreamStore>((set, get) => ({
         break
       }
     }
-  },
-
-  appendQuestionAnswer: (sessionId, questionId, answers) => {
-    set(state => {
-      const session = state.sessions[sessionId] ?? emptySession()
-      const bubbles = session.bubbles.map(b =>
-        b.id === questionId ? { ...b, questionAnswers: answers, done: true } : b
-      )
-      return { sessions: { ...state.sessions, [sessionId]: { ...session, bubbles } } }
-    })
   },
 }))

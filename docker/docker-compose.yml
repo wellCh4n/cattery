@@ -56,7 +56,7 @@ services:
       dockerfile: Dockerfile
     container_name: cattery-backend
     restart: unless-stopped
-    # backend/.env is sourced for model gateway + namespace; DATABASE_URL is
+    # backend/.env is sourced for namespace + secrets; DATABASE_URL is
     # overridden below because the in-container DB hostname is `postgres`, not
     # localhost. Override the override by setting DATABASE_URL in your shell
     # (e.g. when pointing at an external DB with `--no-deps`).
@@ -65,10 +65,12 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgres://postgres:postgres@postgres:5432/cattery?sslmode=disable}
       PORT: "8080"
+      MODELS_CONFIG: /etc/cattery/models.toml
     ports:
       - "8080:8080"
     volumes:
       - ${HOME}/.kube:/root/.kube:ro
+      - ../backend/models.toml:/etc/cattery/models.toml:ro
     depends_on:
       postgres:
         condition: service_healthy

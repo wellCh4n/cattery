@@ -15,8 +15,7 @@ import (
 )
 
 // tokenQueryRedactor strips secret tokens that leak into request URIs via
-// `?token=` (used by <img>/<iframe> file URLs that can't set headers; the
-// terminal WS carries its token in the Sec-WebSocket-Protocol header instead).
+// `?token=` (used by <img>/<iframe> file URLs that can't set headers).
 // Anyone with read access to the access log would otherwise have working
 // session tokens.
 var tokenQueryRedactor = regexp.MustCompile(`([?&]token=)[^&]*`)
@@ -27,7 +26,6 @@ func redactURI(uri string) string {
 
 func NewRouter(
 	database *sqlx.DB,
-	harnessH *HarnessHandler,
 	projectH *ProjectHandler,
 	sessionH *SessionHandler,
 	filesH *FilesHandler,
@@ -108,8 +106,7 @@ func NewRouter(
 	v1.POST("/auth/login", authH.Login, loginLimiter)
 
 	// Everything else requires a valid Bearer token: the Authorization header
-	// normally, a ?token= query for <img>/<iframe> file URLs, or the
-	// Sec-WebSocket-Protocol header for the terminal WS upgrade — see
+	// normally, or a ?token= query for <img>/<iframe> file URLs — see
 	// AuthMiddleware.
 	protected := v1.Group("", AuthMiddleware(signer))
 
@@ -124,8 +121,9 @@ func NewRouter(
 	projects.GET("/:project_id", projectH.Get)
 	projects.PATCH("/:project_id", projectH.Update)
 	projects.DELETE("/:project_id", projectH.Delete)
-	projects.GET("/:project_id/harnesses", projectH.ListHarnesses)
-	projects.POST("/:project_id/harnesses", harnessH.Create)
+	projects.GET("/:project_id/sessions", sessionH.ListByProject)
+	projects.POST("/:project_id/sessions", sessionH.Create)
+	projects.DELETE("/:project_id/sandbox", projectH.StopSandbox)
 	projects.GET("/:project_id/members", projectH.ListMembers)
 	projects.POST("/:project_id/members", projectH.CreateMember)
 	projects.DELETE("/:project_id/members/:user_id", projectH.DeleteMember)
@@ -140,23 +138,15 @@ func NewRouter(
 	projects.POST("/:project_id/files/move", filesH.Move)
 	projects.POST("/:project_id/files/mkdir", filesH.Mkdir)
 
-	harnesses := protected.Group("/harnesses")
-	harnesses.GET("/:harness_id", harnessH.Get)
-	harnesses.PATCH("/:harness_id", harnessH.Update)
-	harnesses.DELETE("/:harness_id", harnessH.Delete)
-	harnesses.POST("/:harness_id/sessions", sessionH.Create)
-	harnesses.GET("/:harness_id/sessions", sessionH.ListByHarness)
-	harnesses.DELETE("/:harness_id/sandbox", sessionH.StopSandbox)
+	protected.GET("/models", sessionH.Models)
 
 	sessions := protected.Group("/sessions")
 	sessions.GET("/:session_id", sessionH.Get)
 	sessions.POST("/:session_id/message", sessionH.SendMessage)
 	sessions.POST("/:session_id/abort", sessionH.Abort)
-	sessions.POST("/:session_id/answer", sessionH.Answer)
 	sessions.GET("/:session_id/history", sessionH.History)
 	sessions.GET("/:session_id/export", sessionH.Export)
-	sessions.GET("/:session_id/term", sessionH.Term)
-	sessions.PATCH("/:session_id", sessionH.UpdateTitle)
+	sessions.PATCH("/:session_id", sessionH.Update)
 	sessions.DELETE("/:session_id", sessionH.Delete)
 
 	// Global skill library, proxied to the single cluster-wide skillmgr Pod.

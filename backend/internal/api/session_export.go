@@ -37,7 +37,7 @@ func exportFilename(sess *model.Session, ext string) string {
 // renderTranscriptMarkdown turns the platform-format history into a human
 // readable markdown transcript. Tool start/done are paired by toolId; deltas
 // of the same partId are concatenated. Order within a message is preserved.
-func renderTranscriptMarkdown(sess *model.Session, h *model.Harness, items []harness.PlatformHistoryItem) string {
+func renderTranscriptMarkdown(sess *model.Session, items []harness.PlatformHistoryItem) string {
 	var b strings.Builder
 
 	title := "Session"
@@ -46,12 +46,7 @@ func renderTranscriptMarkdown(sess *model.Session, h *model.Harness, items []har
 	}
 	fmt.Fprintf(&b, "# %s\n\n", title)
 
-	harnessName := "Untitled"
-	if h.HarnessName != nil && strings.TrimSpace(*h.HarnessName) != "" {
-		harnessName = strings.TrimSpace(*h.HarnessName)
-	}
-	fmt.Fprintf(&b, "- **Harness**: %s (`%s`)\n", harnessName, h.Type)
-	fmt.Fprintf(&b, "- **Model**: `%s`\n", h.Model)
+	fmt.Fprintf(&b, "- **Model**: `%s`\n", sess.Model)
 	fmt.Fprintf(&b, "- **Session ID**: `%s`\n", sess.SessionID)
 	fmt.Fprintf(&b, "- **Created**: %s\n", sess.CreatedAt.Format("2006-01-02 15:04:05 MST"))
 	b.WriteString("\n---\n\n")
@@ -139,18 +134,6 @@ func renderItemMarkdown(b *strings.Builder, item harness.PlatformHistoryItem) {
 			start, hasStart := toolStart[d.ToolID]
 			renderTool(b, start, hasStart, d, true)
 			rendered[d.ToolID] = true
-
-		case harness.EventQuestionAsked:
-			flushTexts()
-			flushThinking()
-			b.WriteString("> ❓ **Question to user**\n>\n> ")
-			b.Write(prettyJSON(ev.Data))
-			b.WriteString("\n\n")
-
-		case harness.EventQuestionAnswered:
-			b.WriteString("> ✅ **User answer**\n>\n> ")
-			b.Write(prettyJSON(ev.Data))
-			b.WriteString("\n\n")
 		}
 	}
 
@@ -222,19 +205,4 @@ func capitalize(s string) string {
 		return s
 	}
 	return strings.ToUpper(s[:1]) + s[1:]
-}
-
-func prettyJSON(raw json.RawMessage) []byte {
-	if len(raw) == 0 {
-		return []byte("(none)")
-	}
-	var pretty []byte
-	var v any
-	if err := json.Unmarshal(raw, &v); err == nil {
-		pretty, _ = json.MarshalIndent(v, "> ", "  ")
-		if len(pretty) > 0 {
-			return pretty
-		}
-	}
-	return raw
 }

@@ -3,7 +3,7 @@
 // useDocumentTitle — set the browser tab title while a view is mounted, and
 // restore the default ("Cattery") on unmount or while no name is available.
 //
-// Pass the entity's name (harness name / session title). When non-empty the
+// Pass the entity's name (session title). When non-empty the
 // tab reads "<name> - Cattery"; otherwise it falls back to the bare app title.
 
 import { useEffect } from "react"

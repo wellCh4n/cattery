@@ -3,23 +3,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { usePathname, useRouter } from "next/navigation"
 import {
-  Bot,
   Cat,
   Check,
   ChevronsUpDown,
   FolderOpen,
-  Info,
   KeyRound,
   Loader2,
   LogOut,
   MessageSquare,
+  MessagesSquare,
   Pencil,
   Plus,
+  Power,
   Puzzle,
   RefreshCw,
   Settings,
   Shield,
-  Terminal,
   Trash2,
   UserCircle2,
   Users,
@@ -28,9 +27,8 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ChangePasswordDialog } from "@/components/change-password-dialog"
 import { ConfirmDialog } from "@/components/confirm-dialog"
-import { CreateHarnessDialog } from "@/components/create-harness-dialog"
 import { FileBrowserPanel } from "@/components/file-browser-panel"
-import { HarnessIcon } from "@/components/harness-icon"
+import { ModelIcon } from "@/components/model-icon"
 import { NewProjectDialog } from "@/components/new-project-dialog"
 import { ProjectMembersPanel } from "@/components/project-members-panel"
 import { RenameProjectDialog } from "@/components/rename-project-dialog"
@@ -42,57 +40,44 @@ import { TreeRowAction } from "@/components/tree-row"
 import { cn } from "@/lib/utils"
 import { useResizable } from "@/lib/use-resizable"
 import { type Session } from "@/lib/api"
-import { type HarnessWithSessions, type ProjectWithHarnesses, useWorkspaceStore } from "@/lib/workspace-store"
+import { type ProjectWithSessions, useWorkspaceStore } from "@/lib/workspace-store"
 import { useAuthStore } from "@/lib/auth-store"
 
-type SidebarView = "harnesses" | "files" | "members" | "skills"
+type SidebarView = "sessions" | "files" | "members" | "skills"
 const VIEW_STORAGE_KEY = "cattery:sidebar:view"
 const MIN_REFRESH_SPIN_MS = 1000
 
 function readSidebarView(): SidebarView {
-  if (typeof window === "undefined") return "harnesses"
+  if (typeof window === "undefined") return "sessions"
   const saved = localStorage.getItem(VIEW_STORAGE_KEY)
-  return saved === "files" || saved === "members" || saved === "harnesses" || saved === "skills" ? saved : "harnesses"
-}
-
-const TYPE_LABELS: Record<string, string> = {
-  "opencode":    "OpenCode",
-  "claude-code": "Claude Code",
-  "codex":       "Codex",
-  "hermes":      "Hermes",
+  return saved === "files" || saved === "members" || saved === "sessions" || saved === "skills" ? saved : "sessions"
 }
 
 export function Sidebar() {
   const router = useRouter()
   const pathname = usePathname()
   const selectedSessionId = pathname.startsWith("/sessions/") ? pathname.slice("/sessions/".length) : null
-  const selectedHarnessId = pathname.startsWith("/harnesses/") ? pathname.slice("/harnesses/".length) : null
 
   const projects = useWorkspaceStore(state => state.projects)
   const currentProjectId = useWorkspaceStore(state => state.currentProjectId)
   const setCurrentProject = useWorkspaceStore(state => state.setCurrentProject)
   const busySessions = useWorkspaceStore(state => state.busySessions)
   const loadProjects = useWorkspaceStore(state => state.loadProjects)
-  const pollHarnesses = useWorkspaceStore(state => state.pollHarnesses)
-  const toggleHarnessExpand = useWorkspaceStore(state => state.toggleHarnessExpand)
-  const addHarness = useWorkspaceStore(state => state.addHarness)
+  const refreshProject = useWorkspaceStore(state => state.refreshProject)
   const createSession = useWorkspaceStore(state => state.createSession)
   const deleteSession = useWorkspaceStore(state => state.deleteSession)
-  const deleteHarness = useWorkspaceStore(state => state.deleteHarness)
   const deleteProject = useWorkspaceStore(state => state.deleteProject)
+  const stopSandbox = useWorkspaceStore(state => state.stopSandbox)
 
-  const [launching, setLaunching] = useState<string | null>(null)
-  const [autoOpenHarness, setAutoOpenHarness] = useState<string | null>(null)
-  const autoOpenedRef = useRef<string | null>(null)
   const [newProjectOpen, setNewProjectOpen] = useState(false)
-  const [createHarnessProject, setCreateHarnessProject] = useState<ProjectWithHarnesses | null>(null)
-  const [deleteSessionTarget, setDeleteSessionTarget] = useState<{ session_id: string; harness_id: string; title: string } | null>(null)
-  const [deleteHarnessTarget, setDeleteHarnessTarget] = useState<HarnessWithSessions | null>(null)
+  const [creatingSession, setCreatingSession] = useState(false)
+  const [deleteSessionTarget, setDeleteSessionTarget] = useState<{ session_id: string; title: string } | null>(null)
+  const [stopSandboxTarget, setStopSandboxTarget] = useState<ProjectWithSessions | null>(null)
   const [renameTarget, setRenameTarget] = useState<Session | null>(null)
   const [renameOpen, setRenameOpen] = useState(false)
   const [projectPickerOpen, setProjectPickerOpen] = useState(false)
-  const [deleteProjectTarget, setDeleteProjectTarget] = useState<ProjectWithHarnesses | null>(null)
-  const [renameProjectTarget, setRenameProjectTarget] = useState<ProjectWithHarnesses | null>(null)
+  const [deleteProjectTarget, setDeleteProjectTarget] = useState<ProjectWithSessions | null>(null)
+  const [renameProjectTarget, setRenameProjectTarget] = useState<ProjectWithSessions | null>(null)
   const projectPickerRef = useRef<HTMLDivElement>(null)
 
   const user = useAuthStore(s => s.user)
@@ -105,7 +90,7 @@ export function Sidebar() {
 
   const [view, setView] = useState<SidebarView>(() => readSidebarView())
   const [visitedViews, setVisitedViews] = useState<Set<SidebarView>>(() => new Set([readSidebarView()]))
-  const [refreshingHarnesses, setRefreshingHarnesses] = useState(false)
+  const [refreshingSessions, setRefreshingSessions] = useState(false)
   useEffect(() => {
     localStorage.setItem(VIEW_STORAGE_KEY, view)
   }, [view])
@@ -168,56 +153,43 @@ export function Sidebar() {
     () => projects.find(p => p.project_id === currentProjectId) ?? null,
     [projects, currentProjectId],
   )
-  const harnesses = currentProject?.harnesses ?? []
+  const sessions = currentProject?.sessions ?? []
+  const sandboxStatus = currentProject?.sandbox_status ?? "idle"
 
-  const pollingKey = harnesses
-    .filter(h => h.sandbox_status !== "ready" && h.sandbox_status !== "failed")
-    .map(h => h.harness_id)
-    .sort()
-    .join(",")
-
+  // The sandbox starts on demand (first session / first message after a
+  // stop). Poll the project while it's coming up so the header dot settles.
+  const pollProjectId = currentProject && sandboxStatus === "starting" ? currentProject.project_id : null
   useEffect(() => {
-    if (!pollingKey) return
+    if (!pollProjectId) return
     const timer = setInterval(() => {
-      void pollHarnesses()
+      void refreshProject(pollProjectId).catch(() => {})
     }, 1500)
     return () => clearInterval(timer)
-  }, [pollHarnesses, pollingKey])
+  }, [pollProjectId, refreshProject])
 
-  const handleNewSession = useCallback(async (harness: HarnessWithSessions) => {
-    if (!canCreateSession(harness)) return
-    setLaunching(harness.harness_id)
+  // Starts on the last-picked model; it can be switched from the chat.
+  const handleCreateSession = useCallback(async () => {
+    if (!currentProject || creatingSession) return
+    setCreatingSession(true)
     try {
-      const theme = document.documentElement.classList.contains("dark") ? "dark" : "light"
-      const session = await createSession(harness, theme)
+      const session = await createSession(currentProject.project_id)
       router.push(`/sessions/${session.session_id}`)
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "Failed to create session")
     } finally {
-      setLaunching(null)
+      setCreatingSession(false)
     }
-  }, [createSession, router])
+  }, [createSession, creatingSession, currentProject, router])
 
-  // A freshly created harness has a sandbox that is still starting, so a session
-  // can't be created yet. Wait for the sandbox to reach a terminal state via
-  // polling: once ready, auto-create the first session and open it; if it fails,
-  // just stop. The ref guarantees we act at most once per harness.
-  useEffect(() => {
-    if (!autoOpenHarness || autoOpenedRef.current === autoOpenHarness) return
-    const harness = projects.flatMap(p => p.harnesses).find(h => h.harness_id === autoOpenHarness)
-    if (!harness) return
-    if (harness.sandbox_status !== "ready" && harness.sandbox_status !== "failed") return
-    autoOpenedRef.current = autoOpenHarness
-    if (harness.sandbox_status === "ready") queueMicrotask(() => void handleNewSession(harness))
-  }, [autoOpenHarness, projects, handleNewSession])
-
-  async function refreshHarnesses() {
-    setRefreshingHarnesses(true)
+  async function refreshSessions() {
+    setRefreshingSessions(true)
     const startedAt = Date.now()
     try {
       await loadProjects()
     } finally {
       const remaining = MIN_REFRESH_SPIN_MS - (Date.now() - startedAt)
       if (remaining > 0) await new Promise(resolve => setTimeout(resolve, remaining))
-      setRefreshingHarnesses(false)
+      setRefreshingSessions(false)
     }
   }
 
@@ -355,10 +327,10 @@ export function Sidebar() {
         <div className="flex min-h-0 flex-1 flex-row">
         <div className="flex w-12 shrink-0 flex-col gap-1 border-r">
           <ActivityButton
-            icon={<Bot className="size-5" />}
-            label="Harnesses"
-            active={view === "harnesses"}
-            onClick={() => switchView("harnesses")}
+            icon={<MessagesSquare className="size-5" />}
+            label="Sessions"
+            active={view === "sessions"}
+            onClick={() => switchView("sessions")}
           />
           <ActivityButton
             icon={<FolderOpen className="size-5" />}
@@ -442,29 +414,44 @@ export function Sidebar() {
             </div>
           </div>
         </div>
-        <div className={cn("min-w-0 flex-1 flex-col", view === "harnesses" ? "flex" : "hidden")}>
+        <div className={cn("min-w-0 flex-1 flex-col", view === "sessions" ? "flex" : "hidden")}>
         {currentProject && (
           <div className="flex h-9 shrink-0 items-center justify-between border-b px-2">
-            <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-              Harnesses
+            <span className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+              Sessions
+              <span
+                title={`sandbox: ${sandboxStatus}`}
+                className={cn("size-1.5 shrink-0 rounded-full", sandboxDot(sandboxStatus))}
+              />
             </span>
             <div className="flex items-center gap-1">
+              {currentProject.access_role === "owner" && (sandboxStatus === "ready" || sandboxStatus === "starting") && (
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => setStopSandboxTarget(currentProject)}
+                  title="Stop sandbox"
+                >
+                  <Power />
+                </Button>
+              )}
               <Button
                 variant="ghost"
                 size="icon-sm"
-                onClick={refreshHarnesses}
-                disabled={refreshingHarnesses}
-                title="Refresh harnesses"
+                onClick={refreshSessions}
+                disabled={refreshingSessions}
+                title="Refresh sessions"
               >
-                <RefreshCw className={refreshingHarnesses ? "animate-spin" : undefined} />
+                <RefreshCw className={refreshingSessions ? "animate-spin" : undefined} />
               </Button>
               <Button
                 variant="ghost"
                 size="icon-sm"
-                onClick={() => setCreateHarnessProject(currentProject)}
-                title="New harness"
+                onClick={handleCreateSession}
+                disabled={creatingSession}
+                title="New session"
               >
-                <Plus />
+                {creatingSession ? <Loader2 className="animate-spin" /> : <Plus />}
               </Button>
             </div>
           </div>
@@ -486,41 +473,35 @@ export function Sidebar() {
             </div>
           )}
 
-          {currentProject && harnesses.length === 0 && (
+          {currentProject && sessions.length === 0 && (
             <div className="flex h-full flex-col items-center justify-center px-4 text-center">
-              <Bot className="size-8 text-muted-foreground/50" />
-              <p className="mt-2 text-xs text-muted-foreground">No harnesses</p>
+              <MessagesSquare className="size-8 text-muted-foreground/50" />
+              <p className="mt-2 text-xs text-muted-foreground">No sessions</p>
               <Button
                 variant="outline"
                 size="sm"
                 className="mt-3"
-                onClick={() => setCreateHarnessProject(currentProject)}
+                onClick={handleCreateSession}
+                disabled={creatingSession}
               >
-                <Plus />
-                New harness
+                {creatingSession ? <Loader2 className="animate-spin" /> : <Plus />}
+                New session
               </Button>
             </div>
           )}
 
           <Tree
-            items={harnesses.map(harness => buildHarnessNode({
-              harness,
-              selectedHarnessId,
-              selectedSessionId,
-              launching,
-              busySessions,
-              onToggleExpand: toggleHarnessExpand,
-              onNewSession: handleNewSession,
-              onRouteSession: id => router.push(`/sessions/${id}`),
-              onRouteHarness: id => router.push(`/harnesses/${id}`),
-              onRequestDeleteHarness: setDeleteHarnessTarget,
-              onRequestDeleteSession: (sess, harnessId) => setDeleteSessionTarget({
-                session_id: sess.session_id,
-                harness_id: harnessId,
-                title: sess.title ?? "New Session",
+            items={sessions.map(sess => buildSessionNode({
+              session: sess,
+              selected: selectedSessionId === sess.session_id,
+              busy: busySessions.has(sess.session_id),
+              onRoute: id => router.push(`/sessions/${id}`),
+              onRequestDelete: s => setDeleteSessionTarget({
+                session_id: s.session_id,
+                title: s.title ?? "New Session",
               }),
-              onRequestRenameSession: sess => {
-                setRenameTarget(sess)
+              onRequestRename: s => {
+                setRenameTarget(s)
                 setRenameOpen(true)
               },
             }))}
@@ -561,19 +542,6 @@ export function Sidebar() {
         onOpenChange={setNewProjectOpen}
       />
 
-      {createHarnessProject && (
-        <CreateHarnessDialog
-          projectId={createHarnessProject.project_id}
-          open={true}
-          onOpenChange={open => { if (!open) setCreateHarnessProject(null) }}
-          onCreated={harness => {
-            addHarness(harness)
-            setCreateHarnessProject(null)
-            setAutoOpenHarness(harness.harness_id)
-          }}
-        />
-      )}
-
       <ChangePasswordDialog open={changePasswordOpen} onOpenChange={setChangePasswordOpen} />
 
       <RenameProjectDialog
@@ -603,35 +571,30 @@ export function Sidebar() {
         onConfirm={async () => {
           if (!deleteSessionTarget) return
           const target = deleteSessionTarget
-          await deleteSession(target.session_id, target.harness_id)
+          await deleteSession(target.session_id)
           if (selectedSessionId === target.session_id) {
-            router.push(`/harnesses/${target.harness_id}`)
+            router.push("/")
           }
         }}
       />
 
       <ConfirmDialog
-        open={deleteHarnessTarget !== null}
-        onOpenChange={open => { if (!open) setDeleteHarnessTarget(null) }}
-        title="Delete harness?"
+        open={stopSandboxTarget !== null}
+        onOpenChange={open => { if (!open) setStopSandboxTarget(null) }}
+        title="Stop sandbox?"
         description={
           <>
-            <span className="font-medium text-foreground">{deleteHarnessTarget?.harness_name ?? "Untitled"}</span>
-            {" "}and all its sessions will be permanently deleted, along with its sandbox. This cannot be undone.
+            The agent sandbox for{" "}
+            <span className="font-medium text-foreground">{stopSandboxTarget?.project_name ?? "Untitled"}</span>
+            {" "}will be stopped and any running turn aborted. Sessions and files are kept; the sandbox
+            starts again on the next message.
           </>
         }
-        confirmLabel="Delete"
+        confirmLabel="Stop"
         destructive
         onConfirm={async () => {
-          if (!deleteHarnessTarget) return
-          const target = deleteHarnessTarget
-          await deleteHarness(target.harness_id)
-          if (selectedHarnessId === target.harness_id) {
-            router.push("/")
-          }
-          if (selectedSessionId && target.sessions.some(s => s.session_id === selectedSessionId)) {
-            router.push("/")
-          }
+          if (!stopSandboxTarget) return
+          await stopSandbox(stopSandboxTarget.project_id)
         }}
       />
 
@@ -642,7 +605,7 @@ export function Sidebar() {
         description={
           <>
             <span className="font-medium text-foreground">{deleteProjectTarget?.project_name ?? "Untitled"}</span>
-            {" "}and all its harnesses, sessions, and shared files will be permanently deleted. This cannot be undone.
+            {" "}and all its sessions and shared files will be permanently deleted. This cannot be undone.
           </>
         }
         confirmLabel="Delete"
@@ -651,10 +614,7 @@ export function Sidebar() {
           if (!deleteProjectTarget) return
           const target = deleteProjectTarget
           await deleteProject(target.project_id)
-          if (selectedHarnessId && target.harnesses.some(h => h.harness_id === selectedHarnessId)) {
-            router.push("/")
-          }
-          if (selectedSessionId && target.harnesses.some(h => h.sessions.some(s => s.session_id === selectedSessionId))) {
+          if (selectedSessionId && target.sessions.some(s => s.session_id === selectedSessionId)) {
             router.push("/")
           }
         }}
@@ -663,67 +623,51 @@ export function Sidebar() {
   )
 }
 
-function sandboxDot(status: string): string | null {
-  if (status === "ready") return null
+function sandboxDot(status: string): string {
+  if (status === "ready") return "bg-emerald-500"
   if (status === "failed") return "bg-destructive"
   if (status === "starting") return "bg-amber-400 animate-pulse"
   return "bg-muted-foreground/40"
 }
 
-function canCreateSession(harness: HarnessWithSessions): boolean {
-  return harness.sandbox_status === "ready"
-}
-
-function newSessionTitle(harness: HarnessWithSessions): string {
-  return canCreateSession(harness) ? "New session" : "Sandbox is not ready"
-}
-
-function buildHarnessNode({
-  harness,
-  selectedHarnessId,
-  selectedSessionId,
-  launching,
-  busySessions,
-  onToggleExpand,
-  onNewSession,
-  onRouteSession,
-  onRouteHarness,
-  onRequestDeleteHarness,
-  onRequestDeleteSession,
-  onRequestRenameSession,
+function buildSessionNode({
+  session,
+  selected,
+  busy,
+  onRoute,
+  onRequestDelete,
+  onRequestRename,
 }: {
-  harness: HarnessWithSessions
-  selectedHarnessId: string | null
-  selectedSessionId: string | null
-  launching: string | null
-  busySessions: Set<string>
-  onToggleExpand: (harnessId: string) => void
-  onNewSession: (harness: HarnessWithSessions) => void
-  onRouteSession: (sessionId: string) => void
-  onRouteHarness: (harnessId: string) => void
-  onRequestDeleteHarness: (harness: HarnessWithSessions) => void
-  onRequestDeleteSession: (sess: Session, harnessId: string) => void
-  onRequestRenameSession: (sess: Session) => void
+  session: Session
+  selected: boolean
+  busy: boolean
+  onRoute: (sessionId: string) => void
+  onRequestDelete: (sess: Session) => void
+  onRequestRename: (sess: Session) => void
 }): TreeNode {
-  // Leading glyph signals transport kind only (chat vs terminal); its color
-  // stays muted like every other tree icon. Activity is shown by swapping in a
-  // spinner while busy (see below), not by recoloring the icon.
-  const SessionIcon = harness.transport_kind === "terminal" ? Terminal : MessageSquare
-  const sessions: TreeNode[] = harness.sessions.map(sess => ({
-    id: `s-${sess.session_id}`,
+  return {
+    id: `s-${session.session_id}`,
     expandable: false,
-    selected: selectedSessionId === sess.session_id,
-    onClick: () => onRouteSession(sess.session_id),
+    selected,
+    onClick: () => onRoute(session.session_id),
     body: (
       <>
-        {busySessions.has(sess.session_id) ? (
+        {busy || session.status === "creating" ? (
           <Loader2 className="size-3 shrink-0 animate-spin text-muted-foreground" />
         ) : (
-          <SessionIcon className="size-3.5 shrink-0 text-muted-foreground" />
+          <MessageSquare
+            className={cn("size-3.5 shrink-0", session.status === "failed" ? "text-destructive" : "text-muted-foreground")}
+          />
         )}
-        <span className="flex-1 truncate">{sess.title ?? "New Session"}</span>
+        <span className="flex-1 truncate">{session.title ?? "New Session"}</span>
+        <span
+          className="flex shrink-0 items-center text-muted-foreground/70 group-hover/treerow:hidden"
+          title={session.model}
+        >
+          <ModelIcon id={session.model} className="size-3" />
+        </span>
         <span className="shrink-0 text-[10px] text-muted-foreground/70 group-hover/treerow:hidden">
-          {new Date(sess.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+          {new Date(session.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
         </span>
       </>
     ),
@@ -732,7 +676,7 @@ function buildHarnessNode({
         <TreeRowAction
           title="Rename session"
           aria-label="Rename session"
-          onClick={e => { e.stopPropagation(); onRequestRenameSession(sess) }}
+          onClick={e => { e.stopPropagation(); onRequestRename(session) }}
         >
           <Pencil className="size-3.5" />
         </TreeRowAction>
@@ -740,76 +684,12 @@ function buildHarnessNode({
           destructive
           title="Delete session"
           aria-label="Delete session"
-          onClick={e => { e.stopPropagation(); onRequestDeleteSession(sess, harness.harness_id) }}
+          onClick={e => { e.stopPropagation(); onRequestDelete(session) }}
         >
           <Trash2 className="size-3.5" />
         </TreeRowAction>
       </>
     ),
-  }))
-
-  return {
-    id: `h-${harness.harness_id}`,
-    expandable: true,
-    expanded: harness.expanded,
-    children: sessions,
-    selected: selectedHarnessId === harness.harness_id,
-    onClick: () => onToggleExpand(harness.harness_id),
-    body: (
-      <>
-        {sandboxDot(harness.sandbox_status) && (
-          <span
-            title={`sandbox: ${harness.sandbox_status}`}
-            className={cn("size-1.5 shrink-0 rounded-full", sandboxDot(harness.sandbox_status))}
-          />
-        )}
-        <HarnessIcon id={harness.type} className="size-3.5 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 flex-1 truncate">{harness.harness_name ?? "Untitled"}</span>
-        <Badge
-          variant="secondary"
-          className="h-4 shrink-0 px-1.5 text-[10px] font-normal group-hover/treerow:hidden"
-        >
-          {harness.access_role === "owner" ? TYPE_LABELS[harness.type] ?? harness.type : harness.access_role}
-        </Badge>
-      </>
-    ),
-    actions: (
-      <>
-        <TreeRowAction
-          className={cn(
-            !canCreateSession(harness) && "cursor-not-allowed text-muted-foreground/40 hover:bg-transparent hover:text-muted-foreground/40",
-          )}
-          title={newSessionTitle(harness)}
-          disabled={launching === harness.harness_id || !canCreateSession(harness)}
-          onClick={e => { e.stopPropagation(); onNewSession(harness) }}
-        >
-          {launching === harness.harness_id
-            ? <Loader2 className="size-3.5 animate-spin" />
-            : <Plus className="size-3.5" />}
-        </TreeRowAction>
-        <TreeRowAction
-          title="Harness info"
-          onClick={e => { e.stopPropagation(); onRouteHarness(harness.harness_id) }}
-        >
-          <Info className="size-3.5" />
-        </TreeRowAction>
-        {harness.access_role === "owner" && (
-          <TreeRowAction
-            destructive
-            title="Delete harness"
-            aria-label="Delete harness"
-            onClick={e => { e.stopPropagation(); onRequestDeleteHarness(harness) }}
-          >
-            <Trash2 className="size-3.5" />
-          </TreeRowAction>
-        )}
-      </>
-    ),
-    subline: harness.access_role !== "owner" ? (
-      <div className="ml-8 truncate text-[10px] text-muted-foreground/70">
-        {harness.owner_username} · {harness.access_role}
-      </div>
-    ) : undefined,
   }
 }
 
