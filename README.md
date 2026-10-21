@@ -246,13 +246,21 @@ checked on focus and every 30 seconds while the preview is visible. An imported
 sibling PDF is marked as needing an update because its dependencies are unknown.
 
 The filemgr image includes XeLaTeX, Chinese packages, common scientific and
-algorithm packages, BibLaTeX, and the recommended/extra TeX font collections.
+algorithm packages, BibLaTeX, the recommended TeX fonts, and a curated subset
+of the extra font collection. The full extra-font archive is downloaded only
+in a separate build stage; `pods/filemgr/select-fonts.py` copies complete common
+families (font binaries, metrics, encodings, LaTeX support, and maps) into the
+runtime image and retains the package copyright information. This preserves
+NewTX/NewPX, Libertinus/Libertine, XCharter, Font Awesome, New Computer Modern,
+CM Unicode, STIX, KP Fonts, and Inconsolata without shipping the entire
+`texlive-fonts-extra` package. Build caches still contain the full archive;
+these are not part of the deployed image.
 System fonts include Noto CJK, Noto, DejaVu, Liberation, Fira Code, TeX Gyre
 (including math fonts), Linux Libertine, and FreeFont. `latexmk`, BibTeX, Biber,
 and Pygments are installed for explicit tool use. Each image build runs
 `pods/filemgr/check-latex.py` as the runtime user, checking package/font presence
-and compiling scientific Chinese text, NewTX, Libertinus, Unicode math, slides,
-algorithms, and a Biber bibliography. A failing check prevents image publication.
+and compiling scientific Chinese text, NewTX/NewPX, XCharter, Libertinus,
+STIX, KP Fonts, Inconsolata, Unicode math, slides, algorithms, and a Biber bibliography. A failing check prevents image publication.
 Custom document classes or host-specific fonts still need to be supplied by the
 project or added to the image. The preview compiler does not automatically run
 Biber/latexmk or enable shell escape for packages such as minted.

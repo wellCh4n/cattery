@@ -4,19 +4,25 @@ COPY go.mod ./
 COPY *.go ./
 RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /out/filemgr .
 
+# The complete extra font archive stays in this build stage, never in runtime layers.
+FROM debian:bookworm-slim AS fonts
+RUN apt-get update && apt-get install -y --no-install-recommends python3-minimal \
+    && cd /tmp && apt-get download texlive-fonts-extra
+RUN apt-get install -y --no-install-recommends python3
+COPY select-fonts.py /tmp/select-fonts.py
+RUN python3 /tmp/select-fonts.py
+
 FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends texlive-xetex texlive-lang-chinese fonts-noto-cjk ca-certificates && rm -rf /var/lib/apt/lists/*
-# hyperref requires the pzdr metrics from the recommended font collection.
-RUN apt-get update && apt-get install -y --no-install-recommends texlive-fonts-recommended && rm -rf /var/lib/apt/lists/*
-# Common scientific documents, bibliographies, and portable font families.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    texlive-science texlive-bibtex-extra texlive-fonts-extra \
-    latexmk biber python3-pygments fontconfig \
-    fonts-texgyre fonts-texgyre-math fonts-dejavu fonts-liberation \
+    texlive-xetex texlive-lang-chinese texlive-fonts-recommended \
+    texlive-science texlive-bibtex-extra texlive-plain-generic \
+    latexmk biber python3-pygments fontconfig ca-certificates \
+    fonts-noto-cjk fonts-texgyre fonts-texgyre-math fonts-dejavu fonts-liberation \
     fonts-noto-core fonts-firacode fonts-linuxlibertine fonts-freefont-otf \
-    && rm -rf /var/lib/apt/lists/*
-# NewTX uses the generic binhex macros even when compiling with XeLaTeX.
-RUN apt-get update && apt-get install -y --no-install-recommends texlive-plain-generic && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
+COPY --from=fonts /selected/ /
+COPY fonts.conf /etc/fonts/conf.d/09-cattery-texmf.conf
+RUN mktexlsr && updmap-sys && fc-cache -f
 COPY --from=build /out/filemgr /filemgr
 COPY check-latex.py /usr/local/libexec/check-latex.py
 USER 1000:1000

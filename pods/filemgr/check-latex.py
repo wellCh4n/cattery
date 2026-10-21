@@ -11,7 +11,7 @@ algorithm.sty algorithmicx.sty algpseudocode.sty algorithm2e.sty
 biblatex.sty natbib.sty hyperref.sty cleveref.sty enumitem.sty tcolorbox.sty
 minted.sty listings.sty booktabs.sty multirow.sty tabularx.sty longtable.sty
 subcaption.sty float.sty beamer.cls fontawesome5.sty newtxtext.sty newtxmath.sty
-libertinus.sty binhex.tex pzdr.tfm""".split()
+libertinus.sty stix2.sty kpfonts.sty inconsolata.sty newpxtext.sty newpxmath.sty XCharter.sty binhex.tex pzdr.tfm""".split()
 for package in packages:
     result = subprocess.run(["kpsewhich", package], capture_output=True, text=True)
     if result.returncode or not result.stdout.strip():
@@ -20,7 +20,7 @@ for tool in ["xelatex", "latexmk", "bibtex", "biber", "pygmentize", "fc-list"]:
     if not shutil.which(tool):
         raise RuntimeError(f"Missing tool: {tool}")
 fonts = subprocess.check_output(["fc-list", ":", "family"], text=True)
-for family in ["Noto Serif CJK", "Noto Sans CJK", "DejaVu Sans", "Liberation Serif", "Fira Code", "TeX Gyre Termes"]:
+for family in ["Noto Serif CJK", "Noto Sans CJK", "DejaVu Sans", "Liberation Serif", "Fira Code", "TeX Gyre Termes", "Libertinus Serif"]:
     if family not in fonts:
         raise RuntimeError(f"Missing font family: {family}")
 
@@ -50,6 +50,11 @@ See \cref{sec:test}.
 documents = {
     "science": science,
     "newtx": r"\documentclass{article}\usepackage{newtxtext,newtxmath}\begin{document}NewTX $\sum_{i=1}^n i$.\end{document}",
+    "stix": r"\documentclass{article}\usepackage{stix2}\begin{document}STIX $\sum_{i=1}^n i$.\end{document}",
+    "kpfonts": r"\documentclass{article}\usepackage{kpfonts}\begin{document}KP $\int x\,dx$.\end{document}",
+    "inconsolata": r"\documentclass{article}\usepackage{inconsolata}\begin{document}\texttt{monospace example}.\end{document}",
+    "newpx": r"\documentclass{article}\usepackage{newpxtext,newpxmath}\begin{document}NewPX $\int x\,dx$.\end{document}",
+    "xcharter": r"\documentclass{article}\usepackage{XCharter}\begin{document}Charter bold \textbf{example}.\end{document}",
     "libertinus": r"\documentclass{article}\usepackage{libertinus}\begin{document}Libertinus $\int x\,dx$.\end{document}",
     "unicode": r"\documentclass{article}\usepackage{unicode-math}\setmainfont{TeX Gyre Termes}\setmathfont{TeX Gyre Termes Math}\begin{document}Unicode $\int_0^1 x\,dx$.\end{document}",
     "slides": r"\documentclass{beamer}\begin{document}\begin{frame}{Preview}A slide with $E=mc^2$.\end{frame}\end{document}",
