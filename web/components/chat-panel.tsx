@@ -291,6 +291,7 @@ function ChatPanelContent({ session }: Props) {
                 <InputGroupButton
                   variant="destructive"
                   size="icon-sm"
+                  className="rounded-full"
                   aria-label="Stop"
                   onClick={() => void stopSession(session.session_id)}
                 >
@@ -301,6 +302,7 @@ function ChatPanelContent({ session }: Props) {
                   type="submit"
                   variant="default"
                   size="icon-sm"
+                  className="rounded-full"
                   aria-label="Send"
                   disabled={!canSend}
                 >
