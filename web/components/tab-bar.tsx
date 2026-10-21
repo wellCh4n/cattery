@@ -14,7 +14,7 @@ import { usePathname, useRouter } from "next/navigation"
 import { File as FileIcon, MessageSquare, Puzzle, Shield, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { findSession, type ProjectWithSessions, useWorkspaceStore } from "@/lib/workspace-store"
-import { type Tab, sameTab, tabForPath, tabHref, tabKey, useTabsStore } from "@/lib/tabs-store"
+import { type Tab, rememberProjectTab, projectTabToRestore, sameTab, tabForPath, tabHref, tabKey, useTabsStore } from "@/lib/tabs-store"
 
 interface ResolvedTab {
   title: string
@@ -78,7 +78,7 @@ function resolveTab(tab: Tab, projects: ProjectWithSessions[]): ResolvedTab {
 export function TabBar() {
   const router = useRouter()
   const pathname = usePathname()
-  const tabs = useTabsStore(s => s.tabs)
+  const allTabs = useTabsStore(s => s.tabs)
   const openTab = useTabsStore(s => s.openTab)
   const closeTab = useTabsStore(s => s.closeTab)
   const closeOthers = useTabsStore(s => s.closeOthers)
@@ -86,6 +86,15 @@ export function TabBar() {
   const pruneTabs = useTabsStore(s => s.pruneTabs)
   const projects = useWorkspaceStore(s => s.projects)
   const loaded = useWorkspaceStore(s => s.loaded)
+  const currentProjectId = useWorkspaceStore(s => s.currentProjectId)
+  const setCurrentProject = useWorkspaceStore(s => s.setCurrentProject)
+  const previousContext = useRef<{ projectId: string | null; pathname: string } | null>(null)
+  const pendingPath = useRef<string | null>(null)
+  const openedRoute = useRef<string | null>(null)
+  const tabs = useMemo(() => allTabs.filter(tab => {
+    if (tab.kind === "session") return findSession(projects, tab.id)?.project.project_id === currentProjectId
+    return (tab.projectId ?? null) === currentProjectId
+  }), [allTabs, projects, currentProjectId])
   const busySessions = useWorkspaceStore(s => s.busySessions)
   const [menu, setMenu] = useState<{ tab: Tab; x: number; y: number } | null>(null)
   const activeTabRef = useRef<HTMLDivElement | null>(null)
@@ -102,12 +111,46 @@ export function TabBar() {
     activeTabRef.current?.scrollIntoView({ behavior: "smooth", inline: "nearest", block: "nearest" })
   }, [activeKey, tabs])
 
-  // Open (or just focus) a tab whenever we land on a tabbed route.
+  // Project selection restores its own route. Route navigation (including
+  // browser history and deep links) instead selects the route's owning project.
   useEffect(() => {
-    if (active) openTab(active)
-    // active is reconstructed from activeKey each render; depend on the key.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeKey, openTab])
+    if (!loaded) return
+    const previous = previousContext.current
+    const projectChanged = previous && previous.projectId !== currentProjectId
+    const pathChanged = previous && previous.pathname !== pathname
+    previousContext.current = { projectId: currentProjectId, pathname }
+    if (projectChanged && !pathChanged) {
+      openedRoute.current = null
+      const target = currentProjectId ? projectTabToRestore(currentProjectId, tabs) : null
+      const href = target ? tabHref(target) : "/"
+      pendingPath.current = href === pathname ? null : href
+      if (href !== pathname) router.push(href)
+      return
+    }
+    if (pendingPath.current) {
+      if (pathname !== pendingPath.current) return
+      pendingPath.current = null
+    }
+    const routeTab = tabForPath(pathname)
+    if (!routeTab) {
+      openedRoute.current = null
+      return
+    }
+    const owner = routeTab.kind === "session"
+      ? findSession(projects, routeTab.id)?.project.project_id
+      : routeTab.kind === "file" ? routeTab.projectId : currentProjectId
+    if (!owner) return
+    const routeKey = `${owner}:${pathname}`
+    if (openedRoute.current === routeKey) return
+    openedRoute.current = routeKey
+    const tab = routeTab.kind === "session" ? routeTab : { ...routeTab, projectId: owner }
+    if (owner !== currentProjectId) {
+      previousContext.current = { projectId: owner, pathname }
+      setCurrentProject(owner)
+    }
+    openTab(tab)
+    rememberProjectTab(owner, tab)
+  }, [loaded, currentProjectId, pathname, projects, tabs, openTab, setCurrentProject, router])
 
   const validKeys = useMemo(() => {
     const keys = new Set<string>()
@@ -201,15 +244,15 @@ export function TabBar() {
         )
       })}
 
-      {menu && (
+      {menu && tabs.some(tab => sameTab(tab, menu.tab)) && (
         <TabContextMenu
           x={menu.x}
           y={menu.y}
           multiple={tabs.length > 1}
           onClose={() => setMenu(null)}
           onCloseTab={() => { handleClose(menu.tab); setMenu(null) }}
-          onCloseOthers={() => { closeOthers(menu.tab); go(menu.tab); setMenu(null) }}
-          onCloseAll={() => { closeAll(); router.push("/"); setMenu(null) }}
+          onCloseOthers={() => { closeOthers(menu.tab, tabs); go(menu.tab); setMenu(null) }}
+          onCloseAll={() => { closeAll(tabs); router.push("/"); setMenu(null) }}
         />
       )}
     </div>
