@@ -72,7 +72,9 @@ export function FileBrowserPanel({ projectId, active }: Props) {
     for (const [key, resource] of Object.entries(resources)) {
       const [project, path] = JSON.parse(key) as [string, string]
       if (project !== projectId) continue
-      if (resource.data) childrenByPath[path] = resource.data
+      if (resource.data) {
+        childrenByPath[path] = resource.data.filter(entry => !(entry.type === "dir" && entry.name.startsWith(".")))
+      }
       if (resource.loading) loadingPaths.add(path)
       if (resource.error) loadError = resource.error
     }

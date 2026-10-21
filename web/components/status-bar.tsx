@@ -39,27 +39,23 @@ export function StatusBar() {
                 <span className="min-w-0 truncate text-foreground/90" title={session.title}>
                   {session.title}
                 </span>
-                <span className="text-muted-foreground/40">·</span>
+                <span aria-hidden="true" className="h-3 w-px shrink-0 bg-border" />
               </>
             )}
-            <span className="min-w-0 shrink truncate text-muted-foreground">
-              {project.project_name ?? "Untitled"}
-            </span>
-            <span className="text-muted-foreground/40">·</span>
             <span className="flex shrink-0 items-center gap-1 text-muted-foreground">
               <ModelIcon id={session.model} className="size-3" />
               <span className="truncate">{session.model}</span>
             </span>
-            <span className="text-muted-foreground/40">·</span>
+            <span aria-hidden="true" className="h-3 w-px shrink-0 bg-border" />
             <span className="flex shrink-0 items-center gap-1 text-muted-foreground" title="Project sandbox">
               {statusDot(project.sandbox_status) && (
                 <span className={cn("size-1.5 shrink-0 rounded-full", statusDot(project.sandbox_status))} />
               )}
-              sandbox {project.sandbox_status}
+              Sandbox {project.sandbox_status.charAt(0).toUpperCase() + project.sandbox_status.slice(1)}
             </span>
             {session.status !== "ready" && (
               <>
-                <span className="text-muted-foreground/40">·</span>
+                <span aria-hidden="true" className="h-3 w-px shrink-0 bg-border" />
                 <span className="flex shrink-0 items-center gap-1 text-muted-foreground">
                   {statusDot(session.status) && (
                     <span className={cn("size-1.5 shrink-0 rounded-full", statusDot(session.status))} />
