@@ -76,13 +76,13 @@ export function ModelPicker({ sessionId, model, disabled, className }: Omit<Prop
             variant="outline"
             aria-label={`Model: ${model}`}
             title={error ?? undefined}
-            className={cn(pill, "max-w-56", error && "text-destructive", className)}
+            className={cn(pill, "max-w-56 pl-3", error && "text-destructive", className)}
           />
         }
       >
         {saving ? <Loader2 className="animate-spin" /> : <ModelIcon id={model} className="size-3.5" />}
         <span className="truncate">{model}</span>
-        <ChevronDownIcon />
+        <ChevronDownIcon data-icon="inline-end" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-56">
         <DropdownMenuRadioGroup
@@ -129,7 +129,7 @@ export function EffortPicker({ sessionId, model, effort, disabled, className }: 
             variant="outline"
             aria-label={`Effort: ${effortLabel(current)}`}
             title={error ?? undefined}
-            className={cn(pill, error && "text-destructive", className)}
+            className={cn(pill, "pl-3.5", error && "text-destructive", className)}
           />
         }
       >
@@ -143,7 +143,7 @@ export function EffortPicker({ sessionId, model, effort, disabled, className }: 
           ))}
           <span className="col-start-1 row-start-1">{effortLabel(current)}</span>
         </span>
-        {saving ? <Loader2 className="size-4 animate-spin" /> : <ChevronDownIcon className="size-4" />}
+        {saving ? <Loader2 data-icon="inline-end" className="size-4 animate-spin" /> : <ChevronDownIcon data-icon="inline-end" className="size-4" />}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-36">
         <DropdownMenuGroup>
