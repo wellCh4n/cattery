@@ -4,16 +4,21 @@
 // over a two-pane body. Left is the skill's file tree (lazy-listed via the
 // skillmgr list endpoint); right previews the selected file — SKILL.md and
 // other markdown render through Markdown (with a source toggle), everything
-// else through the shiki-highlighted FileViewer. This is the main-pane
+// else through the shiki-highlighted FileViewer. A markdown file's YAML
+// frontmatter (the skill's name, description, license, …) is parsed out of the
+// body and shown as a metadata card above it. This is the main-pane
 // counterpart to the skill browser's old modal.
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { File as FileIcon, Folder, Loader2, Puzzle } from "lucide-react"
+import { File as FileIcon, Folder, Loader2, Puzzle, TriangleAlert } from "lucide-react"
 import { FileViewer } from "@/components/file-viewer"
 import { Markdown } from "@/components/markdown"
 import { Tree, type TreeNode } from "@/components/tree"
+import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { type FileEntry } from "@/lib/api"
+import { splitFrontmatter, type Frontmatter } from "@/lib/frontmatter"
+import { SKILL_FIELDS, SKILL_FIELD_KEYS, validateSkillManifest } from "@/lib/skill-manifest"
 import { useSkillDirectoriesStore, useSkillContentsStore } from "@/lib/skills-store"
 
 const MARKDOWN_EXTS = new Set(["md", "markdown", "mdown", "mkd"])
@@ -109,6 +114,10 @@ export function SkillView({ slug, name }: { slug: string; name: string }) {
   const isMd = isMarkdownPath(selected)
   const showMarkdown = isMd && mode === "preview"
   const rootChildren = childrenByPath[base]
+  const parsed = useMemo(
+    () => (showMarkdown && data && !data.binary ? splitFrontmatter(data.content ?? "") : null),
+    [showMarkdown, data],
+  )
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background text-xs">
@@ -175,7 +184,10 @@ export function SkillView({ slug, name }: { slug: string; name: string }) {
               <p className="p-3 italic text-muted-foreground">Binary file ({data.size} bytes) — preview not supported.</p>
             )}
             {!loading && !error && data && !data.binary && showMarkdown && (
-              <div className="p-3"><Markdown className="text-foreground">{data.content ?? ""}</Markdown></div>
+              <div className="flex flex-col gap-3 p-3">
+                {parsed?.frontmatter && <FrontmatterCard frontmatter={parsed.frontmatter} skillDir={selected === manifestPath ? slug : undefined} />}
+                <Markdown className="text-foreground">{parsed?.body ?? data.content ?? ""}</Markdown>
+              </div>
             )}
             {!loading && !error && data && !data.binary && !showMarkdown && (
               <FileViewer
@@ -188,4 +200,141 @@ export function SkillView({ slug, name }: { slug: string; name: string }) {
       </div>
     </div>
   )
+}
+
+// FrontmatterCard shows a markdown file's frontmatter. For the skill's own
+// SKILL.md (`skillDir` set) the standard fields it sets get labelled rows and
+// the values are checked against the spec; other markdown files just list
+// whatever keys they carry.
+function FrontmatterCard({ frontmatter, skillDir }: { frontmatter: Frontmatter; skillDir?: string }) {
+  if (!frontmatter.ok) {
+    return (
+      <div className="flex flex-col gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3">
+        <p className="text-destructive">Invalid frontmatter: {frontmatter.error}</p>
+        <pre className="overflow-x-auto font-mono text-2xs text-muted-foreground">{frontmatter.raw}</pre>
+      </div>
+    )
+  }
+  const { data } = frontmatter
+  const isManifest = skillDir !== undefined
+  const name = typeof data.name === "string" ? data.name : null
+  const description = typeof data.description === "string" ? data.description.trim() : null
+  const standard = isManifest
+    ? SKILL_FIELDS.filter(field => field.key !== "name" && field.key !== "description" && data[field.key] != null)
+    : []
+  const other = Object.entries(data).filter(([key, value]) =>
+    value != null && (isManifest ? !SKILL_FIELD_KEYS.has(key) : key !== "name" && key !== "description"))
+  const issues = isManifest ? validateSkillManifest(data, skillDir) : []
+  if (!isManifest && !name && !description && other.length === 0) return null
+
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border bg-muted/30 p-3">
+      {name && <div className="font-mono text-sm font-semibold">{name}</div>}
+      {description && <p className="whitespace-pre-line leading-relaxed text-muted-foreground">{description}</p>}
+      {standard.length > 0 && (
+        <dl className="mt-1 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-1.5 border-t pt-2">
+          {standard.map(field => (
+            <FrontmatterRow
+              key={field.key}
+              name={field.label}
+              title={`${field.key} — ${field.hint}`}
+              tag={field.experimental ? "experimental" : undefined}
+            >
+              {field.key === "disable-model-invocation" && typeof data[field.key] === "boolean"
+                ? <ModelInvocation disabled={data[field.key] as boolean} />
+                : <FrontmatterValue name={field.key} value={data[field.key]} />}
+            </FrontmatterRow>
+          ))}
+        </dl>
+      )}
+      {other.length > 0 && (
+        <div className="mt-1 flex flex-col gap-1.5 border-t pt-2">
+          {isManifest && (
+            <span className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">Other fields</span>
+          )}
+          <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-1.5">
+            {other.map(([key, value]) => (
+              <FrontmatterRow key={key} name={key} mono>
+                <FrontmatterValue name={key} value={value} />
+              </FrontmatterRow>
+            ))}
+          </dl>
+        </div>
+      )}
+      {issues.length > 0 && (
+        <ul className="mt-1 flex flex-col gap-1 border-t pt-2 text-amber-700 dark:text-amber-400">
+          {issues.map(issue => (
+            <li key={issue} className="flex items-start gap-1.5">
+              <TriangleAlert className="mt-0.5 size-3 shrink-0" />
+              <span>{issue}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+function ModelInvocation({ disabled }: { disabled: boolean }) {
+  return disabled
+    ? <span className="flex flex-wrap items-center gap-1.5 leading-5"><Badge variant="outline">Disabled</Badge><span className="text-muted-foreground">only runs via /skill:name</span></span>
+    : <Badge variant="secondary">Enabled</Badge>
+}
+
+function FrontmatterRow({
+  name,
+  title,
+  tag,
+  mono,
+  children,
+}: {
+  name: string
+  title?: string
+  tag?: string
+  mono?: boolean
+  children: React.ReactNode
+}) {
+  return (
+    <>
+      <dt className={cn("flex items-center gap-1 text-2xs leading-5 text-muted-foreground", mono && "font-mono")} title={title}>
+        {name}
+        {tag && <span className="rounded-sm border px-1 text-[10px] leading-3.5 text-muted-foreground/80">{tag}</span>}
+      </dt>
+      <dd className="min-w-0">{children}</dd>
+    </>
+  )
+}
+
+function FrontmatterValue({ name, value }: { name: string; value: unknown }) {
+  if (typeof value === "boolean") {
+    return <Badge variant={value ? "secondary" : "outline"}>{value ? "true" : "false"}</Badge>
+  }
+  // allowed-tools is a space-delimited string per the spec; tolerate a list too.
+  const items = name === "allowed-tools"
+    ? (typeof value === "string" ? value.split(/\s+/).filter(Boolean) : Array.isArray(value) ? value.map(String) : null)
+    : Array.isArray(value) && value.every(v => typeof v !== "object" || v === null) ? value.map(String) : null
+  if (items) {
+    return (
+      <div className="flex flex-wrap gap-1">
+        {items.map((item, i) => <Badge key={i} variant="outline" className="font-mono">{item}</Badge>)}
+      </div>
+    )
+  }
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const entries = Object.entries(value)
+    if (entries.length === 0) return <span className="leading-5 text-muted-foreground/60">Empty</span>
+    return (
+      <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1">
+        {entries.map(([key, v]) => (
+          <FrontmatterRow key={key} name={key} mono>
+            <FrontmatterValue name={key} value={v} />
+          </FrontmatterRow>
+        ))}
+      </dl>
+    )
+  }
+  if (typeof value === "string" || typeof value === "number") {
+    return <span className="whitespace-pre-line break-words leading-5">{String(value)}</span>
+  }
+  return <code className="break-all font-mono text-2xs leading-5">{JSON.stringify(value)}</code>
 }
