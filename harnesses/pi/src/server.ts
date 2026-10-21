@@ -10,6 +10,7 @@
  *   DELETE /session/:id                    → 204 (abort + delete transcript)
  *   GET    /session/:id/message            → PlatformHistoryItem[]
  *   POST   /session/:id/prompt_async       → 204 (fire-and-forget)
+ *   POST   /session/:id/questionnaire/:toolId → 204 (answer/cancel a pending tool)
  *   POST   /session/:id/abort              → 204
  *   GET    /event                          → SSE bus of platform events
  *
@@ -36,6 +37,7 @@ import { type AgentMessage, type ThinkingLevel } from '@earendil-works/pi-agent-
 import { InMemoryCredentialStore, createProvider, envApiKeyAuth, type Api, type AssistantMessage, type Model } from '@earendil-works/pi-ai'
 import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy'
 import { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager, type AgentSession, type AgentSessionEvent } from '@earendil-works/pi-coding-agent'
+import { Questionnaire, prepareQuestionnaireArguments } from './questionnaire.ts'
 import { TITLE_PROMPT, titleInput, parseTitle } from './title.ts'
 
 // ── Config ───────────────────────────────────────────────────────────────────
@@ -142,7 +144,7 @@ function toHistory(messages: AgentMessage[]): HistoryItem[] {
           current!.events.push({ type: 'message.thinking', data: { partId: partId(m, 'k', i), text: b.thinking } })
         } else if (b.type === 'toolCall') {
           toolNames.set(b.id, b.name)
-          current!.events.push({ type: 'tool.start', data: { toolId: b.id, tool: b.name, input: JSON.stringify(b.arguments ?? {}) } })
+          current!.events.push({ type: 'tool.start', data: { toolId: b.id, tool: b.name, input: JSON.stringify(b.name === 'questionnaire' ? prepareQuestionnaireArguments(b.arguments) : b.arguments ?? {}) } })
         }
       })
       if (m.stopReason === 'error' && m.errorMessage) {
@@ -177,6 +179,7 @@ interface Session {
   titleAttempted: boolean
   smallModel?: SmallModel
   busy: boolean
+  questionnaire: Questionnaire
   titleAbort?: AbortController
   persistQueue?: Promise<void>
   run?: Promise<void>
@@ -227,14 +230,16 @@ async function newSession(id: string, ref: ModelRef, gateway: Gateway, titleAtte
     ],
   })
   await resourceLoader.reload()
+  const questionnaire = new Questionnaire()
   const { session: sdk } = await createAgentSession({
     cwd: WORKDIR, agentDir, modelRuntime: runtime, model,
     thinkingLevel: manager.getEntries().length ? undefined : THINKING,
     sessionManager: manager, settingsManager, resourceLoader,
-    tools: ['read', 'write', 'edit', 'bash', 'grep', 'find', 'ls'],
+    tools: ['read', 'write', 'edit', 'bash', 'grep', 'find', 'ls', 'questionnaire'],
+    customTools: [questionnaire.tool],
   })
   const sess: Session = { id, model: ref, gateway, sdk, manager, runtime,
-    titled: manager.getEntries().some(e => e.type === 'message' && e.message.role === 'user'), titleAttempted, busy: false }
+    titled: manager.getEntries().some(e => e.type === 'message' && e.message.role === 'user'), titleAttempted, busy: false, questionnaire }
   sdk.subscribe(ev => forward(sess, ev))
   sessions.set(id, sess)
   return sess
@@ -257,7 +262,7 @@ function forward(sess: Session, ev: AgentSessionEvent): void {
       return
     }
     case 'tool_execution_start':
-      broadcast(sess.id, { type: 'tool.start', data: { toolId: ev.toolCallId, tool: ev.toolName, input: JSON.stringify(ev.args ?? {}) } })
+      broadcast(sess.id, { type: 'tool.start', data: { toolId: ev.toolCallId, tool: ev.toolName, input: JSON.stringify(ev.toolName === 'questionnaire' ? prepareQuestionnaireArguments(ev.args) : ev.args ?? {}) } })
       return
     case 'tool_execution_end':
       broadcast(sess.id, {
@@ -484,7 +489,9 @@ app.delete('/session/:id', asyncRoute(async (req, res) => {
 
 app.get('/session/:id/message', asyncRoute(async (req, res) => {
   const sess = await openSession(req.params.id)
-  res.json(sess ? toHistory(historyMessages(sess)) : [])
+  const items = sess ? toHistory(historyMessages(sess)) : []
+  items.push({ messageId: 'session-state', role: 'assistant', events: [{ type: 'session.state', data: { busy: sess?.busy ?? false } }] })
+  res.json(items)
 }))
 
 app.post('/session/:id/prompt_async', asyncRoute(async (req, res) => {
@@ -498,6 +505,13 @@ app.post('/session/:id/prompt_async', asyncRoute(async (req, res) => {
   sess.busy = true
   res.status(204).end()
   sess.run = runPrompt(sess, text)
+}))
+
+app.post('/session/:id/questionnaire/:toolId', asyncRoute(async (req, res) => {
+  const sess = sessions.get(req.params.id)
+  if (!sess) return void res.status(409).json({ error: 'This session is no longer waiting for answers' })
+  sess.questionnaire.answer(req.params.toolId, req.body)
+  res.status(204).end()
 }))
 
 app.post('/session/:id/abort', asyncRoute(async (req, res) => {

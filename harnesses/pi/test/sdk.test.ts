@@ -31,9 +31,9 @@ test('SDK preserves protocol, resources, tools, history, isolated gateways, titl
       return
     }
     if (title && mode === 'timeout') return // Client aborts the title request after 15 seconds.
-    if (!title && mode === 'tools' && body.messages.at(-1)?.role !== 'tool') {
+    if (!title && (mode === 'tools' || mode === 'questionnaire') && body.messages.at(-1)?.role !== 'tool') {
       res.writeHead(200, { 'Content-Type': 'text/event-stream' })
-      res.write(`data: ${JSON.stringify({ id: 'test', object: 'chat.completion.chunk', choices: [{ index: 0, delta: { role: 'assistant', tool_calls: [{ index: 0, id: 'read-call', type: 'function', function: { name: 'read', arguments: JSON.stringify({ path: 'example.txt', offset: 2, limit: 1 }) } }] }, finish_reason: null }] })}\n\n`)
+      res.write(`data: ${JSON.stringify({ id: 'test', object: 'chat.completion.chunk', choices: [{ index: 0, delta: { role: 'assistant', tool_calls: [{ index: 0, id: 'read-call', type: 'function', function: { name: mode === 'questionnaire' ? 'questionnaire' : 'read', arguments: JSON.stringify(mode === 'questionnaire' ? { questions: [{ id: 'scope', prompt: 'Choose scope', options: [{ label: 'Small' }] }, { id: 'note', prompt: 'Any notes?', options: [] }] } : { path: 'example.txt', offset: 2, limit: 1 }) } }] }, finish_reason: null }] })}\n\n`)
       res.write(`data: ${JSON.stringify({ id: 'test', object: 'chat.completion.chunk', choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] })}\n\n`)
       res.end('data: [DONE]\n\n')
       return
@@ -91,7 +91,7 @@ test('SDK preserves protocol, resources, tools, history, isolated gateways, titl
     assert.equal(response.status, 200)
     return (await response.json()).name
   }
-  const prompt = async (id: string) => {
+  const prompt = async (id: string, onQuestion?: () => Promise<void>) => {
     const controller = new AbortController()
     const response = await fetch(url + '/event', { signal: controller.signal })
     const events: any[] = []
@@ -106,6 +106,7 @@ test('SDK preserves protocol, resources, tools, history, isolated gateways, titl
           const event = JSON.parse(frame.slice(6))
           if (event.sessionId !== id) continue
           events.push(event)
+          if (event.type === 'tool.start' && event.data.tool === 'questionnaire') await onQuestion?.()
           // Emulate backend acceptance and native-name synchronization before UI delivery.
           if (event.type === 'session.title') assert.equal(await rename(id, event.data.title), event.data.title)
           if (event.type === 'session.idle') return
@@ -130,7 +131,7 @@ test('SDK preserves protocol, resources, tools, history, isolated gateways, titl
     assert.ok(system.includes('Cattery SDK context sentinel'))
     assert.ok(system.includes('Multiline skill description sentinel'))
     assert.ok(!system.includes('Skill body sentinel'))
-    assert.deepEqual(requests[0].tools.map((t: any) => t.function.name).sort(), ['bash', 'edit', 'find', 'grep', 'ls', 'read', 'write'])
+    assert.deepEqual(requests[0].tools.map((t: any) => t.function.name).sort(), ['bash', 'edit', 'find', 'grep', 'ls', 'questionnaire', 'read', 'write'])
     assert.equal(requests[1].model, 'small')
     assert.equal(requests[1].auth, 'Bearer small-key')
     assert.equal(requests[1].tools, undefined)
@@ -195,6 +196,41 @@ test('SDK preserves protocol, resources, tools, history, isolated gateways, titl
     assert.equal((await fetch(url + '/session/legacy')).status, 409)
     assert.equal((await fetch(url + '/session/legacy', { method: 'DELETE' })).status, 204)
     await register('legacy')
+    mode = 'questionnaire'
+    await register('questions', { smallModel: undefined })
+    const answerURL = `${url}/session/questions/questionnaire/read-call`
+    const answer = (body: unknown, endpoint = answerURL) => fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    const questionEvents = await prompt('questions', async () => {
+      const pendingHistory = await (await fetch(url + '/session/questions/message')).json()
+      assert.ok(pendingHistory.flatMap((m: any) => m.events).some((e: any) => e.type === 'session.state' && e.data.busy))
+      assert.ok(pendingHistory.flatMap((m: any) => m.events).some((e: any) => e.type === 'tool.start' && e.data.tool === 'questionnaire'))
+      assert.equal((await answer({ answers: [] })).status, 400)
+      assert.equal((await answer({ cancelled: true }, `${url}/session/legacy/questionnaire/read-call`)).status, 409)
+      const body = { answers: [{ id: 'scope', value: 'Small', wasCustom: false }, { id: 'note', value: 'Keep it simple', wasCustom: true }] }
+      assert.equal((await answer(body)).status, 204)
+      assert.equal((await answer(body)).status, 409)
+    })
+    assert.equal(JSON.parse(questionEvents.find(e => e.type === 'tool.start').data.input).questions[0].options[0].value, 'Small')
+    const questionResult = questionEvents.find(e => e.type === 'tool.done').data
+    assert.equal(questionResult.parsed.answers[0].label, 'Small')
+    assert.equal(questionResult.parsed.answers[0].index, 1)
+    assert.equal(questionResult.parsed.answers[1].wasCustom, true)
+    assert.ok(questionEvents.some(e => e.type === 'message.delta'))
+    assert.ok(JSON.stringify(requests.at(-1).messages).includes('Keep it simple'))
+    const questionHistory = await (await fetch(url + '/session/questions/message')).json()
+    assert.equal(JSON.parse(questionHistory.flatMap((m: any) => m.events).find((e: any) => e.type === 'tool.start').data.input).questions[0].options[0].value, 'Small')
+    assert.deepEqual(questionHistory.flatMap((m: any) => m.events).find((e: any) => e.type === 'tool.done').data, questionResult)
+    await register('cancel-question', { smallModel: undefined })
+    const cancelled = await prompt('cancel-question', async () => {
+      assert.equal((await answer({ cancelled: true }, `${url}/session/cancel-question/questionnaire/read-call`)).status, 204)
+    })
+    assert.equal(cancelled.find(e => e.type === 'tool.done').data.parsed.cancelled, true)
+    await register('abort-question', { smallModel: undefined })
+    const aborted = await prompt('abort-question', async () => {
+      assert.equal((await fetch(`${url}/session/abort-question/abort`, { method: 'POST' })).status, 204)
+    })
+    assert.ok(aborted.some(e => e.type === 'session.idle'))
+    assert.equal((await answer({ cancelled: true }, `${url}/session/abort-question/questionnaire/read-call`)).status, 409)
     mode = 'transient'
     await Promise.all([register('transient', { smallModel: undefined }), register('transient', { smallModel: undefined })])
     const recovered = await prompt('transient')

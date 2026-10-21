@@ -49,6 +49,7 @@ interface ChatSessionState {
   bubbles: Bubble[]
   sending: boolean
   loaded: boolean
+  recovering: boolean
   abortController: AbortController | null
 }
 
@@ -56,7 +57,7 @@ interface ChatStreamStore {
   sessions: Record<string, ChatSessionState>
   ensureSession: (sessionId: string) => void
   resetSession: (sessionId: string) => void
-  loadHistory: (sessionId: string) => Promise<void>
+  loadHistory: (sessionId: string, refresh?: boolean) => Promise<void>
   sendMessage: (sessionId: string, text: string) => Promise<void>
   stopSession: (sessionId: string) => Promise<void>
   handleEvent: (sessionId: string, ev: PlatformEvent) => void
@@ -66,6 +67,7 @@ const emptySession = (): ChatSessionState => ({
   bubbles: [],
   sending: false,
   loaded: false,
+  recovering: false,
   abortController: null,
 })
 
@@ -181,18 +183,24 @@ export const useChatStreamStore = create<ChatStreamStore>((set, get) => ({
     }))
   },
 
-  loadHistory: async (sessionId) => {
+  loadHistory: async (sessionId, refresh = false) => {
     get().ensureSession(sessionId)
     const existing = get().sessions[sessionId]
-    if (existing?.loaded || existing?.sending || existing?.bubbles.length) return
+    if (existing?.sending || (!refresh && existing?.loaded)) return
     const items = await getHistory(sessionId)
     const restored = restoreHistory(items)
+    const recovering = items.some(item => item.events.some(e => e.type === "session.state" && e.data.busy === true))
+    if (!recovering) for (const b of restored) b.done = true
+    // A send may have started while history was loading.
+    if (get().sessions[sessionId] !== existing) return
+    useWorkspaceStore.getState().setSessionBusy(sessionId, recovering)
     set(state => ({
       sessions: {
         ...state.sessions,
         [sessionId]: {
           ...(state.sessions[sessionId] ?? emptySession()),
           bubbles: restored,
+          recovering,
           sending: false,
           loaded: true,
         },
@@ -202,7 +210,7 @@ export const useChatStreamStore = create<ChatStreamStore>((set, get) => ({
 
   sendMessage: async (sessionId, text) => {
     const current = get().sessions[sessionId]
-    if (current?.sending) return
+    if (current?.sending || current?.recovering) return
 
     const ts = Date.now()
     const ctrl = new AbortController()
@@ -216,6 +224,7 @@ export const useChatStreamStore = create<ChatStreamStore>((set, get) => ({
             ...session,
             loaded: true,
             sending: true,
+            recovering: false,
             abortController: ctrl,
             bubbles: [
               ...session.bubbles,
@@ -308,6 +317,9 @@ export const useChatStreamStore = create<ChatStreamStore>((set, get) => ({
       if (clearedCurrent) {
         useWorkspaceStore.getState().setSessionBusy(sessionId, false)
       }
+      if (!ctrl.signal.aborted && !get().sessions[sessionId]?.sending) {
+        void get().loadHistory(sessionId, true).catch(() => {})
+      }
     }
   },
 
@@ -324,6 +336,7 @@ export const useChatStreamStore = create<ChatStreamStore>((set, get) => ({
           [sessionId]: {
             ...session,
             sending: false,
+            recovering: false,
             abortController: null,
             bubbles: session.bubbles
               .filter(b => !(b.kind === "text" && !b.done && b.content === ""))

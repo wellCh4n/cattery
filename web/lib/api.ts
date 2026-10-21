@@ -530,3 +530,13 @@ export async function latexPreview(projectId: string, path: string, compile = fa
   if (!res.ok) throw new Error(await readErrorMessage(res, `LaTeX preview failed (${res.status})`))
   return res.json()
 }
+
+export async function answerQuestionnaire(sessionId: string, toolId: string, response: {
+  answers: Array<{ id: string; value: string; wasCustom: boolean }>
+  cancelled: boolean
+}): Promise<void> {
+  const res = await authedFetch(`${API_BASE}/api/v1/sessions/${sessionId}/questionnaire/${encodeURIComponent(toolId)}`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(response),
+  })
+  if (!res.ok) throw new Error(await readErrorMessage(res, "Unable to submit answers"))
+}

@@ -425,3 +425,32 @@ func (h *SessionHandler) Export(c echo.Context) error {
 	body := renderTranscriptMarkdown(sess, items)
 	return c.Blob(http.StatusOK, "text/markdown; charset=utf-8", []byte(body))
 }
+
+func (h *SessionHandler) AnswerQuestionnaire(c echo.Context) error {
+	sess, _, err := requireWritableSession(c, h.sessionStore, h.projectStore)
+	if err != nil {
+		return err
+	}
+	var body json.RawMessage
+	if err := json.NewDecoder(http.MaxBytesReader(c.Response(), c.Request().Body, 1024*1024)).Decode(&body); err != nil {
+		return echo.ErrBadRequest
+	}
+	base, ok := h.sandbox.URL(c.Request().Context(), sess.ProjectID)
+	if !ok {
+		return echo.NewHTTPError(http.StatusConflict, "This session is no longer waiting for answers")
+	}
+	status, message, err := h.harnessClient.AnswerQuestionnaire(c.Request().Context(), base, sess.SessionID.String(), c.Param("tool_id"), body)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadGateway, err.Error())
+	}
+	if status != http.StatusNoContent {
+		if status != http.StatusBadRequest && status != http.StatusConflict {
+			status = http.StatusBadGateway
+		}
+		if message == "" {
+			message = "Unable to submit questionnaire"
+		}
+		return echo.NewHTTPError(status, message)
+	}
+	return c.NoContent(http.StatusNoContent)
+}

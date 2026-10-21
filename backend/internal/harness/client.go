@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -281,4 +282,25 @@ func (c *Client) SetSessionName(ctx context.Context, sandboxURL, sessionID, name
 		return "", err
 	}
 	return result.Name, nil
+}
+
+// AnswerQuestionnaire resolves a pending tool call; it never starts a new prompt.
+func (c *Client) AnswerQuestionnaire(ctx context.Context, base, sessionID, toolID string, body json.RawMessage) (int, string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/session/"+sessionID+"/questionnaire/"+url.PathEscape(toolID), bytes.NewReader(body))
+	if err != nil {
+		return 0, "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return 0, "", err
+	}
+	defer resp.Body.Close()
+	var result struct {
+		Error string `json:"error"`
+	}
+	if resp.StatusCode != http.StatusNoContent {
+		_ = json.NewDecoder(resp.Body).Decode(&result)
+	}
+	return resp.StatusCode, result.Error, nil
 }

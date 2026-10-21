@@ -310,3 +310,26 @@ replacing manual names. The two stores do not share a transaction; registration
 repairs the native name from the database if a database commit fails after the
 native write. Pi defers writing an empty conversation's JSONL until its first
 message; the database retains its name for restoration in the meantime.
+
+### Agent questionnaires
+
+The harness registers `questionnaire`, matching pi's questionnaire example parameter
+and result shapes. It accepts one or more questions with `id`, optional `label`,
+`prompt`, `options` (`value`, `label`, optional `description`), and optional
+`allowOther` (default true). If a model omits an option value, the harness fills
+it from the label before SDK validation (adding a suffix for collisions), while
+preserving explicit values. Live events and history use the same normalized input.
+The web chat displays single questions directly and
+multiple questions with navigation and a review step. Submitting answers or
+cancelling resolves the tool and lets the agent continue; stopping the run also
+releases the wait. Answers are stored in the normal SDK tool result transcript.
+
+`POST /api/v1/sessions/:session_id/questionnaire/:tool_id` forwards a response to
+`POST /session/:id/questionnaire/:toolId` after checking project membership.
+Responses contain `answers: [{id, value, wasCustom}]` and `cancelled`; the harness
+validates the answers and derives option labels and one-based indices. Stale or
+duplicate submissions return 409. History includes a `session.state` snapshot
+with `busy`; after a reload or disconnected stream, the web client polls history
+while the agent is running, including while a questionnaire awaits a response.
+Unsubmitted form drafts are local to the mounted card. Agent process restarts
+end pending waits; old questionnaires are displayed as ended.

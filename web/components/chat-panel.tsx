@@ -42,6 +42,7 @@ import {
   TraceLine,
   TraceTitle,
 } from "@/components/ui/trace"
+import { QuestionnaireCard } from "@/components/questionnaire-card"
 import { Markdown } from "@/components/markdown"
 import { EffortPicker, ModelPicker } from "@/components/model-picker"
 import { type Session } from "@/lib/api"
@@ -68,7 +69,7 @@ interface Turn {
 // and errors render on their own.
 type Segment =
   | { kind: "steps"; id: string; bubbles: Bubble[] }
-  | { kind: "text" | "error"; id: string; bubble: Bubble }
+  | { kind: "text" | "error" | "questionnaire"; id: string; bubble: Bubble }
 
 function toTurns(bubbles: Bubble[]): Turn[] {
   const turns: Turn[] = []
@@ -86,7 +87,9 @@ function toTurns(bubbles: Bubble[]): Turn[] {
 function toSegments(bubbles: Bubble[]): Segment[] {
   const segments: Segment[] = []
   for (const b of bubbles) {
-    if (b.kind === "thinking" || b.kind === "tool") {
+    if (b.kind === "tool" && b.toolName === "questionnaire") {
+      segments.push({ kind: "questionnaire", id: b.id, bubble: b })
+    } else if (b.kind === "thinking" || b.kind === "tool") {
       const last = segments.at(-1)
       if (last?.kind === "steps") last.bubbles.push(b)
       else segments.push({ kind: "steps", id: b.id, bubbles: [b] })
@@ -123,7 +126,7 @@ function ChatPanelContent({ session }: Props) {
   const focusedSessionRef = useRef<string | null>(null)
   const chat = useChatStreamStore(state => state.sessions[session.session_id])
   const bubbles = chat?.bubbles ?? EMPTY_BUBBLES
-  const sending = chat?.sending ?? false
+  const sending = (chat?.sending || chat?.recovering) ?? false
   const ensureSession = useChatStreamStore(state => state.ensureSession)
   const loadHistory = useChatStreamStore(state => state.loadHistory)
   const sendMessage = useChatStreamStore(state => state.sendMessage)
@@ -145,6 +148,18 @@ function ChatPanelContent({ session }: Props) {
     ensureSession(session.session_id)
     loadHistory(session.session_id).catch(() => { /* ignore */ })
   }, [ensureSession, loadHistory, ready, session.session_id])
+
+  useEffect(() => {
+    if (!ready || chat?.sending || !chat?.recovering) return
+    let disposed = false
+    let timer: ReturnType<typeof setTimeout>
+    const refresh = async () => {
+      try { await loadHistory(session.session_id, true) } catch { /* retry transient failures */ }
+      if (!disposed) timer = setTimeout(refresh, 1500)
+    }
+    timer = setTimeout(refresh, 1500)
+    return () => { disposed = true; clearTimeout(timer) }
+  }, [ready, chat?.sending, chat?.recovering, loadHistory, session.session_id])
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -211,6 +226,7 @@ function ChatPanelContent({ session }: Props) {
                   ) : (
                     <MessageScrollerItem key={turn.id} messageId={turn.id}>
                       <AgentTurn
+                        sessionId={session.session_id}
                         bubbles={turn.bubbles}
                         streaming={sending && i === turns.length - 1}
                       />
@@ -310,7 +326,7 @@ function phaseLabel(phase: string | null): string {
   }
 }
 
-function AgentTurn({ bubbles, streaming }: { bubbles: Bubble[]; streaming: boolean }) {
+function AgentTurn({ bubbles, streaming, sessionId }: { bubbles: Bubble[]; streaming: boolean; sessionId: string }) {
   const segments = toSegments(bubbles)
   const reply = segments
     .filter(s => s.kind === "text")
@@ -321,6 +337,7 @@ function AgentTurn({ bubbles, streaming }: { bubbles: Bubble[]; streaming: boole
     <Message>
       <MessageContent className="gap-3">
         {segments.map(segment => {
+          if (segment.kind === "questionnaire") return <QuestionnaireCard key={segment.id} bubble={segment.bubble} sessionId={sessionId} />
           if (segment.kind === "steps") {
             return (
               <Trace key={segment.id}>
@@ -401,7 +418,7 @@ function toolIcon(tool: string | undefined) {
 // AI Elements Tool / Terminal: one line per call, expandable to its output.
 function ToolRow({ bubble }: { bubble: Bubble }) {
   const tool = bubble.toolName?.toLowerCase()
-  const running = bubble.toolStatus !== "completed"
+  const running = !bubble.done && bubble.toolStatus !== "completed"
   const header = formatToolInput(tool, bubble.content)
   const [runningVerb, doneVerb] = (tool && TOOL_VERBS[tool]) ?? [bubble.toolName ?? "tool", bubble.toolName ?? "tool"]
   const target = header.primary
