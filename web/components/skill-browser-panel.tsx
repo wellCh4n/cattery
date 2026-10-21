@@ -83,7 +83,7 @@ export function SkillBrowserPanel({ active }: { active: boolean }) {
   return (
     <div className="flex h-full flex-col text-xs">
       <div className="flex h-9 shrink-0 items-center justify-between border-b px-2">
-        <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+        <span className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
           Skills
         </span>
         <div className="flex items-center gap-1">

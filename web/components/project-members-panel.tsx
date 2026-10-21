@@ -74,7 +74,7 @@ export function ProjectMembersPanel({ project, canManage, active }: Props) {
   return (
     <div className="flex h-full flex-col text-xs">
       <div className="flex h-9 shrink-0 items-center justify-between border-b px-2">
-        <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+        <span className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
           Members
         </span>
         <div className="flex items-center gap-1">
@@ -153,14 +153,14 @@ function MemberRow({
     <TreeRow className="px-2">
       <span className="min-w-0 flex-1 truncate">{name}</span>
       {isOwner || !canManage ? (
-        <Badge variant="secondary" className="h-4 shrink-0 px-1.5 text-[10px] font-normal">
+        <Badge variant="secondary" className="h-4 shrink-0 px-1.5 text-2xs font-normal">
           {isOwner ? "owner" : "member"}
         </Badge>
       ) : (
         <>
           <Badge
             variant="secondary"
-            className="h-4 shrink-0 px-1.5 text-[10px] font-normal group-hover/treerow:hidden"
+            className="h-4 shrink-0 px-1.5 text-2xs font-normal group-hover/treerow:hidden"
           >
             member
           </Badge>
@@ -364,7 +364,7 @@ function TransferList({
 }) {
   return (
     <div className="flex min-w-0 flex-1 flex-col rounded-lg border">
-      <div className="border-b px-2 py-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+      <div className="border-b px-2 py-1.5 text-2xs font-medium uppercase tracking-wide text-muted-foreground">
         {title}
       </div>
       <div className="p-1.5">

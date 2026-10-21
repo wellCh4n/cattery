@@ -60,20 +60,20 @@ export function CodeBlock({ code, lang, className }: Props) {
   return (
     <div className={cn("my-3 overflow-hidden rounded-lg border bg-muted/30", className)}>
       <div className="flex items-center justify-between border-b bg-muted/50 px-3 py-1.5">
-        <span className="font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
+        <span className="font-mono text-2xs uppercase tracking-wide text-muted-foreground">
           {displayLang || "text"}
         </span>
         <button
           type="button"
           onClick={handleCopy}
-          className="inline-flex cursor-pointer items-center gap-1 rounded-sm px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-foreground/10 hover:text-foreground transition-colors"
+          className="inline-flex cursor-pointer items-center gap-1 rounded-sm px-1.5 py-0.5 text-2xs text-muted-foreground hover:bg-foreground/10 hover:text-foreground transition-colors"
           title="Copy"
         >
           {copied ? <Check className="size-3 text-emerald-500" /> : <Copy className="size-3" />}
           <span>{copied ? "Copied" : "Copy"}</span>
         </button>
       </div>
-      <pre className="shiki-dual max-h-96 overflow-auto px-3 py-2.5 text-[12px] leading-relaxed font-mono [font-variant-ligatures:none]">
+      <pre className="shiki-dual max-h-96 overflow-auto px-3 py-2.5 text-xs leading-relaxed font-mono [font-variant-ligatures:none]">
         <code>
           {lines.map((line, i) => (
             <div key={i} className="whitespace-pre">

@@ -285,7 +285,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                           {active && <Check className="size-3.5 text-primary" />}
                         </span>
                         <span className="min-w-0 flex-1 truncate text-xs font-medium">{project.project_name ?? "Untitled"}</span>
-                        {!ownsProject && <Badge variant="secondary" className="h-4 shrink-0 px-1.5 text-[10px] font-normal">{project.access_role}</Badge>}
+                        {!ownsProject && <Badge variant="secondary" className="h-4 shrink-0 px-1.5 text-2xs font-normal">{project.access_role}</Badge>}
                       </button>
                       <button
                         type="button"
@@ -365,7 +365,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                 <div className="flex items-center gap-2">
                   <span className="min-w-0 flex-1 truncate text-xs font-medium">{user?.username ?? "-"}</span>
                   {user?.is_admin && (
-                    <Badge variant="secondary" className="h-4 shrink-0 px-1.5 text-[10px] font-normal">admin</Badge>
+                    <Badge variant="secondary" className="h-4 shrink-0 px-1.5 text-2xs font-normal">admin</Badge>
                   )}
                 </div>
               </div>
@@ -472,7 +472,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
           <div className={cn("min-h-0 min-w-0 flex-1 flex-col", view === "sessions" ? "flex" : "hidden")}>
           {currentProject && (
             <div className="flex h-9 shrink-0 items-center justify-between border-b px-2">
-              <span className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+              <span className="flex items-center gap-1.5 text-2xs font-medium uppercase tracking-wide text-muted-foreground">
                 Sessions
               </span>
               <div className="flex items-center gap-1">
@@ -711,7 +711,7 @@ function buildSessionNode({
             <ModelIcon id={session.model} className="size-3" />
           </span>
           <span
-            className="font-mono text-[10px] font-normal tabular-nums"
+            className="font-mono text-2xs font-normal tabular-nums"
             title={new Date(sessionActivityTime(session)).toLocaleString()}
           >
             {formatSessionTime(sessionActivityTime(session))}

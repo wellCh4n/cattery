@@ -66,11 +66,11 @@ export function FileView({ projectId, path }: { projectId: string; path: string 
     <div className="flex h-full min-h-0 flex-col bg-background text-xs">
       <div className="flex h-9 shrink-0 items-center gap-2 border-b px-3">
         <FileIcon className="size-3.5 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground" title={path}>
+        <span className="min-w-0 flex-1 truncate font-mono text-2xs text-muted-foreground" title={path}>
           {path}
         </span>
         {data?.truncated && (
-          <span className="shrink-0 text-[10px] text-amber-600 dark:text-amber-400">truncated</span>
+          <span className="shrink-0 text-2xs text-amber-600 dark:text-amber-400">truncated</span>
         )}
         {canToggle && (
           <div className="flex h-6 shrink-0 items-center rounded-md border bg-muted/30 p-0.5">
@@ -78,7 +78,7 @@ export function FileView({ projectId, path }: { projectId: string; path: string 
               type="button"
               onClick={() => setMode("preview")}
               className={cn(
-                "h-5 cursor-pointer rounded-sm px-1.5 text-[10px]",
+                "h-5 cursor-pointer rounded-sm px-1.5 text-2xs",
                 mode === "preview" ? "bg-background text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground",
               )}
             >
@@ -88,7 +88,7 @@ export function FileView({ projectId, path }: { projectId: string; path: string 
               type="button"
               onClick={() => setMode("source")}
               className={cn(
-                "h-5 cursor-pointer rounded-sm px-1.5 text-[10px]",
+                "h-5 cursor-pointer rounded-sm px-1.5 text-2xs",
                 mode === "source" ? "bg-background text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground",
               )}
             >

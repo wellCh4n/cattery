@@ -47,7 +47,7 @@ export function ExportMenu({ sessionId }: { sessionId: string }) {
             onClick={() => setOpen(false)}
             className="grid h-9 cursor-pointer grid-cols-[3rem_1fr] items-center px-3 hover:bg-muted"
           >
-            <span className="text-[10px] font-medium text-muted-foreground">MD</span>
+            <span className="text-2xs font-medium text-muted-foreground">MD</span>
             <span className="whitespace-nowrap">Markdown transcript</span>
           </a>
           <a
@@ -56,7 +56,7 @@ export function ExportMenu({ sessionId }: { sessionId: string }) {
             onClick={() => setOpen(false)}
             className="grid h-9 cursor-pointer grid-cols-[3rem_1fr] items-center px-3 hover:bg-muted"
           >
-            <span className="text-[10px] font-medium text-muted-foreground">JSON</span>
+            <span className="text-2xs font-medium text-muted-foreground">JSON</span>
             <span className="whitespace-nowrap">Raw history</span>
           </a>
         </div>

@@ -75,7 +75,7 @@ const components: Components = {
       // pre's renderer will pull out children; we still need to render valid HTML
       // when used outside a pre (rare), so keep simple.
       return (
-        <code className={cn("block font-mono text-[12px] leading-relaxed", className)} {...props}>
+        <code className={cn("block font-mono text-xs leading-relaxed", className)} {...props}>
           {children}
         </code>
       )

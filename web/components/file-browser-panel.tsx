@@ -302,7 +302,7 @@ export function FileBrowserPanel({ projectId, active }: Props) {
           {!isDir && <FileIcon className="size-3.5 shrink-0 text-muted-foreground/70" />}
           <span className="truncate flex-1">{entry.name}</span>
           {!isDir && (
-            <span className="hidden sm:inline text-[10px] text-muted-foreground/60 shrink-0 group-hover/treerow:hidden">
+            <span className="hidden sm:inline text-2xs text-muted-foreground/60 shrink-0 group-hover/treerow:hidden">
               {formatSize(entry.size)}
             </span>
           )}
@@ -352,7 +352,7 @@ export function FileBrowserPanel({ projectId, active }: Props) {
   return (
     <div className="flex h-full flex-col text-xs">
       <div className="flex h-9 shrink-0 items-center justify-between border-b px-2">
-        <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+        <span className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
           Files
         </span>
         <input

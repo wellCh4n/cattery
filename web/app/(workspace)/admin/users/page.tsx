@@ -76,7 +76,7 @@ export default function AdminUsersPage() {
     <div className="h-full overflow-y-auto">
       <div className="max-w-3xl mx-auto px-6 py-8">
         <div className="flex items-center gap-3 mb-6">
-          <h1 className="text-xl font-semibold flex-1">Users</h1>
+          <h1 className="font-heading text-base font-semibold flex-1">Users</h1>
           <Button size="sm" onClick={() => setCreateOpen(true)}>
             <Plus className="size-3.5 mr-1" />
             Add user
@@ -198,7 +198,7 @@ function RoleBadge({
       className={disabled ? "cursor-default" : "cursor-pointer"}
       title={disabled ? "You cannot change your own role" : "Toggle admin"}
     >
-      <Badge variant={user.is_admin ? "default" : "secondary"} className="text-[10px] h-5 px-2 font-normal">
+      <Badge variant={user.is_admin ? "default" : "secondary"} className="text-2xs h-5 px-2 font-normal">
         {busy ? <Loader2 className="size-3 animate-spin mr-1" /> : null}
         {user.is_admin ? "admin" : "member"}
       </Badge>
