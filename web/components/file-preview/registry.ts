@@ -1,4 +1,5 @@
 import { HtmlPreview } from "./html-preview"
+import { CsvPreview } from "./csv-preview"
 import { ImagePreview } from "./image-preview"
 import { JsonPreview } from "./json-preview"
 import { MarkdownPreview } from "./markdown-preview"
@@ -34,6 +35,7 @@ export const filePreviews: readonly FilePreviewDefinition[] = [
     component: MarkdownPreview,
   },
   { id: "json", extensions: ["json"], input: "content", supportsSource: true, component: JsonPreview },
+  { id: "csv", extensions: ["csv"], input: "content", supportsSource: true, component: CsvPreview },
 ]
 
 export function previewForPath(path: string): FilePreviewDefinition {
