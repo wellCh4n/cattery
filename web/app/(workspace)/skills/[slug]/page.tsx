@@ -1,8 +1,8 @@
 "use client"
 
-import { use, useEffect, useState } from "react"
+import { use, useEffect } from "react"
 import { SkillView } from "@/components/skill-view"
-import { listSkillCatalog } from "@/lib/api"
+import { useSkillsStore } from "@/lib/skills-store"
 import { useDocumentTitle } from "@/lib/use-document-title"
 
 interface PageParams {
@@ -13,21 +13,9 @@ export default function SkillPage({ params }: { params: Promise<PageParams> }) {
   const { slug } = use(params)
   // The pretty name lives in the catalog (SKILL.md frontmatter); resolve it for
   // the header/title, falling back to the slug until it loads or if it's gone.
-  const [name, setName] = useState(slug)
-
-  useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      setName(slug)
-      try {
-        const catalog = await listSkillCatalog()
-        if (cancelled) return
-        const item = catalog.find(s => s.slug === slug)
-        if (item?.name) setName(item.name)
-      } catch { /* keep slug fallback */ }
-    })()
-    return () => { cancelled = true }
-  }, [slug])
+  const catalog = useSkillsStore(state => state.entries.catalog?.data)
+  const name = catalog?.find(skill => skill.slug === slug)?.name ?? slug
+  useEffect(() => { void useSkillsStore.getState().load("catalog") }, [])
 
   useDocumentTitle(name)
 

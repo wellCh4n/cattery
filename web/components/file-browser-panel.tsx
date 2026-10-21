@@ -10,8 +10,8 @@
 // on a folder (or on blank space, for root) uploads; dragging an existing
 // entry onto another folder moves it there.
 
-import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from "react"
-import { useRouter } from "next/navigation"
+import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { usePathname, useRouter } from "next/navigation"
 import {
   File as FileIcon,
   Folder,
@@ -36,18 +36,12 @@ import { Input } from "@/components/ui/input"
 import { Tree, type TreeNode } from "@/components/tree"
 import { TreeRowAction } from "@/components/tree-row"
 import { cn } from "@/lib/utils"
-import { tabHref } from "@/lib/tabs-store"
+import { tabForPath, tabHref } from "@/lib/tabs-store"
 import {
-  createFolder,
-  deleteFile,
-  listFiles,
-  moveFile,
-  renameFile,
-  uploadFile,
   type FileEntry,
 } from "@/lib/api"
 
-const MIN_REFRESH_SPIN_MS = 1000
+import { fileActions, fileKey, refreshFiles, useFilesStore } from "@/lib/files-store"
 
 interface Props {
   projectId: string
@@ -64,21 +58,31 @@ function parentOf(path: string): string {
   return parts.length === 0 ? "/" : "/" + parts.join("/")
 }
 
-// Folders first, then files; alphabetical within each group.
-function sortEntries(entries: FileEntry[]): FileEntry[] {
-  return [...entries].sort((a, b) => {
-    if (a.type !== b.type) return a.type === "dir" ? -1 : 1
-    return a.name.localeCompare(b.name)
-  })
-}
-
 export function FileBrowserPanel({ projectId, active }: Props) {
   const router = useRouter()
-  const [childrenByPath, setChildrenByPath] = useState<Record<string, FileEntry[]>>({})
+  const currentTab = tabForPath(usePathname())
+  const selectedPath = currentTab?.kind === "file" && currentTab.projectId === projectId
+    ? currentTab.id
+    : null
+  const resources = useFilesStore(state => state.entries)
+  const { childrenByPath, loadingPaths, loadError } = useMemo(() => {
+    const childrenByPath: Record<string, FileEntry[]> = {}
+    const loadingPaths = new Set<string>()
+    let loadError: string | null = null
+    for (const [key, resource] of Object.entries(resources)) {
+      const [project, path] = JSON.parse(key) as [string, string]
+      if (project !== projectId) continue
+      if (resource.data) childrenByPath[path] = resource.data
+      if (resource.loading) loadingPaths.add(path)
+      if (resource.error) loadError = resource.error
+    }
+    return { childrenByPath, loadingPaths, loadError }
+  }, [resources, projectId])
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
-  const [loadingPaths, setLoadingPaths] = useState<Set<string>>(() => new Set())
-  const [refreshing, setRefreshing] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [refreshRequested, setRefreshing] = useState(false)
+  const refreshing = refreshRequested || loadingPaths.size > 0
+  const [actionError, setError] = useState<string | null>(null)
+  const error = actionError ?? loadError
   const [uploading, setUploading] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
   const [newFolderDir, setNewFolderDir] = useState<string | null>(null)
@@ -90,49 +94,27 @@ export function FileBrowserPanel({ projectId, active }: Props) {
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const scrollTopRef = useRef(0)
-  const refreshInFlight = useRef(false)
-  const requestVersions = useRef(new Map<string, number>())
+  const loadDir = useCallback((path: string) =>
+    useFilesStore.getState().load(fileKey(projectId, path)), [projectId])
 
-  const loadDir = useCallback(async (path: string) => {
-    const version = (requestVersions.current.get(path) ?? 0) + 1
-    requestVersions.current.set(path, version)
-    setLoadingPaths(prev => new Set(prev).add(path))
-    try {
-      const list = sortEntries(await listFiles(projectId, path))
-      if (requestVersions.current.get(path) !== version) return null
-      // A successful parent listing is authoritative, including deleted folders.
-      const directories = new Set(list.filter(entry => entry.type === "dir").map(entry => joinPath(path, entry.name)))
-      const prefix = path === "/" ? "/" : `${path}/`
-      const removed = (candidate: string) => {
-        if (candidate === path || !candidate.startsWith(prefix)) return false
-        const child = prefix + candidate.slice(prefix.length).split("/")[0]
-        return !directories.has(child)
-      }
-      for (const [candidate, pendingVersion] of requestVersions.current) {
-        if (removed(candidate)) requestVersions.current.set(candidate, pendingVersion + 1)
-      }
-      setChildrenByPath(prev => ({
-        ...Object.fromEntries(Object.entries(prev).filter(([candidate]) => !removed(candidate))),
-        [path]: list,
-      }))
-      setExpanded(prev => new Set([...prev].filter(candidate => !removed(candidate))))
-      setLoadingPaths(prev => new Set([...prev].filter(candidate => !removed(candidate))))
-      return list
-    } catch (e) {
-      if (requestVersions.current.get(path) === version) {
-        setError(e instanceof Error ? e.message : "failed to load")
-      }
-      return null
-    } finally {
-      if (requestVersions.current.get(path) === version) {
-        setLoadingPaths(prev => {
-          const next = new Set(prev)
-          next.delete(path)
-          return next
-        })
-      }
-    }
-  }, [projectId])
+  useEffect(() => {
+    // Prune expansion only after a successful parent listing proves removal.
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
+      setExpanded(prev => {
+        const next = new Set([...prev].filter(path => {
+          for (let child = path; child !== "/"; child = parentOf(child)) {
+            const parent = childrenByPath[parentOf(child)]
+            if (parent && !parent.some(entry => entry.type === "dir" && joinPath(parentOf(child), entry.name) === child)) return false
+          }
+          return true
+        }))
+        return next.size === prev.size ? prev : next
+      })
+    })
+    return () => { cancelled = true }
+  }, [childrenByPath])
 
   // Restore after showing the still-mounted tree or replacing its listings.
   // Scroll events keep this current if the user scrolls during a refresh.
@@ -147,6 +129,28 @@ export function FileBrowserPanel({ projectId, active }: Props) {
     queueMicrotask(() => { if (!cancelled) refreshOnActivate() })
     return () => { cancelled = true }
   }, [active])
+
+  const revealSelection = useEffectEvent(async (path: string, cancelled: () => boolean) => {
+    const parents: string[] = []
+    for (let parent = parentOf(path); parent !== "/"; parent = parentOf(parent)) {
+      parents.unshift(parent)
+    }
+    if (parents.length === 0 || cancelled()) return
+    setExpanded(prev => new Set([...prev, ...parents]))
+    for (const parent of parents) {
+      if (cancelled()) return
+      if (!childrenByPath[parent] && await loadDir(parent) === null) return
+    }
+  })
+
+  useEffect(() => {
+    if (!active || !selectedPath) return
+    let cancelled = false
+    queueMicrotask(() => {
+      if (!cancelled) void revealSelection(selectedPath, () => cancelled)
+    })
+    return () => { cancelled = true }
+  }, [active, selectedPath])
 
   function toggleExpand(path: string) {
     const opening = !expanded.has(path)
@@ -168,9 +172,7 @@ export function FileBrowserPanel({ projectId, active }: Props) {
     if (files.length === 0) return
     setUploading(targetDir)
     try {
-      for (const file of files) {
-        await uploadFile(projectId, targetDir, file)
-      }
+      await fileActions.upload(projectId, targetDir, files)
       setExpanded(prev => targetDir === "/" ? prev : new Set(prev).add(targetDir))
       await loadDir(targetDir)
     } catch (err) {
@@ -185,8 +187,7 @@ export function FileBrowserPanel({ projectId, active }: Props) {
     const name = path.split("/").pop() ?? ""
     if (!trimmed || trimmed === name) return false
     try {
-      await renameFile(projectId, path, trimmed)
-      await loadDir(parentOf(path))
+      await fileActions.rename(projectId, path, trimmed)
       return true
     } catch (err) {
       setError(err instanceof Error ? err.message : "rename failed")
@@ -195,8 +196,7 @@ export function FileBrowserPanel({ projectId, active }: Props) {
   }
 
   async function confirmDelete(path: string) {
-    await deleteFile(projectId, path)
-    await loadDir(parentOf(path))
+    await fileActions.remove(projectId, path)
   }
 
   // moveEntry moves `from` into directory `toDir`. Refuses no-ops and the
@@ -210,12 +210,7 @@ export function FileBrowserPanel({ projectId, active }: Props) {
       return
     }
     try {
-      await moveFile(projectId, from, toDir)
-      const fromParent = parentOf(from)
-      await Promise.all([
-        loadDir(fromParent),
-        loadDir(toDir),
-      ])
+      await fileActions.move(projectId, from, toDir)
       if (toDir !== "/") {
         setExpanded(prev => new Set(prev).add(toDir))
       }
@@ -230,32 +225,10 @@ export function FileBrowserPanel({ projectId, active }: Props) {
   }
 
   async function refresh() {
-    if (refreshInFlight.current) return
-    refreshInFlight.current = true
     setRefreshing(true)
     setError(null)
-    const startedAt = Date.now()
-    const paths = new Set(expanded)
-    try {
-      // Refresh parents first so deleted subtrees are never requested.
-      // Collapsed ancestors are traversed only when they contain remembered expansions.
-      const visit = async (path: string): Promise<void> => {
-        const entries = await loadDir(path)
-        if (!entries) return
-        await Promise.all(entries.filter(entry => entry.type === "dir").map(async entry => {
-          const child = joinPath(path, entry.name)
-          if (paths.has(child) || [...paths].some(p => p.startsWith(`${child}/`))) {
-            await visit(child)
-          }
-        }))
-      }
-      await visit("/")
-    } finally {
-      const remaining = MIN_REFRESH_SPIN_MS - (Date.now() - startedAt)
-      if (remaining > 0) await new Promise(resolve => setTimeout(resolve, remaining))
-      refreshInFlight.current = false
-      setRefreshing(false)
-    }
+    try { await refreshFiles(projectId, [...expanded]) }
+    finally { setRefreshing(false) }
   }
 
   async function onUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -311,6 +284,7 @@ export function FileBrowserPanel({ projectId, active }: Props) {
     const childEntries = isExpanded ? childrenByPath[path] : undefined
     return {
       id: path,
+      selected: !isDir && path === selectedPath,
       expandable: isDir,
       expanded: isExpanded,
       loadingChildren: loadingPaths.has(path),
@@ -530,7 +504,7 @@ function NewFolderDialog({
     setBusy(true)
     setError(null)
     try {
-      await createFolder(projectId, dir, trimmed)
+      await fileActions.createFolder(projectId, dir, trimmed)
       await onCreated(dir)
       onOpenChange(false)
     } catch (e) {

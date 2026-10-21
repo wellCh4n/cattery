@@ -6,6 +6,7 @@ import {
   getHistory,
   sendSessionMessageStream,
 } from "@/lib/api"
+import { refreshFiles, toolChangedDirectories } from "@/lib/files-store"
 import { selectSession, useWorkspaceStore } from "@/lib/workspace-store"
 
 export interface MessageDeltaData  { partId: string; text: string }
@@ -251,6 +252,10 @@ export const useChatStreamStore = create<ChatStreamStore>((set, get) => ({
 
     try {
       const reader = await sendSessionMessageStream(sessionId, text, ctrl.signal)
+      // Only accepted messages count as activity; opening a session or a
+      // rejected send must not change its ordering.
+      useWorkspaceStore.getState().markSessionActivity(sessionId)
+      void useWorkspaceStore.getState().refreshSession(sessionId).catch(() => {})
       const decoder = new TextDecoder()
       let buf = ""
 
@@ -418,6 +423,14 @@ export const useChatStreamStore = create<ChatStreamStore>((set, get) => ({
 
       case "tool.done": {
         const d = ev.data as ToolDoneData
+        const tool = get().sessions[sessionId]?.bubbles.find(b => b.id === d.toolId)
+        const name = d.tool || tool?.toolName
+        const projectId = selectSession(sessionId)?.project.project_id
+        if (projectId && name && ["write", "edit", "bash"].includes(name)) {
+          // Even a failed tool may have made partial changes. History restoration
+          // does not pass through this live-event handler.
+          void refreshFiles(projectId, toolChangedDirectories(tool?.content), 150)
+        }
         set(state => {
           const session = state.sessions[sessionId] ?? emptySession()
           const bubbles = session.bubbles.map(b =>
@@ -431,6 +444,8 @@ export const useChatStreamStore = create<ChatStreamStore>((set, get) => ({
       }
 
       case "session.idle": {
+        const projectId = selectSession(sessionId)?.project.project_id
+        if (projectId) void refreshFiles(projectId, [], 150)
         useWorkspaceStore.getState().setSessionBusy(sessionId, false)
         set(state => {
           const session = state.sessions[sessionId] ?? emptySession()

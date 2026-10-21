@@ -11,7 +11,7 @@
 // Clicking a skill opens it as a tab in the main pane (see SkillView), where
 // the raw per-file tree the skillmgr exposes (list/read) is browsed.
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import {
   Loader2,
@@ -25,53 +25,29 @@ import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { tabHref } from "@/lib/tabs-store"
 import {
-  deleteSkillFile,
-  listSkillCatalog,
-  uploadSkillZip,
   type SkillCatalogItem,
 } from "@/lib/api"
 
-const MIN_REFRESH_SPIN_MS = 1000
+import { refreshSkills, skillActions, useSkillsStore } from "@/lib/skills-store"
 
-export function SkillBrowserPanel() {
+export function SkillBrowserPanel({ active }: { active: boolean }) {
   const router = useRouter()
-  const [catalog, setCatalog] = useState<SkillCatalogItem[] | null>(null)
-  const [refreshing, setRefreshing] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const resource = useSkillsStore(state => state.entries.catalog)
+  const catalog = resource?.data ?? null
+  const refreshing = resource?.loading ?? false
+  const [actionError, setError] = useState<string | null>(null)
+  const error = actionError ?? resource?.error
   const [uploading, setUploading] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<SkillCatalogItem | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const load = useCallback(async () => {
-    setError(null)
-    try {
-      setCatalog(await listSkillCatalog())
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "failed to load")
-    }
-  }, [])
-
   useEffect(() => {
-    let cancelled = false
-    queueMicrotask(() => {
-      if (!cancelled) void load()
-    })
-    return () => { cancelled = true }
-  }, [load])
+    if (active) void refreshSkills()
+  }, [active])
 
   async function refresh() {
-    if (refreshing) return
-    setRefreshing(true)
-    const start = Date.now()
-    try {
-      await load()
-    } finally {
-      const elapsed = Date.now() - start
-      if (elapsed < MIN_REFRESH_SPIN_MS) {
-        await new Promise(r => setTimeout(r, MIN_REFRESH_SPIN_MS - elapsed))
-      }
-      setRefreshing(false)
-    }
+    setError(null)
+    await refreshSkills()
   }
 
   async function onPickerChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -86,8 +62,7 @@ export function SkillBrowserPanel() {
     setError(null)
     try {
       // Upload to root: a skill zip is a `<slug>/SKILL.md (+assets)` folder.
-      await uploadSkillZip("/", file)
-      await load()
+      await skillActions.upload("/", file)
     } catch (err) {
       setError(err instanceof Error ? err.message : "upload failed")
     } finally {
@@ -97,8 +72,7 @@ export function SkillBrowserPanel() {
 
   async function confirmDelete(target: SkillCatalogItem) {
     try {
-      await deleteSkillFile(`/${target.slug}`)
-      await load()
+      await skillActions.remove(`/${target.slug}`)
     } catch (e) {
       setError(e instanceof Error ? e.message : "delete failed")
     }

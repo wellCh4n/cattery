@@ -7,13 +7,14 @@
 // else through the shiki-highlighted FileViewer. This is the main-pane
 // counterpart to the skill browser's old modal.
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { File as FileIcon, Folder, Loader2, Puzzle } from "lucide-react"
 import { FileViewer } from "@/components/file-viewer"
 import { Markdown } from "@/components/markdown"
 import { Tree, type TreeNode } from "@/components/tree"
 import { cn } from "@/lib/utils"
-import { listSkills, readSkillFile, type FileEntry, type FileReadResponse } from "@/lib/api"
+import { type FileEntry } from "@/lib/api"
+import { useSkillDirectoriesStore, useSkillContentsStore } from "@/lib/skills-store"
 
 const MARKDOWN_EXTS = new Set(["md", "markdown", "mdown", "mkd"])
 
@@ -43,65 +44,32 @@ function sortEntries(entries: FileEntry[]): FileEntry[] {
 export function SkillView({ slug, name }: { slug: string; name: string }) {
   const base = `/${slug}`
   const manifestPath = `${base}/SKILL.md`
-  const [childrenByPath, setChildrenByPath] = useState<Record<string, FileEntry[]>>({})
+  const directories = useSkillDirectoriesStore(state => state.entries)
+  const childrenByPath = useMemo(() => Object.fromEntries(
+    Object.entries(directories).filter(([, entry]) => entry.data).map(([path, entry]) => [path, sortEntries(entry.data!)]),
+  ), [directories])
+  const loadingPaths = useMemo(() => new Set(Object.keys(directories).filter(path => directories[path].loading)), [directories])
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
-  const [loadingPaths, setLoadingPaths] = useState<Set<string>>(() => new Set())
   const [selected, setSelected] = useState<string>(manifestPath)
   const [mode, setMode] = useState<PreviewMode>("preview")
-  const [data, setData] = useState<FileReadResponse | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const resource = useSkillContentsStore(state => state.entries[selected])
+  const data = resource?.data ?? null
+  const loading = !data && (resource?.loading ?? true)
+  const error = resource?.error
+  const loadDir = useCallback((path: string) => useSkillDirectoriesStore.getState().load(path), [])
 
-  // The skill's file tree is secondary to the preview, so listing failures are
-  // swallowed rather than surfaced over the SKILL.md content.
-  const loadDir = useCallback(async (path: string) => {
-    setLoadingPaths(prev => new Set(prev).add(path))
-    try {
-      const list = await listSkills(path)
-      setChildrenByPath(prev => ({ ...prev, [path]: sortEntries(list) }))
-    } catch { /* ignore */ } finally {
-      setLoadingPaths(prev => {
-        const next = new Set(prev)
-        next.delete(path)
-        return next
-      })
-    }
-  }, [])
-
-  useEffect(() => {
-    let cancelled = false
-    queueMicrotask(() => { if (!cancelled) void loadDir(base) })
-    return () => { cancelled = true }
-  }, [base, loadDir])
-
-  useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      setLoading(true)
-      setError(null)
-      try {
-        const d = await readSkillFile(selected)
-        if (!cancelled) setData(d)
-      } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : "failed to open")
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    })()
-    return () => { cancelled = true }
-  }, [selected])
+  useEffect(() => { void loadDir(base) }, [base, loadDir])
+  useEffect(() => { void useSkillContentsStore.getState().load(selected) }, [selected])
 
   function toggleExpand(path: string) {
+    const opening = !expanded.has(path)
     setExpanded(prev => {
       const next = new Set(prev)
-      if (next.has(path)) {
-        next.delete(path)
-      } else {
-        next.add(path)
-        if (!childrenByPath[path]) void loadDir(path)
-      }
+      if (opening) next.add(path)
+      else next.delete(path)
       return next
     })
+    if (opening && !childrenByPath[path]) void loadDir(path)
   }
 
   function buildNode(entry: FileEntry, path: string): TreeNode {

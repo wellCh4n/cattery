@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react"
 import { ChevronRight } from "lucide-react"
-import { FileViewer } from "@/components/file-viewer"
+import { TextPreview } from "./text-preview"
 import { cn } from "@/lib/utils"
 
 type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
@@ -26,7 +26,7 @@ export function JsonPreview({ content, path, truncated }: {
     return (
       <div>
         <p role="status" className="border-b p-3 text-amber-700 dark:text-amber-400">{parsed.error}</p>
-        <FileViewer path={path} lines={content.split("\n").map((text, i) => ({ n: i + 1, text }))} />
+        <TextPreview path={path} content={content} />
       </div>
     )
   }

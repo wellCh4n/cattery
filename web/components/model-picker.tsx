@@ -59,7 +59,7 @@ function useCatalog() {
   return catalog
 }
 
-const pill = "rounded-full"
+const pill = "rounded-full text-foreground hover:border-foreground/30 aria-expanded:border-foreground/30 dark:hover:border-foreground/30 dark:aria-expanded:border-foreground/30"
 
 export function ModelPicker({ sessionId, model, disabled, className }: Omit<Props, "effort">) {
   const catalog = useCatalog()
@@ -133,9 +133,17 @@ export function EffortPicker({ sessionId, model, effort, disabled, className }: 
           />
         }
       >
-        <span className="text-muted-foreground">Effort</span>
-        {saving ? <Loader2 className="animate-spin" /> : effortLabel(current)}
-        <ChevronDownIcon />
+        <span>Effort</span>
+        <span className="grid text-left">
+          {/* Reserve the widest available label even while saving or switching. */}
+          {(provider?.efforts ?? []).map(e => (
+            <span key={e} aria-hidden="true" className="invisible col-start-1 row-start-1">
+              {effortLabel(e)}
+            </span>
+          ))}
+          <span className="col-start-1 row-start-1">{effortLabel(current)}</span>
+        </span>
+        {saving ? <Loader2 className="size-4 animate-spin" /> : <ChevronDownIcon className="size-4" />}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-36">
         <DropdownMenuGroup>

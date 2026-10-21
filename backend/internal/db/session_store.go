@@ -37,7 +37,7 @@ func (s *SessionStore) GetByID(ctx context.Context, id uuid.UUID) (*model.Sessio
 func (s *SessionStore) ListByProject(ctx context.Context, projectID uuid.UUID) ([]*model.Session, error) {
 	var sessions []*model.Session
 	err := s.db.SelectContext(ctx, &sessions,
-		`SELECT `+sessionColumns+` FROM sessions WHERE project_id=$1 ORDER BY created_at DESC`, projectID,
+		`SELECT `+sessionColumns+` FROM sessions WHERE project_id=$1 ORDER BY COALESCE(last_seen_at, created_at) DESC, created_at DESC, session_id ASC`, projectID,
 	)
 	return sessions, err
 }

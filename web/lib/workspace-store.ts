@@ -67,6 +67,7 @@ interface WorkspaceStore {
   startSandbox: (projectId: string) => Promise<void>
   stopSandbox: (projectId: string) => Promise<void>
   setSessionBusy: (sessionId: string, busy: boolean) => void
+  markSessionActivity: (sessionId: string) => void
 }
 
 // mapSessions applies fn to the session list of the project that owns sessionId.
@@ -155,6 +156,17 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       projects: state.projects.map(project => ({
         ...project,
         sessions: project.sessions.map(s => s.session_id === sessionId ? { ...s, title } : s),
+      })),
+    }))
+  },
+
+  markSessionActivity: sessionId => {
+    const lastSeenAt = new Date().toISOString()
+    set(state => ({
+      projects: state.projects.map(project => ({
+        ...project,
+        sessions: project.sessions.map(session => session.session_id === sessionId
+          ? { ...session, last_seen_at: lastSeenAt } : session),
       })),
     }))
   },

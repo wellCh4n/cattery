@@ -9,6 +9,16 @@ import {
 } from "@/lib/api"
 import { getStoredToken, setStoredToken } from "@/lib/auth-token"
 
+import { fileActions } from "@/lib/files-store"
+import { useMembersStore } from "@/lib/members-store"
+import { skillActions } from "@/lib/skills-store"
+
+function resetResourceCaches() {
+  fileActions.reset()
+  useMembersStore.getState().reset()
+  skillActions.reset()
+}
+
 interface AuthState {
   user: CurrentUser | null
   // status moves from `loading` (initial /me probe) to `authed` / `anon`.
@@ -45,11 +55,13 @@ export const useAuthStore = create<AuthState>(set => ({
 
   login: async (email, password) => {
     const { token, user } = await apiLogin(email, password)
+    resetResourceCaches()
     setStoredToken(token)
     set({ user, status: "authed" })
   },
 
   logout: () => {
+    resetResourceCaches()
     setStoredToken(null)
     set({ user: null, status: "anon" })
     if (typeof window !== "undefined") {

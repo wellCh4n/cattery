@@ -208,13 +208,20 @@ func (h *SessionHandler) SendMessage(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadGateway, err.Error())
 	}
 
-	go h.sessionStore.MarkSeen(context.Background(), sessionID)
+	// Persist activity before acknowledging the send so a concurrent list/get
+	// cannot replace the client's new activity timestamp with the old value.
+	activityCtx, cancelActivity := context.WithTimeout(context.Background(), 5*time.Second)
+	if err := h.sessionStore.MarkSeen(activityCtx, sessionID); err != nil {
+		log.Printf("warn: save activity for %s: %v", sessionID, err)
+	}
+	cancelActivity()
 
 	c.Response().Header().Set("Content-Type", "text/event-stream")
 	c.Response().Header().Set("Cache-Control", "no-cache")
 	c.Response().Header().Set("Connection", "keep-alive")
 	c.Response().Header().Set("X-Accel-Buffering", "no")
 	c.Response().WriteHeader(http.StatusOK)
+	c.Response().Flush()
 
 	// 流式事件中如果出现 session.title，把 title 落库（agent 在首条消息时发）
 	onEvent := func(ev *harness.PlatformEvent) {

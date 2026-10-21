@@ -21,16 +21,15 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import {
-  createProjectMember,
-  deleteProjectMember,
-  listProjectMembers,
   searchUsers,
   type Project,
   type ProjectMember,
   type UserSummary,
 } from "@/lib/api"
 
-const MIN_REFRESH_SPIN_MS = 1000
+import { memberActions, useMembersStore } from "@/lib/members-store"
+
+const EMPTY_MEMBERS: ProjectMember[] = []
 // The transfer box lists the whole directory on the left; ask for the store's
 // ceiling rather than the default 20-row autocomplete cap.
 const DIRECTORY_LIMIT = 50
@@ -38,67 +37,38 @@ const DIRECTORY_LIMIT = 50
 interface Props {
   project: Project
   canManage: boolean
+  active: boolean
 }
 
-export function ProjectMembersPanel({ project, canManage }: Props) {
-  const [members, setMembers] = useState<ProjectMember[]>([])
-  const [loading, setLoading] = useState(true)
+export function ProjectMembersPanel({ project, canManage, active }: Props) {
+  const resource = useMembersStore(state => state.entries[project.project_id])
+  const members = resource?.data ?? EMPTY_MEMBERS
+  const loading = !resource?.data && (resource?.loading ?? true)
+  const refreshing = resource?.loading ?? false
   const [busy, setBusy] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [actionError, setError] = useState<string | null>(null)
+  const error = actionError ?? resource?.error
   const [manageOpen, setManageOpen] = useState(false)
-  const [refreshing, setRefreshing] = useState(false)
 
   async function refreshMembers() {
-    setRefreshing(true)
-    const startedAt = Date.now()
-    setLoading(true)
     setError(null)
-    try {
-      setMembers(await listProjectMembers(project.project_id))
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "failed to load members")
-    } finally {
-      setLoading(false)
-      const remaining = MIN_REFRESH_SPIN_MS - (Date.now() - startedAt)
-      if (remaining > 0) await new Promise(resolve => setTimeout(resolve, remaining))
-      setRefreshing(false)
-    }
+    await useMembersStore.getState().invalidate(project.project_id)
   }
 
   useEffect(() => {
-    let cancelled = false
-    queueMicrotask(() => {
-      if (cancelled) return
-      setLoading(true)
-      setError(null)
-      listProjectMembers(project.project_id)
-        .then(list => { if (!cancelled) setMembers(list) })
-        .catch(e => { if (!cancelled) setError(e instanceof Error ? e.message : "failed to load members") })
-        .finally(() => { if (!cancelled) setLoading(false) })
-    })
-    return () => { cancelled = true }
-  }, [project.project_id])
+    if (active) void useMembersStore.getState().invalidate(project.project_id)
+  }, [active, project.project_id])
 
   async function removeMember(member: ProjectMember) {
     setBusy(member.user_id)
     setError(null)
     try {
-      await deleteProjectMember(project.project_id, member.user_id)
-      setMembers(list => list.filter(m => m.user_id !== member.user_id))
+      await memberActions.remove(project.project_id, member.user_id)
     } catch (e) {
       setError(e instanceof Error ? e.message : "remove failed")
     } finally {
       setBusy(null)
     }
-  }
-
-  function handleAdded(member: ProjectMember) {
-    setMembers(list => [...list.filter(m => m.user_id !== member.user_id), member]
-      .sort((a, b) => a.username.localeCompare(b.username)))
-  }
-
-  function handleRemoved(userId: string) {
-    setMembers(list => list.filter(m => m.user_id !== userId))
   }
 
   return (
@@ -161,8 +131,6 @@ export function ProjectMembersPanel({ project, canManage }: Props) {
         open={manageOpen}
         onOpenChange={setManageOpen}
         members={members}
-        onAdded={handleAdded}
-        onRemoved={handleRemoved}
       />
     </div>
   )
@@ -213,24 +181,19 @@ function MemberRow({
 
 // ManageMembersDialog is a transfer box (穿梭框): all users on the left, the
 // project's current members on the right. Selecting rows on either side and
-// hitting the center arrow applies the change immediately — left→right calls
-// createProjectMember, right→left calls deleteProjectMember — and reports each
-// result up so the sidebar list stays in sync. The owner is never listed; they
+// hitting the center arrow applies the shared member actions, so the dialog
+// and sidebar observe the same membership data. The owner is never listed; they
 // cannot be removed.
 function ManageMembersDialog({
   project,
   open,
   onOpenChange,
   members,
-  onAdded,
-  onRemoved,
 }: {
   project: Project
   open: boolean
   onOpenChange: (open: boolean) => void
   members: ProjectMember[]
-  onAdded: (member: ProjectMember) => void
-  onRemoved: (userId: string) => void
 }) {
   const [allUsers, setAllUsers] = useState<UserSummary[]>([])
   const [loadingUsers, setLoadingUsers] = useState(false)
@@ -254,7 +217,7 @@ function ManageMembersDialog({
       return
     }
     let cancelled = false
-    setLoadingUsers(true)
+    queueMicrotask(() => { if (!cancelled) setLoadingUsers(true) })
     searchUsers("", DIRECTORY_LIMIT)
       .then(list => { if (!cancelled) setAllUsers(list) })
       .catch(e => { if (!cancelled) setError(e instanceof Error ? e.message : "failed to load users") })
@@ -291,8 +254,7 @@ function ManageMembersDialog({
     setError(null)
     try {
       for (const user of picked) {
-        const member = await createProjectMember(project.project_id, { username: user.username })
-        onAdded(member)
+        await memberActions.add(project.project_id, user.username)
       }
       setLeftSelected(new Set())
     } catch (e) {
@@ -309,8 +271,7 @@ function ManageMembersDialog({
     setError(null)
     try {
       for (const member of picked) {
-        await deleteProjectMember(project.project_id, member.user_id)
-        onRemoved(member.user_id)
+        await memberActions.remove(project.project_id, member.user_id)
       }
       setRightSelected(new Set())
     } catch (e) {

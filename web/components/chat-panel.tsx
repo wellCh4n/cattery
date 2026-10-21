@@ -104,6 +104,8 @@ function toSegments(bubbles: Bubble[]): Segment[] {
 export function ChatPanel({ session }: Props) {
   const [input, setInput] = useState("")
   const formRef = useRef<HTMLFormElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+  const focusedSessionRef = useRef<string | null>(null)
   const chat = useChatStreamStore(state => state.sessions[session.session_id])
   const bubbles = chat?.bubbles ?? EMPTY_BUBBLES
   const sending = chat?.sending ?? false
@@ -114,6 +116,14 @@ export function ChatPanel({ session }: Props) {
   const turns = useMemo(() => toTurns(bubbles), [bubbles])
   const ready = session.status === "ready"
   const canSend = ready && !sending && input.trim().length > 0
+
+  useEffect(() => {
+    if (!ready || sending || focusedSessionRef.current === session.session_id) return
+    const input = inputRef.current
+    if (!input) return
+    input.focus({ preventScroll: true })
+    focusedSessionRef.current = session.session_id
+  }, [ready, sending, session.session_id])
 
   useEffect(() => {
     if (!ready) return
@@ -216,6 +226,7 @@ export function ChatPanel({ session }: Props) {
                 controls already dim themselves, so keep the box as is. */}
             <InputGroup className="rounded-3xl bg-background has-disabled:bg-background has-disabled:opacity-100 dark:has-disabled:bg-input/30">
               <InputGroupTextarea
+                ref={inputRef}
                 value={input}
                 disabled={!ready || sending}
                 onChange={e => setInput(e.target.value)}

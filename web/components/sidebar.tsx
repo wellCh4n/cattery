@@ -43,6 +43,7 @@ import { useResizable } from "@/lib/use-resizable"
 import { type Session } from "@/lib/api"
 import { type ProjectWithSessions, useWorkspaceStore } from "@/lib/workspace-store"
 import { useAuthStore } from "@/lib/auth-store"
+import { compareSessionActivity, sessionActivityTime } from "@/lib/session-activity"
 
 type SidebarView = "sessions" | "files" | "members" | "skills"
 const VIEW_STORAGE_KEY = "cattery:sidebar:view"
@@ -155,7 +156,7 @@ export function Sidebar() {
     () => projects.find(p => p.project_id === currentProjectId) ?? null,
     [projects, currentProjectId],
   )
-  const sessions = currentProject?.sessions ?? []
+  const sessions = useMemo(() => [...(currentProject?.sessions ?? [])].sort(compareSessionActivity), [currentProject?.sessions])
   const sandboxStatus = currentProject?.sandbox_status ?? "idle"
 
   // The sandbox starts on demand (first session / first message after a
@@ -539,6 +540,7 @@ export function Sidebar() {
               <ProjectMembersPanel
                 key={currentProject.project_id}
                 project={currentProject}
+                active={view === "members"}
                 canManage={currentProject.access_role === "owner"}
               />
             ) : (
@@ -547,7 +549,7 @@ export function Sidebar() {
           )}
         </div>
         <div className={cn("min-h-0 flex-1 overflow-hidden", view === "skills" ? "block" : "hidden")}>
-          {visitedViews.has("skills") && <SkillBrowserPanel />}
+          {visitedViews.has("skills") && <SkillBrowserPanel active={view === "skills"} />}
         </div>
         </div>
 
@@ -646,6 +648,14 @@ function sandboxDot(status: string): string {
   return "bg-muted-foreground/40"
 }
 
+function formatSessionTime(timestamp: string): string {
+  const date = new Date(timestamp)
+  if (date.toDateString() === new Date().toDateString()) {
+    return date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
+  }
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" })
+}
+
 function buildSessionNode({
   session,
   selected,
@@ -676,14 +686,16 @@ function buildSessionNode({
           />
         )}
         <span className="flex-1 truncate">{session.title ?? "New Session"}</span>
-        <span
-          className="flex shrink-0 items-center text-muted-foreground/70 group-hover/treerow:hidden"
-          title={session.model}
-        >
-          <ModelIcon id={session.model} className="size-3" />
-        </span>
-        <span className="shrink-0 text-[10px] text-muted-foreground/70 group-hover/treerow:hidden">
-          {new Date(session.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+        <span className="flex shrink-0 items-center gap-1.5 text-muted-foreground/70 group-hover/treerow:hidden">
+          <span className="flex items-center" title={session.model}>
+            <ModelIcon id={session.model} className="size-3" />
+          </span>
+          <span
+            className="font-mono text-[10px] font-normal tabular-nums"
+            title={new Date(sessionActivityTime(session)).toLocaleString()}
+          >
+            {formatSessionTime(sessionActivityTime(session))}
+          </span>
         </span>
       </>
     ),

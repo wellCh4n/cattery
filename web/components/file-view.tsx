@@ -1,17 +1,11 @@
 "use client"
 
-// FileView — renders a single project file filling its container: a thin header
-// (path + truncation badge + preview/source toggle + download) over a scrolling
-// body. The body picks a renderer from the file extension: images via <img>,
-// PDFs/HTML via <iframe> (served raw by the backend), markdown via Markdown (or
-// raw source), everything else through the shiki-highlighted FileViewer. This
-// is the main-pane counterpart to the file browser's old modal preview.
+// Shared file shell: loading, header and source mode. Format-specific
+// rendering and capabilities live in the file-preview registry.
 
 import { useEffect, useState } from "react"
 import { Download, File as FileIcon, Loader2 } from "lucide-react"
-import { FileViewer } from "@/components/file-viewer"
-import { Markdown } from "@/components/markdown"
-import { JsonPreview } from "@/components/json-preview"
+import { previewForPath, textPreview } from "@/components/file-preview/registry"
 import { cn } from "@/lib/utils"
 import {
   downloadFileURL,
@@ -21,35 +15,12 @@ import {
   type FileReadResponse,
 } from "@/lib/api"
 
-const IMAGE_EXTS = new Set([
-  "png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico", "avif",
-])
-const HTML_EXTS = new Set(["html", "htm"])
-const MARKDOWN_EXTS = new Set(["md", "markdown", "mdown", "mkd"])
-
-type FileKind = "text" | "image" | "pdf" | "html" | "markdown" | "json"
 type PreviewMode = "preview" | "source"
 
-function extOf(path: string): string {
-  const dot = path.lastIndexOf(".")
-  return dot < 0 ? "" : path.slice(dot + 1).toLowerCase()
-}
-
-function kindForPath(path: string): FileKind {
-  const ext = extOf(path)
-  if (IMAGE_EXTS.has(ext)) return "image"
-  if (ext === "pdf") return "pdf"
-  if (ext === "json") return "json"
-  if (HTML_EXTS.has(ext)) return "html"
-  if (MARKDOWN_EXTS.has(ext)) return "markdown"
-  return "text"
-}
-
 export function FileView({ projectId, path }: { projectId: string; path: string }) {
-  const kind = kindForPath(path)
-  // Only text-like files are fetched into memory; images/pdfs are streamed by
-  // the browser straight from the raw endpoints.
-  const needsRead = kind === "text" || kind === "html" || kind === "markdown" || kind === "json"
+  const preview = previewForPath(path)
+  // Prefetch source for formats with a toggle, including URL-based previews.
+  const needsRead = preview.input === "content" || preview.supportsSource
   const [data, setData] = useState<FileReadResponse | null>(null)
   const [loading, setLoading] = useState<boolean>(() => needsRead)
   const [error, setError] = useState<string | null>(null)
@@ -79,8 +50,16 @@ export function FileView({ projectId, path }: { projectId: string; path: string 
     return () => { cancelled = true }
   }, [projectId, path, needsRead])
 
-  const canToggle = kind === "html" || kind === "markdown" || kind === "json"
-  const showSource = canToggle && mode === "source"
+  const canToggle = preview.supportsSource
+  const renderer = canToggle && mode === "source" ? textPreview : preview
+  const Preview = renderer.component
+  const previewProps = {
+    path,
+    content: data?.content ?? "",
+    truncated: data?.truncated ?? false,
+    rawURL: rawFileURL(projectId, path),
+    rawPathURL: rawFilePathURL(projectId, path),
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background text-xs">
@@ -127,20 +106,8 @@ export function FileView({ projectId, path }: { projectId: string; path: string 
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto">
-        {kind === "image" ? (
-          <div className="flex h-full items-center justify-center p-4">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={rawFileURL(projectId, path)} alt={path} className="max-h-full max-w-full object-contain" />
-          </div>
-        ) : kind === "pdf" ? (
-          <iframe src={rawFilePathURL(projectId, path)} title={path} className="h-full w-full border-0 bg-muted" />
-        ) : kind === "html" && !showSource ? (
-          <iframe
-            src={rawFilePathURL(projectId, path)}
-            title={path}
-            sandbox="allow-forms allow-modals allow-popups allow-same-origin allow-scripts"
-            className="h-full w-full border-0 bg-white"
-          />
+        {renderer.input === "url" ? (
+          <Preview {...previewProps} />
         ) : loading ? (
           <div className="p-4 text-muted-foreground"><Loader2 className="size-4 animate-spin" /></div>
         ) : error ? (
@@ -149,17 +116,8 @@ export function FileView({ projectId, path }: { projectId: string; path: string 
           <p className="p-6 italic text-muted-foreground">
             Binary file ({data.size} bytes). Use download to fetch it.
           </p>
-        ) : kind === "json" && !showSource ? (
-          <JsonPreview path={path} content={data?.content ?? ""} truncated={data?.truncated ?? false} />
-        ) : kind === "markdown" && !showSource ? (
-          <div className="mx-auto w-full max-w-4xl p-6">
-            <Markdown className="text-foreground">{data?.content ?? ""}</Markdown>
-          </div>
         ) : (
-          <FileViewer
-            path={path}
-            lines={(data?.content ?? "").split("\n").map((text, i) => ({ n: i + 1, text }))}
-          />
+          <Preview {...previewProps} />
         )}
       </div>
     </div>
