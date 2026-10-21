@@ -10,6 +10,7 @@ import { refreshFiles, toolChangedDirectories } from "@/lib/files-store"
 import { selectSession, useWorkspaceStore } from "@/lib/workspace-store"
 
 export interface MessageDeltaData  { partId: string; text: string }
+export interface ThinkingDoneData  { partId: string; durationMs: number }
 export interface ToolStartData     { toolId: string; tool: string; input?: string }
 export interface ToolDoneData      { toolId: string; tool: string; output?: string; parsed?: unknown }
 export interface SessionErrorData  { message: string }
@@ -24,6 +25,9 @@ export interface Bubble {
   toolStatus?: "pending" | "running" | "completed"
   toolOutput?: string
   toolParsed?: unknown
+  // Thinking: local start time while streaming; agent-measured length once done.
+  startedAt?: number
+  durationMs?: number
   done: boolean
 }
 
@@ -31,6 +35,7 @@ export interface PlatformEvent {
   type:
     | "message.delta"
     | "message.thinking"
+    | "message.thinking.done"
     | "tool.start"
     | "tool.done"
     | "session.idle"
@@ -38,6 +43,7 @@ export interface PlatformEvent {
     | "session.title"
   data:
     | MessageDeltaData
+    | ThinkingDoneData
     | ToolStartData
     | ToolDoneData
     | SessionErrorData
@@ -107,6 +113,10 @@ function restoreHistory(items: Awaited<ReturnType<typeof getHistory>>): Bubble[]
             done: true,
           })
         }
+      } else if (ev.type === "message.thinking.done") {
+        const d = ev.data as Partial<ThinkingDoneData>
+        const existing = restored.find(b => b.id === d.partId && b.kind === "thinking")
+        if (existing) existing.durationMs = d.durationMs
       } else if (ev.type === "tool.start") {
         const d = ev.data as { toolId?: string; tool?: string; input?: string }
         if (!d.toolId) continue
@@ -392,8 +402,20 @@ export const useChatStreamStore = create<ChatStreamStore>((set, get) => ({
             ? session.bubbles.map(b => b.id === d.partId && b.kind === "thinking" ? { ...b, content: b.content + d.text } : b)
             : [
                 ...session.bubbles.filter(b => !(b.kind === "text" && !b.done && b.content === "")),
-                { id: d.partId, role: "assistant" as const, kind: "thinking" as const, content: d.text, done: false },
+                { id: d.partId, role: "assistant" as const, kind: "thinking" as const, content: d.text, startedAt: Date.now(), done: false },
               ]
+          return { sessions: { ...state.sessions, [sessionId]: { ...session, bubbles } } }
+        })
+        break
+      }
+
+      case "message.thinking.done": {
+        const d = ev.data as ThinkingDoneData
+        set(state => {
+          const session = state.sessions[sessionId] ?? emptySession()
+          const bubbles = session.bubbles.map(b =>
+            b.id === d.partId && b.kind === "thinking" ? { ...b, durationMs: d.durationMs, done: true } : b,
+          )
           return { sessions: { ...state.sessions, [sessionId]: { ...session, bubbles } } }
         })
         break

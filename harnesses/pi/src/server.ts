@@ -21,7 +21,7 @@
  *
  * Events are emitted already in platform shape (see
  * backend/internal/harness/event.go), wrapped with `sessionId` for routing:
- *   message.delta / message.thinking / tool.start / tool.done
+ *   message.delta / message.thinking / message.thinking.done / tool.start / tool.done
  *   session.title / session.error / session.idle
  *
  * SDK JSONL sessions are persisted on the workspace PVC,
@@ -118,7 +118,7 @@ function userText(content: unknown): string {
 }
 
 /** Rebuild platform history from a transcript: one item per user prompt and one per agent run. */
-function toHistory(messages: AgentMessage[]): HistoryItem[] {
+function toHistory(messages: AgentMessage[], thinkingMs: Map<string, number>): HistoryItem[] {
   const items: HistoryItem[] = []
   let current: HistoryItem | null = null
   const toolNames = new Map<string, string>()
@@ -141,7 +141,10 @@ function toHistory(messages: AgentMessage[]): HistoryItem[] {
         if (b.type === 'text' && b.text) {
           current!.events.push({ type: 'message.delta', data: { partId: partId(m, 't', i), text: b.text } })
         } else if (b.type === 'thinking' && b.thinking) {
-          current!.events.push({ type: 'message.thinking', data: { partId: partId(m, 'k', i), text: b.thinking } })
+          const id = partId(m, 'k', i)
+          current!.events.push({ type: 'message.thinking', data: { partId: id, text: b.thinking } })
+          const durationMs = thinkingMs.get(id)
+          if (durationMs !== undefined) current!.events.push({ type: 'message.thinking.done', data: { partId: id, durationMs } })
         } else if (b.type === 'toolCall') {
           toolNames.set(b.id, b.name)
           current!.events.push({ type: 'tool.start', data: { toolId: b.id, tool: b.name, input: JSON.stringify(b.name === 'questionnaire' ? prepareQuestionnaireArguments(b.arguments) : b.arguments ?? {}) } })
@@ -181,6 +184,8 @@ interface Session {
   busy: boolean
   questionnaire: Questionnaire
   titleAbort?: AbortController
+  // Start time of each thinking block still streaming, keyed by partId.
+  thinkingStarts: Map<string, number>
   persistQueue?: Promise<void>
   run?: Promise<void>
 }
@@ -239,15 +244,28 @@ async function newSession(id: string, ref: ModelRef, gateway: Gateway, titleAtte
     customTools: [questionnaire.tool],
   })
   const sess: Session = { id, model: ref, gateway, sdk, manager, runtime,
-    titled: manager.getEntries().some(e => e.type === 'message' && e.message.role === 'user'), titleAttempted, busy: false, questionnaire }
+    titled: manager.getEntries().some(e => e.type === 'message' && e.message.role === 'user'), titleAttempted, busy: false, questionnaire, thinkingStarts: new Map() }
   sdk.subscribe(ev => forward(sess, ev))
   sessions.set(id, sess)
   return sess
 }
 
+// Thinking durations are stored as custom transcript entries, which never reach the model.
+const THINKING_ENTRY = 'cattery.thinking'
+interface ThinkingEntryData { partId: string; durationMs: number }
+
 // UI history comes from the full persisted branch, not the compacted LLM context.
-function historyMessages(sess: Session): AgentMessage[] {
-  return sess.manager.getBranch().flatMap(entry => entry.type === 'message' ? [entry.message] : [])
+function history(sess: Session): HistoryItem[] {
+  const messages: AgentMessage[] = []
+  const thinkingMs = new Map<string, number>()
+  for (const entry of sess.manager.getBranch()) {
+    if (entry.type === 'message') messages.push(entry.message)
+    else if (entry.type === 'custom' && entry.customType === THINKING_ENTRY) {
+      const d = entry.data as ThinkingEntryData
+      thinkingMs.set(d.partId, d.durationMs)
+    }
+  }
+  return toHistory(messages, thinkingMs)
 }
 
 function forward(sess: Session, ev: AgentSessionEvent): void {
@@ -256,8 +274,18 @@ function forward(sess: Session, ev: AgentSessionEvent): void {
       const e = ev.assistantMessageEvent
       if (e.type === 'text_delta') {
         broadcast(sess.id, { type: 'message.delta', data: { partId: partId(e.partial, 't', e.contentIndex), text: e.delta } })
+      } else if (e.type === 'thinking_start') {
+        sess.thinkingStarts.set(partId(e.partial, 'k', e.contentIndex), Date.now())
       } else if (e.type === 'thinking_delta') {
         broadcast(sess.id, { type: 'message.thinking', data: { partId: partId(e.partial, 'k', e.contentIndex), text: e.delta } })
+      } else if (e.type === 'thinking_end') {
+        const id = partId(e.partial, 'k', e.contentIndex)
+        const started = sess.thinkingStarts.get(id)
+        if (started === undefined) return
+        sess.thinkingStarts.delete(id)
+        const data: ThinkingEntryData = { partId: id, durationMs: Date.now() - started }
+        sess.manager.appendCustomEntry(THINKING_ENTRY, data)
+        broadcast(sess.id, { type: 'message.thinking.done', data })
       }
       return
     }
@@ -489,7 +517,7 @@ app.delete('/session/:id', asyncRoute(async (req, res) => {
 
 app.get('/session/:id/message', asyncRoute(async (req, res) => {
   const sess = await openSession(req.params.id)
-  const items = sess ? toHistory(historyMessages(sess)) : []
+  const items = sess ? history(sess) : []
   items.push({ messageId: 'session-state', role: 'assistant', events: [{ type: 'session.state', data: { busy: sess?.busy ?? false } }] })
   res.json(items)
 }))

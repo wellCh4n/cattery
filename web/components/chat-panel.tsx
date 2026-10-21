@@ -368,23 +368,37 @@ function AgentTurn({ bubbles, streaming, sessionId }: { bubbles: Bubble[]; strea
   )
 }
 
-// AI Elements Reasoning: open while the thought streams, collapsed after.
+// Whole seconds since `startedAt`, ticking while `active`.
+function useElapsedSeconds(startedAt: number | undefined, active: boolean): number | undefined {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!active || startedAt === undefined) return
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [active, startedAt])
+  return startedAt === undefined ? undefined : Math.max(0, Math.floor((now - startedAt) / 1000))
+}
+
+// AI Elements Reasoning, collapsed by default; the header carries the time spent thinking.
 function ReasoningRow({ bubble }: { bubble: Bubble }) {
   const running = !bubble.done
-  const [open, setOpen] = useState<boolean>()
+  const elapsed = useElapsedSeconds(bubble.startedAt, running)
+  const seconds = running ? elapsed : bubble.durationMs === undefined ? undefined : Math.round(bubble.durationMs / 1000)
 
   return (
-    <TraceCollapsible open={open ?? running} onOpenChange={setOpen}>
+    <TraceCollapsible>
       <TraceCollapsibleTrigger>
         <TraceLine status={running ? "running" : undefined}>
           <TraceIcon>
             {running ? <LoaderCircleIcon className="animate-spin" /> : <CircleCheckIcon />}
           </TraceIcon>
-          <TraceTitle>{running ? "Thinking" : "Thought"}</TraceTitle>
+          <TraceTitle className="tabular-nums">
+            {running ? "Thinking" : "Thought"}{seconds !== undefined && ` ${seconds}s`}
+          </TraceTitle>
         </TraceLine>
       </TraceCollapsibleTrigger>
       <TraceCollapsibleContent>
-        <Markdown className="text-xs italic text-muted-foreground [&_*]:text-inherit">
+        <Markdown className="text-xs text-muted-foreground [&_*]:text-inherit">
           {bubble.content}
         </Markdown>
       </TraceCollapsibleContent>
