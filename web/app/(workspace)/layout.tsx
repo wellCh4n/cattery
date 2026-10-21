@@ -6,6 +6,7 @@ import { Loader2 } from "lucide-react"
 import { WorkspaceShell } from "@/components/workspace-shell"
 import { StatusBar } from "@/components/status-bar"
 import { TabBar } from "@/components/tab-bar"
+import { TerminalHost } from "@/components/terminal-host"
 import { useAuthStore } from "@/lib/auth-store"
 
 export default function WorkspaceLayout({ children }: { children: React.ReactNode }) {
@@ -50,7 +51,10 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
       <WorkspaceShell>
         <main className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-md border bg-background">
           <TabBar />
-          <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
+          <div className="relative min-h-0 flex-1 overflow-hidden">
+            {children}
+            <TerminalHost />
+          </div>
         </main>
       </WorkspaceShell>
       <StatusBar />

@@ -49,8 +49,8 @@ const Image = "cattery-pi:dev"
 
 // SkillsMountPath is where the global skill library is mounted (read-only) in
 // the agent container. The pi harness lists <slug>/SKILL.md entries from here
-// in its system prompt (HOME=/home/node).
-const SkillsMountPath = "/home/node/.agents/skills"
+// in its system prompt (HOME=/home/cattery).
+const SkillsMountPath = "/home/cattery/.agents/skills"
 
 type Manager struct {
 	store         *db.ProjectStore
@@ -179,6 +179,38 @@ func (m *Manager) Await(ctx context.Context, projectID uuid.UUID) (string, error
 // the agent container is not ready or has no published Pod IP yet.
 func (m *Manager) URL(ctx context.Context, projectID uuid.UUID) (string, bool) {
 	return m.k8sClient.ResolveContainerURL(ctx, NameFor(projectID), "agent", Port)
+}
+
+// TerminalPod returns the project Pod whose agent container is running,
+// provisioning the Pod if it is missing. It does not activate the agent: a
+// shell only needs the container, so stopped or failing agents stay reachable.
+func (m *Manager) TerminalPod(ctx context.Context, projectID uuid.UUID) (string, error) {
+	if pod, ok := m.k8sClient.RunningContainerPod(ctx, NameFor(projectID), "agent"); ok {
+		return pod, nil
+	}
+	if err := m.EnsureProject(ctx, projectID); err != nil {
+		return "", err
+	}
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+	defer cancel()
+	return m.k8sClient.WaitContainerRunning(ctx, NameFor(projectID), "agent")
+}
+
+// Exec runs an interactive TTY command in the agent container of pod.
+func (m *Manager) Exec(ctx context.Context, req k8s.ExecTTY) error {
+	req.Container = "agent"
+	return m.k8sClient.Exec(ctx, req)
+}
+
+// RunInAgent runs a command in the agent container if it is already running.
+// ran is false when there is no running container, so nothing was executed.
+func (m *Manager) RunInAgent(ctx context.Context, projectID uuid.UUID, command []string) (out string, ran bool, err error) {
+	pod, ok := m.k8sClient.RunningContainerPod(ctx, NameFor(projectID), "agent")
+	if !ok {
+		return "", false, nil
+	}
+	out, err = m.k8sClient.Run(ctx, pod, "agent", command)
+	return out, true, err
 }
 
 // Stop releases agent sessions while keeping the shared project Pod alive.

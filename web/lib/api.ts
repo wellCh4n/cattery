@@ -510,6 +510,22 @@ export async function adminDeleteUser(userId: string): Promise<void> {
   }
 }
 
+// terminalURL — WebSocket URL attaching a terminal's tmux session in the
+// project's agent container. WebSockets can't carry an Authorization header,
+// so the token rides in the query like the file URLs above.
+export function terminalURL(projectId: string, terminalId: string): string {
+  const http = `${API_BASE}/api/v1/projects/${projectId}/terminal?terminal=${terminalId}`
+  return appendToken(http.replace(/^http/, "ws"))
+}
+
+// killTerminal ends a terminal's tmux session and everything running in it.
+export async function killTerminal(projectId: string, terminalId: string): Promise<void> {
+  const res = await authedFetch(`${API_BASE}/api/v1/projects/${projectId}/terminals/${terminalId}`, { method: "DELETE" })
+  if (!res.ok && res.status !== 204) {
+    throw new Error(await readErrorMessage(res, `kill terminal failed (${res.status})`))
+  }
+}
+
 function appendToken(url: string): string {
   const token = getStoredToken()
   if (!token) return url

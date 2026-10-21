@@ -12,6 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
@@ -81,8 +82,11 @@ func commonLabels(component, instance string) map[string]interface{} {
 }
 
 type Client struct {
-	dynamic   dynamic.Interface
-	namespace string
+	dynamic dynamic.Interface
+	// restConfig and clientset back pod exec, which the dynamic client can't do.
+	restConfig *rest.Config
+	clientset  kubernetes.Interface
+	namespace  string
 	// storageClass is stamped on every PVC; empty means "cluster default".
 	storageClass string
 	// pvcAccessMode is the access mode for every PVC (e.g. ReadWriteOnce,
@@ -102,11 +106,17 @@ func NewClient(namespace, storageClass, pvcAccessMode string) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
+	cs, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
 	if pvcAccessMode == "" {
 		pvcAccessMode = "ReadWriteMany"
 	}
 	return &Client{
 		dynamic:       dyn,
+		restConfig:    cfg,
+		clientset:     cs,
 		namespace:     namespace,
 		storageClass:  storageClass,
 		pvcAccessMode: pvcAccessMode,
@@ -226,9 +236,12 @@ func (c *Client) RunTask(ctx context.Context, spec SandboxSpec) error {
 					},
 					"spec": map[string]interface{}{
 						"restartPolicy": "Always",
-						// The pi image runs as the unprivileged `node` user (uid 1000)
+						// A short, stable hostname for shell prompts instead of the
+						// generated Pod name; nothing resolves Pods by hostname.
+						"hostname": "sandbox",
+						// The pi image runs as the unprivileged `cattery` user (uid 1000)
 						// and needs write access to /work. fsGroup makes K8s chown the
-						// volume to gid 1000 so node can write.
+						// volume to gid 1000 so cattery can write.
 						"securityContext": map[string]interface{}{
 							"fsGroup": int64(1000),
 						},

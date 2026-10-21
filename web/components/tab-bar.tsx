@@ -1,18 +1,19 @@
 "use client"
 
 // TabBar — VSCode-style editor tabs across the top of the main pane. Every
-// session/skill/file route the user visits becomes a tab (opened
+// session/skill/file/terminal route the user visits becomes a tab (opened
 // lazily on navigation); the active tab tracks the current pathname. Tabs are
 // closable (× button, middle-click, or right-click menu), and closing the
 // active tab falls back to a neighbouring tab — or home when none are left.
 // Titles, icons and status all resolve live from the workspace store, so
-// renames and session title updates reflect immediately. Session tabs
-// whose session has been deleted are pruned once the workspace has loaded.
+// renames and session title updates reflect immediately. Session and terminal
+// tabs whose target has been deleted are pruned once the workspace has loaded.
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import { usePathname, useRouter } from "next/navigation"
-import { File as FileIcon, MessageSquare, Puzzle, Shield, X } from "lucide-react"
+import { File as FileIcon, MessageSquare, Puzzle, Shield, SquareTerminal, X } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { type Terminal, useTerminalStore } from "@/lib/terminal-store"
 import { findSession, type ProjectWithSessions, useWorkspaceStore } from "@/lib/workspace-store"
 import { type Tab, rememberProjectTab, projectTabToRestore, sameTab, tabForPath, tabHref, tabKey, useTabsStore } from "@/lib/tabs-store"
 
@@ -30,7 +31,7 @@ function sessionIconColor(status: string): string {
   return "text-muted-foreground"
 }
 
-function resolveTab(tab: Tab, projects: ProjectWithSessions[]): ResolvedTab {
+function resolveTab(tab: Tab, projects: ProjectWithSessions[], terminals: Terminal[]): ResolvedTab {
   if (tab.kind === "session") {
     const found = findSession(projects, tab.id)
     if (!found) {
@@ -40,6 +41,14 @@ function resolveTab(tab: Tab, projects: ProjectWithSessions[]): ResolvedTab {
       title: found.session.title ?? "New Session",
       exists: true,
       icon: <MessageSquare className={cn("size-3.5 shrink-0", sessionIconColor(found.session.status))} />,
+    }
+  }
+  if (tab.kind === "terminal") {
+    const terminal = terminals.find(t => t.id === tab.id)
+    return {
+      title: terminal?.title ?? "Terminal",
+      exists: terminal !== undefined,
+      icon: <SquareTerminal className="size-3.5 shrink-0 text-muted-foreground" />,
     }
   }
   if (tab.kind === "skill") {
@@ -77,6 +86,7 @@ export function TabBar() {
   const closeAll = useTabsStore(s => s.closeAll)
   const pruneTabs = useTabsStore(s => s.pruneTabs)
   const projects = useWorkspaceStore(s => s.projects)
+  const terminals = useTerminalStore(s => s.terminals)
   const loaded = useWorkspaceStore(s => s.loaded)
   const currentProjectId = useWorkspaceStore(s => s.currentProjectId)
   const setCurrentProject = useWorkspaceStore(s => s.setCurrentProject)
@@ -130,7 +140,7 @@ export function TabBar() {
     }
     const owner = routeTab.kind === "session"
       ? findSession(projects, routeTab.id)?.project.project_id
-      : routeTab.kind === "file" ? routeTab.projectId : currentProjectId
+      : routeTab.kind === "file" || routeTab.kind === "terminal" ? routeTab.projectId : currentProjectId
     if (!owner) return
     const routeKey = `${owner}:${pathname}`
     if (openedRoute.current === routeKey) return
@@ -149,10 +159,11 @@ export function TabBar() {
     for (const project of projects) {
       for (const session of project.sessions) keys.add(tabKey({ kind: "session", id: session.session_id }))
     }
+    for (const terminal of terminals) keys.add(tabKey({ kind: "terminal", id: terminal.id, projectId: terminal.projectId }))
     return keys
-  }, [projects])
+  }, [projects, terminals])
 
-  // Once the workspace is loaded, drop tabs whose session is gone. Never prune the route we're currently viewing — a
+  // Once the workspace is loaded, drop tabs whose session or terminal is gone. Never prune the route we're currently viewing — a
   // freshly-created session can briefly lag the store mid-poll.
   useEffect(() => {
     if (!loaded) return
@@ -180,7 +191,7 @@ export function TabBar() {
     <div className="no-scrollbar flex h-9 shrink-0 items-stretch overflow-x-auto border-b bg-muted/20">
       {tabs.map(tab => {
         const key = tabKey(tab)
-        const r = resolveTab(tab, projects)
+        const r = resolveTab(tab, projects, terminals)
         const isActive = activeKey === key
         const busy = tab.kind === "session" && busySessions.has(tab.id)
         return (

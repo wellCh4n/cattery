@@ -46,7 +46,7 @@ const PORT       = Number(process.env.PORT ?? 1114)
 const WORKDIR    = process.env.WORK_DIR ?? '/work'
 const THINKING   = (process.env.THINKING_LEVEL ?? 'high') as ThinkingLevel
 const PROMPT     = process.env.AGENT_PROMPT ?? ''
-const SKILLS_DIR = process.env.SKILLS_DIR ?? path.join(process.env.HOME ?? '/home/node', '.agents/skills')
+const SKILLS_DIR = process.env.SKILLS_DIR ?? path.join(process.env.HOME ?? '/home/cattery', '.agents/skills')
 // Dot-dir on the workspace PVC: transcripts survive sandbox restarts and stay
 // out of the way of project files.
 const SESSIONS_DIR = process.env.SESSIONS_DIR ?? path.join(WORKDIR, '.cattery/sessions')
