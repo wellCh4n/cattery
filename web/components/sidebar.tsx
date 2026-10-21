@@ -13,7 +13,6 @@ import {
   MessageSquare,
   MessagesSquare,
   Pencil,
-  Play,
   Plus,
   Power,
   Puzzle,
@@ -74,6 +73,7 @@ export function Sidebar() {
 
   const [newProjectOpen, setNewProjectOpen] = useState(false)
   const [creatingSession, setCreatingSession] = useState(false)
+  const [startingProjects, setStartingProjects] = useState<Set<string>>(() => new Set())
   const [deleteSessionTarget, setDeleteSessionTarget] = useState<{ session_id: string; title: string } | null>(null)
   const [stopSandboxTarget, setStopSandboxTarget] = useState<ProjectWithSessions | null>(null)
   const [renameTarget, setRenameTarget] = useState<Session | null>(null)
@@ -159,16 +159,32 @@ export function Sidebar() {
   const sessions = useMemo(() => [...(currentProject?.sessions ?? [])].sort(compareSessionActivity), [currentProject?.sessions])
   const sandboxStatus = currentProject?.sandbox_status ?? "idle"
 
-  // The sandbox starts on demand (first session / first message after a
-  // stop). Poll the project while it's coming up so the header dot settles.
-  const pollProjectId = currentProject && sandboxStatus === "starting" ? currentProject.project_id : null
+  // Project controls can start an agent without selecting that project.
+  const startingProjectIds = projects.filter(p => p.sandbox_status === "starting").map(p => p.project_id).sort().join(",")
   useEffect(() => {
-    if (!pollProjectId) return
+    if (!startingProjectIds) return
     const timer = setInterval(() => {
-      void refreshProject(pollProjectId).catch(() => {})
+      for (const id of startingProjectIds.split(",")) {
+        void refreshProject(id).catch(() => {})
+      }
     }, 1500)
     return () => clearInterval(timer)
-  }, [pollProjectId, refreshProject])
+  }, [startingProjectIds, refreshProject])
+
+  async function handleStartProject(projectId: string) {
+    setStartingProjects(prev => new Set(prev).add(projectId))
+    try {
+      await startSandbox(projectId)
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "Failed to start agent")
+    } finally {
+      setStartingProjects(prev => {
+        const next = new Set(prev)
+        next.delete(projectId)
+        return next
+      })
+    }
+  }
 
   // Starts on the last-picked model; it can be switched from the chat.
   const handleCreateSession = useCallback(async () => {
@@ -241,6 +257,10 @@ export function Sidebar() {
                     </span>
                   )}
                 </span>
+                <span
+                  title={`Project agent: ${sandboxStatus}`}
+                  className={cn("size-1.5 shrink-0 rounded-full", sandboxDot(sandboxStatus))}
+                />
                 <ChevronsUpDown className="size-3 shrink-0 text-muted-foreground" />
               </button>
             )}
@@ -249,6 +269,9 @@ export function Sidebar() {
                 {projects.map(project => {
                   const active = project.project_id === currentProjectId
                   const ownsProject = project.access_role === "owner"
+                  const agentOn = project.sandbox_status === "ready" || project.sandbox_status === "starting"
+                  const starting = startingProjects.has(project.project_id) || project.sandbox_status === "starting"
+                  const powerLabel = starting ? "Agent starting" : agentOn ? "Stop project agent" : project.sandbox_status === "failed" ? "Retry starting project agent" : "Start project agent"
                   return (
                     <div
                       key={project.project_id}
@@ -277,6 +300,29 @@ export function Sidebar() {
                           {project.access_role}
                         </Badge>
                       )}
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={agentOn}
+                        aria-label={`${powerLabel}: ${project.project_name ?? "Untitled"}`}
+                        title={agentOn && !ownsProject ? "Only the project owner can stop the agent" : powerLabel}
+                        disabled={starting || (agentOn && !ownsProject)}
+                        onClick={e => {
+                          e.stopPropagation()
+                          if (agentOn) {
+                            setProjectPickerOpen(false)
+                            setStopSandboxTarget(project)
+                          } else {
+                            void handleStartProject(project.project_id)
+                          }
+                        }}
+                        className={cn(
+                          "inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded transition-colors hover:bg-foreground/10 disabled:cursor-default disabled:opacity-50",
+                          agentOn ? "text-emerald-500" : project.sandbox_status === "failed" ? "text-destructive" : "text-muted-foreground",
+                        )}
+                      >
+                        {starting ? <Loader2 className="size-3.5 animate-spin" /> : <Power className="size-3.5" />}
+                      </button>
                       {ownsProject && (
                         <>
                           <button
@@ -422,36 +468,8 @@ export function Sidebar() {
           <div className="flex h-9 shrink-0 items-center justify-between border-b px-2">
             <span className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
               Sessions
-              <span
-                title={`agent: ${sandboxStatus}`}
-                className={cn("size-1.5 shrink-0 rounded-full", sandboxDot(sandboxStatus))}
-              />
             </span>
             <div className="flex items-center gap-1">
-              {(sandboxStatus === "idle" || sandboxStatus === "failed") && (
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={() => {
-                    startSandbox(currentProject.project_id).catch(err =>
-                      window.alert(err instanceof Error ? err.message : "Failed to start agent"),
-                    )
-                  }}
-                  title={sandboxStatus === "failed" ? "Retry starting agent" : "Start agent"}
-                >
-                  <Play />
-                </Button>
-              )}
-              {currentProject.access_role === "owner" && (sandboxStatus === "ready" || sandboxStatus === "starting") && (
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={() => setStopSandboxTarget(currentProject)}
-                  title="Stop agent"
-                >
-                  <Power />
-                </Button>
-              )}
               <Button
                 variant="ghost"
                 size="icon-sm"
