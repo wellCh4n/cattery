@@ -13,6 +13,8 @@
 import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { usePathname, useRouter } from "next/navigation"
 import {
+  Eye,
+  EyeOff,
   File as FileIcon,
   Folder,
   FolderPlus,
@@ -52,6 +54,8 @@ function joinPath(parent: string, name: string): string {
   return parent === "/" ? `/${name}` : `${parent}/${name}`
 }
 
+const SHOW_HIDDEN_KEY = "cattery:files:show-hidden"
+
 function parentOf(path: string): string {
   const parts = path.split("/").filter(Boolean)
   parts.pop()
@@ -65,6 +69,8 @@ export function FileBrowserPanel({ projectId, active }: Props) {
     ? currentTab.id
     : null
   const resources = useFilesStore(state => state.entries)
+  // Dotfiles and dot-folders (.git, .cattery, ...) are hidden unless toggled on.
+  const [showHidden, setShowHidden] = useState(() => localStorage.getItem(SHOW_HIDDEN_KEY) === "1")
   const { childrenByPath, loadingPaths, loadError } = useMemo(() => {
     const childrenByPath: Record<string, FileEntry[]> = {}
     const loadingPaths = new Set<string>()
@@ -73,13 +79,13 @@ export function FileBrowserPanel({ projectId, active }: Props) {
       const [project, path] = JSON.parse(key) as [string, string]
       if (project !== projectId) continue
       if (resource.data) {
-        childrenByPath[path] = resource.data.filter(entry => !(entry.type === "dir" && entry.name.startsWith(".")))
+        childrenByPath[path] = showHidden ? resource.data : resource.data.filter(entry => !entry.name.startsWith("."))
       }
       if (resource.loading) loadingPaths.add(path)
       if (resource.error) loadError = resource.error
     }
     return { childrenByPath, loadingPaths, loadError }
-  }, [resources, projectId])
+  }, [resources, projectId, showHidden])
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
   const [refreshRequested, setRefreshing] = useState(false)
   const refreshing = refreshRequested || loadingPaths.size > 0
@@ -363,6 +369,18 @@ export function FileBrowserPanel({ projectId, active }: Props) {
           onChange={onUpload}
         />
         <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => {
+              localStorage.setItem(SHOW_HIDDEN_KEY, showHidden ? "0" : "1")
+              setShowHidden(!showHidden)
+            }}
+            aria-pressed={showHidden}
+            title={showHidden ? "Hide hidden files" : "Show hidden files"}
+          >
+            {showHidden ? <Eye /> : <EyeOff />}
+          </Button>
           <Button
             variant="ghost"
             size="icon-sm"
