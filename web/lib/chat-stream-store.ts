@@ -15,6 +15,16 @@ export interface ToolStartData     { toolId: string; tool: string; input?: strin
 export interface ToolDoneData      { toolId: string; tool: string; output?: string; parsed?: unknown }
 export interface SessionErrorData  { message: string }
 export interface SessionTitleData  { title: string }
+// Context fill and session token totals. contextTokens is null after a
+// compaction until the next response; reserveTokens is the auto-compact buffer.
+export interface SessionUsageData {
+  contextTokens: number | null
+  contextWindow: number
+  reserveTokens: number
+  tokens: { input: number; output: number; cacheRead: number; cacheWrite: number }
+  userMessages: number
+  toolCalls: number
+}
 
 export interface Bubble {
   id: string
@@ -41,6 +51,7 @@ export interface PlatformEvent {
     | "session.idle"
     | "session.error"
     | "session.title"
+    | "session.usage"
   data:
     | MessageDeltaData
     | ThinkingDoneData
@@ -48,11 +59,13 @@ export interface PlatformEvent {
     | ToolDoneData
     | SessionErrorData
     | SessionTitleData
+    | SessionUsageData
     | Record<string, never>
 }
 
 interface ChatSessionState {
   bubbles: Bubble[]
+  usage: SessionUsageData | null
   sending: boolean
   loaded: boolean
   recovering: boolean
@@ -71,6 +84,7 @@ interface ChatStreamStore {
 
 const emptySession = (): ChatSessionState => ({
   bubbles: [],
+  usage: null,
   sending: false,
   loaded: false,
   recovering: false,
@@ -200,6 +214,7 @@ export const useChatStreamStore = create<ChatStreamStore>((set, get) => ({
     const items = await getHistory(sessionId)
     const restored = restoreHistory(items)
     const recovering = items.some(item => item.events.some(e => e.type === "session.state" && e.data.busy === true))
+    const usage = items.flatMap(item => item.events).find(e => e.type === "session.usage")?.data as SessionUsageData | undefined
     if (!recovering) for (const b of restored) b.done = true
     // A send may have started while history was loading.
     if (get().sessions[sessionId] !== existing) return
@@ -210,6 +225,7 @@ export const useChatStreamStore = create<ChatStreamStore>((set, get) => ({
         [sessionId]: {
           ...(state.sessions[sessionId] ?? emptySession()),
           bubbles: restored,
+          usage: usage ?? null,
           recovering,
           sending: false,
           loaded: true,
@@ -491,6 +507,15 @@ export const useChatStreamStore = create<ChatStreamStore>((set, get) => ({
         if (d.title) {
           useWorkspaceStore.getState().updateSessionTitle(sessionId, d.title)
         }
+        break
+      }
+
+      case "session.usage": {
+        const usage = ev.data as SessionUsageData
+        set(state => {
+          const session = state.sessions[sessionId] ?? emptySession()
+          return { sessions: { ...state.sessions, [sessionId]: { ...session, usage } } }
+        })
         break
       }
 

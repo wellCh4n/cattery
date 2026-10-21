@@ -22,7 +22,7 @@
  * Events are emitted already in platform shape (see
  * backend/internal/harness/event.go), wrapped with `sessionId` for routing:
  *   message.delta / message.thinking / message.thinking.done / tool.start / tool.done
- *   session.title / session.error / session.idle
+ *   session.title / session.usage / session.error / session.idle
  *
  * SDK JSONL sessions are persisted on the workspace PVC,
  * so sessions survive sandbox restarts. History is derived from the transcript
@@ -254,6 +254,33 @@ async function newSession(id: string, ref: ModelRef, gateway: Gateway, titleAtte
 const THINKING_ENTRY = 'cattery.thinking'
 interface ThinkingEntryData { partId: string; durationMs: number }
 
+// Context window fill and session token totals, straight from the SDK. Cost is
+// left out: pi prices from its catalog, which a gateway may not match.
+// reserveTokens is the auto-compaction buffer: compaction runs once the context
+// passes contextWindow - reserveTokens. contextTokens is null right after a
+// compaction, until the next response reports a size.
+function usage(sess: Session): PlatformEvent | null {
+  const stats = sess.sdk.getSessionStats()
+  const ctx = stats.contextUsage
+  if (!ctx) return null
+  const compaction = sess.sdk.settingsManager.getCompactionSettings(sess.sdk.model)
+  const { input, output, cacheRead, cacheWrite } = stats.tokens
+  return {
+    type: 'session.usage',
+    data: {
+      contextTokens: ctx.tokens, contextWindow: ctx.contextWindow,
+      reserveTokens: compaction.enabled ? compaction.reserveTokens : 0,
+      tokens: { input, output, cacheRead, cacheWrite },
+      userMessages: stats.userMessages, toolCalls: stats.toolCalls,
+    },
+  }
+}
+
+function broadcastUsage(sess: Session): void {
+  const ev = usage(sess)
+  if (ev) broadcast(sess.id, ev)
+}
+
 // UI history comes from the full persisted branch, not the compacted LLM context.
 function history(sess: Session): HistoryItem[] {
   const messages: AgentMessage[] = []
@@ -300,6 +327,10 @@ function forward(sess: Session, ev: AgentSessionEvent): void {
           output: toolOutput(ev.result?.content), parsed: ev.isError ? undefined : ev.result?.details,
         },
       })
+      return
+    case 'turn_end':
+    case 'compaction_end':
+      broadcastUsage(sess)
       return
   }
 }
@@ -379,6 +410,7 @@ async function runPrompt(sess: Session, text: string): Promise<void> {
   } finally {
     if (sessions.get(sess.id) === sess) await persist(sess).catch(err => console.error('[persist]', err))
     sess.busy = false
+    broadcastUsage(sess)
     broadcast(sess.id, { type: 'session.idle', data: {} })
   }
 }
@@ -518,7 +550,11 @@ app.delete('/session/:id', asyncRoute(async (req, res) => {
 app.get('/session/:id/message', asyncRoute(async (req, res) => {
   const sess = await openSession(req.params.id)
   const items = sess ? history(sess) : []
-  items.push({ messageId: 'session-state', role: 'assistant', events: [{ type: 'session.state', data: { busy: sess?.busy ?? false } }] })
+  const current = sess ? usage(sess) : null
+  items.push({ messageId: 'session-state', role: 'assistant', events: [
+    { type: 'session.state', data: { busy: sess?.busy ?? false } },
+    ...(current ? [current] : []),
+  ] })
   res.json(items)
 }))
 

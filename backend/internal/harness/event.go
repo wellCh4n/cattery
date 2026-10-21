@@ -21,6 +21,7 @@ const (
 	EventSessionIdle     = "session.idle"          // session 结束/空闲
 	EventSessionError    = "session.error"         // 出错
 	EventSessionTitle    = "session.title"         // session title 已生成/更新
+	EventSessionUsage    = "session.usage"         // context 占用与 token 累计，见 SessionUsageData
 )
 
 type MessageDeltaData struct {
@@ -47,6 +48,22 @@ type SessionErrorData struct {
 
 type SessionTitleData struct {
 	Title string `json:"title"`
+}
+
+// SessionUsageData 在每轮结束、compaction 后和 history 快照中发出。
+// ContextTokens 在 compaction 后、下一次回复前为 null；ReserveTokens 是自动 compaction 预留区。
+type SessionUsageData struct {
+	ContextTokens *int `json:"contextTokens"`
+	ContextWindow int  `json:"contextWindow"`
+	ReserveTokens int  `json:"reserveTokens"`
+	Tokens        struct {
+		Input      int `json:"input"`
+		Output     int `json:"output"`
+		CacheRead  int `json:"cacheRead"`
+		CacheWrite int `json:"cacheWrite"`
+	} `json:"tokens"`
+	UserMessages int `json:"userMessages"`
+	ToolCalls    int `json:"toolCalls"`
 }
 
 // PlatformHistoryItem 是平台统一的历史消息条目，前端按它渲染。

@@ -45,6 +45,7 @@ import {
 import { QuestionnaireCard } from "@/components/questionnaire-card"
 import { Markdown } from "@/components/markdown"
 import { EffortPicker, ModelPicker } from "@/components/model-picker"
+import { ContextMeter } from "@/components/context-meter"
 import { type Session } from "@/lib/api"
 import {
   useChatStreamStore,
@@ -126,6 +127,7 @@ function ChatPanelContent({ session }: Props) {
   const focusedSessionRef = useRef<string | null>(null)
   const chat = useChatStreamStore(state => state.sessions[session.session_id])
   const bubbles = chat?.bubbles ?? EMPTY_BUBBLES
+  const usage = chat?.usage ?? null
   const sending = (chat?.sending || chat?.recovering) ?? false
   const ensureSession = useChatStreamStore(state => state.ensureSession)
   const loadHistory = useChatStreamStore(state => state.loadHistory)
@@ -252,7 +254,7 @@ function ChatPanelContent({ session }: Props) {
       </div>
 
       <div className="mx-auto w-full max-w-3xl px-4 pb-4 md:px-8">
-        {/* The AI Elements Model Selector input: field, model and effort pills, send. */}
+        {/* The AI Elements Model Selector input: field, model and effort pills, context, send. */}
         <form ref={formRef} onSubmit={handleSubmit}>
           {/* InputGroup fades as a whole when anything inside is disabled — here
               that's the empty-field send button or the field while the agent
@@ -288,6 +290,7 @@ function ChatPanelContent({ session }: Props) {
                 effort={session.effort}
                 disabled={sending}
               />
+              {usage && <ContextMeter usage={usage} />}
               {sending ? (
                 <InputGroupButton
                   variant="destructive"

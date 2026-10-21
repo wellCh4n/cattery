@@ -94,6 +94,7 @@ The SDK's built-in tools are enabled directly: read, write, edit, bash, grep, fi
 { type: "tool.start",         data: { toolId, tool, input } }
 { type: "tool.done",          data: { toolId, tool, output, parsed? } }
 { type: "session.title",      data: { title } }            // session title generated/updated
+{ type: "session.usage",      data: { contextTokens, contextWindow, reserveTokens, tokens, userMessages, toolCalls } } // after each turn/compaction and in history
 { type: "session.idle",       data: {} }                   // closes the stream
 { type: "session.error",      data: { message } }
 ```
