@@ -43,14 +43,11 @@ import {
   TraceTitle,
 } from "@/components/ui/trace"
 import { Markdown } from "@/components/markdown"
-import { FileViewer } from "@/components/file-viewer"
 import { EffortPicker, ModelPicker } from "@/components/model-picker"
 import { type Session } from "@/lib/api"
 import {
   useChatStreamStore,
   type Bubble,
-  type ParsedFileRead,
-  type ParsedGlob,
 } from "@/lib/chat-stream-store"
 
 interface Props {
@@ -384,7 +381,7 @@ const TOOL_VERBS: Record<string, [running: string, done: string]> = {
   write: ["Writing", "Wrote"],
   edit:  ["Editing", "Edited"],
   grep:  ["Searching", "Searched"],
-  glob:  ["Finding", "Found"],
+  find:  ["Finding", "Found"],
   ls:    ["Listing", "Listed"],
 }
 
@@ -395,7 +392,7 @@ function toolIcon(tool: string | undefined) {
     case "write":
     case "edit":  return <FilePenIcon />
     case "grep":
-    case "glob":  return <SearchIcon />
+    case "find":  return <SearchIcon />
     case "ls":    return <FolderIcon />
     default:      return <WrenchIcon />
   }
@@ -406,15 +403,9 @@ function ToolRow({ bubble }: { bubble: Bubble }) {
   const tool = bubble.toolName?.toLowerCase()
   const running = bubble.toolStatus !== "completed"
   const header = formatToolInput(tool, bubble.content)
-  const read = tool === "read" ? (bubble.toolParsed as ParsedFileRead | undefined) : undefined
-  const glob = tool === "glob" ? (bubble.toolParsed as ParsedGlob | undefined) : undefined
   const [runningVerb, doneVerb] = (tool && TOOL_VERBS[tool]) ?? [bubble.toolName ?? "tool", bubble.toolName ?? "tool"]
-  const target = read?.path ?? header.primary
-  const meta =
-    read ? `${read.totalLines} lines` :
-    glob ? `${glob.paths.length} matches` :
-    header.path ? `in ${header.path}` :
-    null
+  const target = header.primary
+  const meta = header.path ? `in ${header.path}` : null
 
   const line = (
     <TraceLine status={running ? "running" : undefined} className="min-w-0">
@@ -427,28 +418,18 @@ function ToolRow({ bubble }: { bubble: Bubble }) {
     </TraceLine>
   )
 
-  const hasBody = !running && (read || glob || bubble.toolOutput)
+  const hasBody = !running && bubble.toolOutput
   if (!hasBody) return line
 
   return (
     <TraceCollapsible>
       <TraceCollapsibleTrigger className="max-w-full">{line}</TraceCollapsibleTrigger>
       <TraceCollapsibleContent>
-        {read ? (
-          <div className="max-h-64 overflow-y-auto rounded-lg border">
-            <FileViewer path={read.path} lines={read.lines} />
-          </div>
-        ) : glob ? (
-          <div className="max-h-64 overflow-y-auto rounded-lg border">
-            <GlobMatches paths={glob.paths} />
-          </div>
-        ) : (
-          <CodeBlock size="sm">
-            <CodeBlockContent wrap={tool !== "bash"} className="max-h-64 [font-variant-ligatures:none]">
-              {bubble.toolOutput}
-            </CodeBlockContent>
-          </CodeBlock>
-        )}
+        <CodeBlock size="sm">
+          <CodeBlockContent wrap={tool !== "bash"} className="max-h-64 [font-variant-ligatures:none]">
+            {bubble.toolOutput}
+          </CodeBlockContent>
+        </CodeBlock>
       </TraceCollapsibleContent>
     </TraceCollapsible>
   )
@@ -502,7 +483,7 @@ function formatToolInput(tool: string | undefined, raw: string): ToolHeader {
     const obj = JSON.parse(raw) as Record<string, unknown>
     const str = (k: string) => typeof obj[k] === "string" ? (obj[k] as string) : undefined
     switch (tool) {
-      case "glob":
+      case "find":
       case "grep": {
         const pattern = str("pattern")
         if (pattern) return { primary: pattern, path: str("path") }
@@ -526,41 +507,3 @@ function formatToolInput(tool: string | undefined, raw: string): ToolHeader {
   } catch { /* fall through */ }
   return { primary: raw }
 }
-
-function commonDirPrefix(paths: string[]): string {
-  if (paths.length === 0) return ""
-  if (paths.length === 1) {
-    const i = paths[0].lastIndexOf("/")
-    return i >= 0 ? paths[0].slice(0, i + 1) : ""
-  }
-  let prefix = paths[0]
-  for (let i = 1; i < paths.length; i++) {
-    while (prefix && !paths[i].startsWith(prefix)) {
-      prefix = prefix.slice(0, -1)
-    }
-    if (!prefix) return ""
-  }
-  const i = prefix.lastIndexOf("/")
-  return i >= 0 ? prefix.slice(0, i + 1) : ""
-}
-
-function GlobMatches({ paths }: { paths: string[] }) {
-  const prefix = commonDirPrefix(paths)
-  return (
-    <ul className="font-mono text-xs divide-y divide-border/40">
-      {paths.map(p => {
-        const rel = prefix && p.startsWith(prefix) ? p.slice(prefix.length) : p
-        const idx = rel.lastIndexOf("/")
-        const dir = idx >= 0 ? rel.slice(0, idx + 1) : ""
-        const name = idx >= 0 ? rel.slice(idx + 1) : rel
-        return (
-          <li key={p} className="flex px-3 py-1 hover:bg-muted/30" title={p}>
-            {dir && <span className="text-muted-foreground truncate min-w-0">{dir}</span>}
-            <span className="text-foreground shrink-0 font-medium">{name}</span>
-          </li>
-        )
-      })}
-    </ul>
-  )
-}
-

@@ -55,3 +55,29 @@ func TestStreamFailureDoesNotPrompt(t *testing.T) {
 		t.Fatal("expected stream error")
 	}
 }
+
+func TestSetSessionName(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch || r.URL.Path != "/session/s/name" {
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		body, _ := io.ReadAll(r.Body)
+		if string(body) != `{"name":" manual "}` {
+			t.Errorf("unexpected body: %s", body)
+		}
+		fmt.Fprint(w, `{"name":"manual"}`)
+	}))
+	defer server.Close()
+	name, err := NewClient().SetSessionName(context.Background(), server.URL, "s", " manual ")
+	if err != nil || name != "manual" {
+		t.Fatalf("name=%q err=%v", name, err)
+	}
+}
+
+func TestSetSessionNameFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(503) }))
+	defer server.Close()
+	if _, err := NewClient().SetSessionName(context.Background(), server.URL, "s", "manual"); err == nil {
+		t.Fatal("expected native sync error")
+	}
+}

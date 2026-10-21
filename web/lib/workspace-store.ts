@@ -155,7 +155,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
     set(state => ({
       projects: state.projects.map(project => ({
         ...project,
-        sessions: project.sessions.map(s => s.session_id === sessionId ? { ...s, title } : s),
+        sessions: project.sessions.map(s => s.session_id === sessionId && !s.title_manual ? { ...s, title } : s),
       })),
     }))
   },
@@ -173,7 +173,11 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
 
   renameSession: async (sessionId: string, title: string) => {
     const updated = await updateSession(sessionId, { title })
-    get().updateSessionTitle(sessionId, updated.title ?? title)
+    set(state => ({
+      projects: mapSessions(state.projects, updated.project_id, sessions =>
+        sessions.map(s => s.session_id === sessionId ? { ...s, title: updated.title, title_manual: true } : s),
+      ),
+    }))
     return updated
   },
 

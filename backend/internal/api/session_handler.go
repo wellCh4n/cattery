@@ -144,12 +144,19 @@ func (h *SessionHandler) ensureAgentSession(ctx context.Context, sandboxURL stri
 		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("model %q is no longer configured; switch to another model", sess.Model))
 	}
 	small, _ := h.models.Get(h.models.SmallModel)
-	return h.harnessClient.CreateSession(ctx, sandboxURL, sess.SessionID.String(), harness.AgentModel{
+	err := h.harnessClient.CreateSession(ctx, sandboxURL, sess.SessionID.String(), harness.AgentModel{
 		ID: m.ID, Provider: m.Provider.Type, BaseURL: m.Provider.Endpoint, APIKey: m.Provider.Key,
 		ThinkingLevel: h.effortFor(m.ID, sess.Effort),
 	}, harness.AgentModel{
 		ID: small.ID, Provider: small.Provider.Type, BaseURL: small.Provider.Endpoint, APIKey: small.Provider.Key,
 	})
+	if err != nil {
+		return err
+	}
+	_, _, err = h.sessionStore.SyncTitle(ctx, sess.SessionID, nil, false, func(name string) (string, error) {
+		return h.harnessClient.SetSessionName(ctx, sandboxURL, sess.SessionID.String(), name)
+	})
+	return err
 }
 
 func (h *SessionHandler) ListByProject(c echo.Context) error {
@@ -219,7 +226,12 @@ func (h *SessionHandler) SendMessage(c echo.Context) error {
 		}
 		titleCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		updated, err := h.sessionStore.UpdateAutoTitle(titleCtx, sessionID, d.Title)
+		name, updated, err := h.sessionStore.SyncTitle(titleCtx, sessionID, &d.Title, false, func(name string) (string, error) {
+			return h.harnessClient.SetSessionName(titleCtx, sandboxURL, sessionID.String(), name)
+		})
+		if err == nil && updated {
+			ev.Data, _ = json.Marshal(harness.SessionTitleData{Title: name})
+		}
 		if err != nil {
 			log.Printf("warn: save title for %s: %v", sessionID, err)
 		}
@@ -269,8 +281,18 @@ func (h *SessionHandler) Update(c echo.Context) error {
 	}
 	ctx := c.Request().Context()
 	if req.Title != nil {
-		if err := h.sessionStore.UpdateTitle(ctx, sess.SessionID, *req.Title); err != nil {
-			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+		sandboxURL, err := h.sandbox.Await(ctx, sess.ProjectID)
+		if err != nil {
+			return echo.NewHTTPError(http.StatusServiceUnavailable, "sandbox unavailable: "+err.Error())
+		}
+		if err := h.ensureAgentSession(ctx, sandboxURL, sess); err != nil {
+			return echo.NewHTTPError(http.StatusBadGateway, err.Error())
+		}
+		_, _, err = h.sessionStore.SyncTitle(ctx, sess.SessionID, req.Title, true, func(name string) (string, error) {
+			return h.harnessClient.SetSessionName(ctx, sandboxURL, sess.SessionID.String(), name)
+		})
+		if err != nil {
+			return echo.NewHTTPError(http.StatusBadGateway, err.Error())
 		}
 	}
 	if req.Model != nil || req.Effort != nil {

@@ -15,17 +15,6 @@ export interface ToolDoneData      { toolId: string; tool: string; output?: stri
 export interface SessionErrorData  { message: string }
 export interface SessionTitleData  { title: string }
 
-export interface ParsedFileRead {
-  path: string
-  fileType: "file" | "directory"
-  lines: { n: number; text: string }[]
-  totalLines: number
-}
-
-export interface ParsedGlob {
-  paths: string[]
-}
-
 export interface Bubble {
   id: string
   role: "user" | "assistant"
@@ -131,7 +120,7 @@ function restoreHistory(items: Awaited<ReturnType<typeof getHistory>>): Bubble[]
           })
         }
       } else if (ev.type === "tool.done") {
-        const d = ev.data as { toolId?: string; output?: string; parsed?: ParsedFileRead }
+        const d = ev.data as { toolId?: string; output?: string; parsed?: unknown }
         if (!d.toolId) continue
         const existing = restored.find(b => b.id === d.toolId)
         if (existing) {

@@ -52,10 +52,11 @@ type Session struct {
 	Model     string    `db:"model"        json:"model"`
 	// Effort is the thinking effort (a pi thinking level); empty means the
 	// model provider's default.
-	Effort     string     `db:"effort"       json:"effort"`
-	Status     string     `db:"status"       json:"status"`
-	Phase      *string    `db:"phase"        json:"phase"`
-	Title      *string    `db:"title"        json:"title"`
-	CreatedAt  time.Time  `db:"created_at"   json:"created_at"`
-	LastSeenAt *time.Time `db:"last_seen_at" json:"last_seen_at"`
+	Effort      string     `db:"effort"       json:"effort"`
+	Status      string     `db:"status"       json:"status"`
+	Phase       *string    `db:"phase"        json:"phase"`
+	Title       *string    `db:"title"        json:"title"`
+	TitleManual bool       `db:"title_manual" json:"title_manual"`
+	CreatedAt   time.Time  `db:"created_at"   json:"created_at"`
+	LastSeenAt  *time.Time `db:"last_seen_at" json:"last_seen_at"`
 }

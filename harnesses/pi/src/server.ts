@@ -1,5 +1,5 @@
 /**
- * Cattery pi harness — runs @earendil-works/pi-agent-core behind the platform
+ * Cattery pi harness — runs @earendil-works/pi-coding-agent behind the platform
  * HTTP contract:
  *
  *   GET    /session                        → [id]  (readiness probe)
@@ -23,22 +23,19 @@
  *   message.delta / message.thinking / tool.start / tool.done
  *   session.title / session.error / session.idle
  *
- * Each session's transcript (AgentMessage[]) is persisted on the workspace PVC,
+ * SDK JSONL sessions are persisted on the workspace PVC,
  * so sessions survive sandbox restarts. History is derived from the transcript
  * rather than kept separately, so live stream and replay share one source.
  */
 
-import express from 'express'
+import express, { type RequestHandler, type ErrorRequestHandler } from 'express'
 import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import { Agent, type AgentEvent, type AgentMessage, type ThinkingLevel } from '@earendil-works/pi-agent-core'
-import { clampThinkingLevel, createModels, createProvider, envApiKeyAuth, type Api, type AssistantMessage, type Model, type ModelThinkingLevel, type Provider } from '@earendil-works/pi-ai'
-import { anthropicProvider } from '@earendil-works/pi-ai/providers/anthropic'
-import { deepseekProvider } from '@earendil-works/pi-ai/providers/deepseek'
+import { type AgentMessage, type ThinkingLevel } from '@earendil-works/pi-agent-core'
+import { InMemoryCredentialStore, createProvider, envApiKeyAuth, type Api, type AssistantMessage, type Model } from '@earendil-works/pi-ai'
 import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy'
-import { openaiProvider } from '@earendil-works/pi-ai/providers/openai'
-import { createTools } from './tools.ts'
+import { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager, type AgentSession, type AgentSessionEvent } from '@earendil-works/pi-coding-agent'
 import { TITLE_PROMPT, titleInput, parseTitle } from './title.ts'
 
 // ── Config ───────────────────────────────────────────────────────────────────
@@ -63,11 +60,8 @@ interface ModelRef { provider: string; id: string }
 interface Gateway { baseUrl: string; apiKey: string }
 const trimUrl = (u: string) => u.replace(/\/+$/, '')
 
-const models = createModels()
-models.setProvider(anthropicProvider())
-models.setProvider(deepseekProvider())
-models.setProvider(openaiProvider())
-models.setProvider(createProvider({
+const models = await ModelRuntime.create({ credentials: new InMemoryCredentialStore(), modelsPath: null, refreshOnCreate: false })
+models.registerNativeProvider(createProvider({
   id: 'custom', auth: { apiKey: envApiKeyAuth('API key', []) }, models: [], api: openAICompletionsApi(),
 }))
 
@@ -91,44 +85,6 @@ function genericModel(ref: ModelRef): Model<Api> {
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: 128_000, maxTokens: 32_000,
   } as Model<Api>
-}
-
-// ── System prompt ────────────────────────────────────────────────────────────
-
-async function listSkills(): Promise<Array<{ name: string; description: string; file: string }>> {
-  const out: Array<{ name: string; description: string; file: string }> = []
-  let dirs: string[] = []
-  try { dirs = await fs.readdir(SKILLS_DIR) } catch { return out }
-  for (const d of dirs.sort()) {
-    const file = path.join(SKILLS_DIR, d, 'SKILL.md')
-    let body: string
-    try { body = await fs.readFile(file, 'utf8') } catch { continue }
-    const fm = /^---\r?\n([\s\S]*?)\r?\n---/.exec(body)?.[1] ?? ''
-    const field = (k: string) => new RegExp(`^${k}:\\s*(.+)$`, 'm').exec(fm)?.[1]?.trim().replace(/^["']|["']$/g, '')
-    const description = field('description')
-    if (description) out.push({ name: field('name') ?? d, description, file })
-  }
-  return out
-}
-
-async function buildSystemPrompt(): Promise<string> {
-  const parts = [
-    `You are a coding agent working in a shared project workspace at ${WORKDIR}.`,
-    'Use the tools to inspect and change files and to run commands. Prefer reading code before editing it, ' +
-      'make focused changes, and verify them (build, tests) when practical. Be concise in replies.',
-    `Relative paths resolve against ${WORKDIR}. Today is ${new Date().toISOString().slice(0, 10)}.`,
-  ]
-  const skills = await listSkills()
-  if (skills.length) {
-    parts.push(
-      '<skills>\nThe following skills are available. When a task matches one, read its SKILL.md with the ' +
-      'read tool and follow it; resolve paths in it relative to the skill directory.\n' +
-      skills.map(s => `- ${s.name}: ${s.description} (${s.file})`).join('\n') +
-      '\n</skills>',
-    )
-  }
-  if (PROMPT) parts.push(PROMPT)
-  return parts.join('\n\n')
 }
 
 // ── Platform events ──────────────────────────────────────────────────────────
@@ -197,7 +153,7 @@ function toHistory(messages: AgentMessage[]): HistoryItem[] {
         type: 'tool.done',
         data: {
           toolId: m.toolCallId, tool: toolNames.get(m.toolCallId) ?? m.toolName,
-          output: toolOutput(m.content), parsed: m.isError ? undefined : m.details ?? undefined,
+          output: toolOutput(m.content), parsed: m.isError ? undefined : m.details,
         },
       })
     }
@@ -214,7 +170,9 @@ interface Session {
   id: string
   model: ModelRef
   gateway: Gateway
-  agent: Agent
+  sdk: AgentSession
+  manager: SessionManager
+  runtime: ModelRuntime
   titled: boolean
   titleAttempted: boolean
   smallModel?: SmallModel
@@ -223,7 +181,7 @@ interface Session {
   persistQueue?: Promise<void>
   run?: Promise<void>
 }
-interface Transcript { model: ModelRef; messages: AgentMessage[]; titleAttempted?: boolean }
+interface SessionMetadata { version: 2; model: ModelRef; titleAttempted: boolean }
 
 const sessions = new Map<string, Session>()
 // Session ids come from the backend (UUIDs); reject anything path-like.
@@ -231,12 +189,12 @@ const validId = (id: string) => /^[A-Za-z0-9-]{1,64}$/.test(id)
 const transcriptPath = (id: string) => path.join(SESSIONS_DIR, `${id}.json`)
 
 function persist(sess: Session): Promise<void> {
-  // Serialize checkpoints so an earlier message cannot overwrite the title-attempt flag.
+  // Only platform metadata is stored here; the SDK persists the conversation.
   const pending = (sess.persistQueue ?? Promise.resolve()).catch(() => {}).then(async () => {
     if (sessions.get(sess.id) !== sess) return
     const file = transcriptPath(sess.id)
     const tmp = `${file}.${randomUUID()}.tmp`
-    const data: Transcript = { model: sess.model, messages: sess.agent.state.messages, titleAttempted: sess.titleAttempted }
+    const data: SessionMetadata = { version: 2, model: sess.model, titleAttempted: sess.titleAttempted }
     await fs.mkdir(SESSIONS_DIR, { recursive: true })
     await fs.writeFile(tmp, JSON.stringify(data))
     await fs.rename(tmp, file)
@@ -247,38 +205,47 @@ function persist(sess: Session): Promise<void> {
 
 const NO_GATEWAY: Gateway = { baseUrl: '', apiKey: '' }
 
-async function newSession(id: string, ref: ModelRef, gateway: Gateway, messages: AgentMessage[], titleAttempted = false): Promise<Session> {
-  const sess = { id, model: ref, gateway, titled: messages.some(m => m.role === 'user'), titleAttempted, busy: false } as Session
-  sess.agent = new Agent({
-    initialState: {
-      // The system prompt is rebuilt on every load (see openSession) so prompt
-      // and skill changes reach existing sessions after a sandbox restart.
-      systemPrompt: await buildSystemPrompt(),
-      model: resolveModel(ref, gateway.baseUrl),
-      thinkingLevel: THINKING,
-      tools: createTools(WORKDIR),
-      messages,
-    },
-    streamFn: models.streamSimple.bind(models),
-    // Read on every request, so a re-registration with a new key applies at once.
-    getApiKey: () => sess.gateway.apiKey || undefined,
-    sessionId: id,
+async function newSession(id: string, ref: ModelRef, gateway: Gateway, titleAttempted = false): Promise<Session> {
+  await fs.mkdir(SESSIONS_DIR, { recursive: true })
+  const manager = SessionManager.open(path.join(SESSIONS_DIR, `${id}.jsonl`), SESSIONS_DIR, WORKDIR)
+  const runtime = await ModelRuntime.create({ credentials: new InMemoryCredentialStore(), modelsPath: null, refreshOnCreate: false })
+  runtime.registerNativeProvider(createProvider({
+    id: 'custom', auth: { apiKey: envApiKeyAuth('API key', []) }, models: [], api: openAICompletionsApi(),
+  }))
+  const model = resolveModel(ref, gateway.baseUrl)
+  if (gateway.baseUrl) runtime.registerProvider(ref.provider, { models: [model], baseUrl: gateway.baseUrl })
+  if (gateway.apiKey) await runtime.setRuntimeApiKey(ref.provider, gateway.apiKey)
+  const agentDir = path.join(WORKDIR, '.cattery/agent')
+  const settingsManager = SettingsManager.inMemory({ cacheWarming: 'off' })
+  const resourceLoader = new DefaultResourceLoader({
+    cwd: WORKDIR, agentDir, settingsManager,
+    additionalSkillPaths: [SKILLS_DIR, path.join(WORKDIR, '.agents/skills')],
+    noExtensions: true, noThemes: true,
+    appendSystemPrompt: [
+      'You are working in a shared Cattery project workspace. Be concise in replies.',
+      ...(PROMPT ? [PROMPT] : []),
+    ],
   })
-  wire(sess)
+  await resourceLoader.reload()
+  const { session: sdk } = await createAgentSession({
+    cwd: WORKDIR, agentDir, modelRuntime: runtime, model,
+    thinkingLevel: manager.getEntries().length ? undefined : THINKING,
+    sessionManager: manager, settingsManager, resourceLoader,
+    tools: ['read', 'write', 'edit', 'bash', 'grep', 'find', 'ls'],
+  })
+  const sess: Session = { id, model: ref, gateway, sdk, manager, runtime,
+    titled: manager.getEntries().some(e => e.type === 'message' && e.message.role === 'user'), titleAttempted, busy: false }
+  sdk.subscribe(ev => forward(sess, ev))
   sessions.set(id, sess)
   return sess
 }
 
-function wire(sess: Session): void {
-  sess.agent.subscribe(async (ev: AgentEvent) => {
-    forward(sess, ev)
-    // Checkpoint after each finished message so a crash mid-run loses at most
-    // the in-flight message.
-    if (ev.type === 'message_end') await persist(sess).catch(err => console.error('[persist]', err))
-  })
+// UI history comes from the full persisted branch, not the compacted LLM context.
+function historyMessages(sess: Session): AgentMessage[] {
+  return sess.manager.getBranch().flatMap(entry => entry.type === 'message' ? [entry.message] : [])
 }
 
-function forward(sess: Session, ev: AgentEvent): void {
+function forward(sess: Session, ev: AgentSessionEvent): void {
   switch (ev.type) {
     case 'message_update': {
       const e = ev.assistantMessageEvent
@@ -297,7 +264,7 @@ function forward(sess: Session, ev: AgentEvent): void {
         type: 'tool.done',
         data: {
           toolId: ev.toolCallId, tool: ev.toolName,
-          output: toolOutput(ev.result?.content), parsed: ev.isError ? undefined : ev.result?.details ?? undefined,
+          output: toolOutput(ev.result?.content), parsed: ev.isError ? undefined : ev.result?.details,
         },
       })
       return
@@ -308,15 +275,15 @@ async function openSession(id: string): Promise<Session | null> {
   if (!validId(id)) return null
   const cached = sessions.get(id)
   if (cached) return cached
-  let data: Transcript
+  let data: SessionMetadata
   try {
     data = JSON.parse(await fs.readFile(transcriptPath(id), 'utf8'))
-  } catch {
-    return null
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+    throw error
   }
-  // Drop persisted system messages; newSession() installs the current prompt.
-  return newSession(id, data.model, NO_GATEWAY, data.messages.filter(m => m.role !== 'system'),
-    data.titleAttempted ?? data.messages.some(m => m.role === 'assistant' && m.stopReason === 'stop'))
+  if (data.version !== 2) throw Object.assign(new Error('Legacy session format is unsupported; delete this session and create a new one'), { status: 409 })
+  return newSession(id, data.model, NO_GATEWAY, data.titleAttempted)
 }
 
 // Takes effect from the next turn. The transcript carries over; pi-ai drops
@@ -324,7 +291,10 @@ async function openSession(id: string): Promise<Session | null> {
 async function switchModel(sess: Session, ref: ModelRef, gateway: Gateway): Promise<void> {
   sess.model = ref
   sess.gateway = gateway
-  sess.agent.state.model = resolveModel(ref, gateway.baseUrl)
+  const model = resolveModel(ref, gateway.baseUrl)
+  sess.runtime.registerProvider(ref.provider, { models: [model], baseUrl: gateway.baseUrl })
+  await sess.runtime.setRuntimeApiKey(ref.provider, gateway.apiKey)
+  await sess.sdk.setModel(model)
   await persist(sess)
 }
 
@@ -363,8 +333,8 @@ async function runPrompt(sess: Session, text: string): Promise<void> {
     if (title) broadcast(sess.id, { type: 'session.title', data: { title: title.length > 60 ? title.slice(0, 57) + '…' : title } })
   }
   try {
-    await sess.agent.prompt(text)
-    const last = [...sess.agent.state.messages].reverse().find(m => m.role === 'assistant') as AssistantMessage | undefined
+    await sess.sdk.prompt(text)
+    const last = [...sess.sdk.messages].reverse().find(m => m.role === 'assistant') as AssistantMessage | undefined
     if (last?.stopReason === 'error') {
       broadcast(sess.id, { type: 'session.error', data: { message: last.errorMessage ?? 'model request failed' } })
     } else if (last?.stopReason === 'stop' && !sess.titleAttempted) {
@@ -383,10 +353,14 @@ async function runPrompt(sess: Session, text: string): Promise<void> {
 // ── HTTP routes ──────────────────────────────────────────────────────────────
 
 const app = express()
+const asyncRoute = (handler: RequestHandler): RequestHandler => (req, res, next) => {
+  Promise.resolve(handler(req, res, next)).catch(next)
+}
 app.use(express.json({ limit: '10mb' }))
 
 let stopping: Promise<void> | undefined
 const sessionRequests = new Set<Promise<void>>()
+const sessionRequestTails = new Map<string, Promise<void>>()
 app.use((req, res, next) => {
   // Readiness and event streams remain available while sessions are released.
   if (!req.path.startsWith('/session') || (req.method === 'GET' && req.path === '/session')) return next()
@@ -394,36 +368,47 @@ app.use((req, res, next) => {
   let complete!: () => void
   const pending = new Promise<void>(resolve => { complete = resolve })
   sessionRequests.add(pending)
-  const done = () => { sessionRequests.delete(pending); complete() }
+  // SDK initialization is async. Serialize HTTP operations for each platform
+  // session so concurrent register/history/delete calls cannot create two owners.
+  const id = req.path.split('/')[2] ?? req.body?.id
+  const previous = typeof id === 'string' ? sessionRequestTails.get(id) : undefined
+  if (typeof id === 'string') sessionRequestTails.set(id, pending)
+  const done = () => {
+    sessionRequests.delete(pending)
+    if (sessionRequestTails.get(id) === pending) sessionRequestTails.delete(id)
+    complete()
+  }
   res.once('finish', done)
   res.once('close', done)
-  next()
+  if (previous) void previous.then(() => { if (!res.destroyed) next() })
+  else next()
 })
 
-app.post('/stop', async (_req, res, next) => {
+app.post('/stop', asyncRoute(async (_req, res, next) => {
   stopping ??= (async () => {
     await Promise.all([...sessionRequests])
     const active = [...sessions.values()]
     for (const sess of active) {
-      sess.agent.abort()
+      void sess.sdk.abort()
       sess.titleAbort?.abort()
     }
     await Promise.allSettled(active.map(sess => sess.run))
     await Promise.all(active.map(sess => persist(sess)))
+    for (const sess of active) sess.sdk.dispose()
     sessions.clear()
   })().finally(() => { stopping = undefined })
   try {
     await stopping
     res.status(204).end()
   } catch (err) { next(err) }
-})
+}))
 
 
 app.get('/session', (_req, res) => {
   res.json([...sessions.keys()])
 })
 
-app.post('/session', async (req, res) => {
+app.post('/session', asyncRoute(async (req, res) => {
   const { id = randomUUID(), model, provider, baseUrl, apiKey, thinkingLevel, smallModel } = (req.body ?? {}) as {
     id?: string; model?: string; provider?: string; baseUrl?: string; apiKey?: string; thinkingLevel?: string; smallModel?: SmallModel
   }
@@ -436,7 +421,7 @@ app.post('/session', async (req, res) => {
   const existing = await openSession(id)
   let sess: Session
   if (!existing) {
-    sess = await newSession(id, ref, gateway, [])
+    sess = await newSession(id, ref, gateway)
   } else {
     // Re-registering with a different model (or endpoint) switches it.
     const changed = existing.model.id !== ref.id || existing.model.provider !== ref.provider ||
@@ -446,6 +431,7 @@ app.post('/session', async (req, res) => {
       await switchModel(existing, ref, gateway)
     } else {
       existing.gateway = gateway
+      await existing.runtime.setRuntimeApiKey(ref.provider, gateway.apiKey)
     }
     sess = existing
   }
@@ -453,52 +439,73 @@ app.post('/session', async (req, res) => {
   // The session's effort, applied from the next turn and clamped to the
   // levels the model supports (e.g. DeepSeek has no "medium").
   if (thinkingLevel) {
-    sess.agent.state.thinkingLevel = clampThinkingLevel(sess.agent.state.model, thinkingLevel as ModelThinkingLevel) as ThinkingLevel
+    sess.sdk.setThinkingLevel(thinkingLevel as ThinkingLevel)
   }
   if (!existing) await persist(sess)
   res.json({ id })
-})
+}))
 
-app.get('/session/:id', async (req, res) => {
+app.get('/session/:id', asyncRoute(async (req, res) => {
   const sess = await openSession(req.params.id)
   if (!sess) return void res.status(404).json({ error: 'not found' })
-  res.json({ id: sess.id })
-})
+  res.json({ id: sess.id, name: sess.manager.getSessionName() ?? '' })
+}))
 
-app.delete('/session/:id', async (req, res) => {
+// Only accepted platform titles reach this endpoint. Do not rebroadcast here:
+// automatic title proposals already travel through the backend's manual-name guard.
+app.patch('/session/:id/name', asyncRoute(async (req, res) => {
+  if (typeof req.body?.name !== 'string') return void res.status(400).json({ error: 'name is required' })
   const sess = await openSession(req.params.id)
-  if (!sess) return void res.status(404).end()
-  sess.agent.abort()
+  if (!sess) return void res.status(404).json({ error: 'not found' })
+  const name = req.body.name.replace(/[\r\n]+/g, ' ').replace(/\u00b7/g, ' ').trim()
+  if ((sess.manager.getSessionName() ?? '') !== name) sess.sdk.setSessionName(name)
+  if (name) sess.titled = true
+  res.json({ name: sess.manager.getSessionName() ?? '' })
+}))
+
+app.delete('/session/:id', asyncRoute(async (req, res) => {
+  if (!validId(req.params.id)) return void res.status(400).end()
+  const sess = sessions.get(req.params.id)
+  if (!sess) {
+    await fs.rm(transcriptPath(req.params.id), { force: true })
+    await fs.rm(path.join(SESSIONS_DIR, `${req.params.id}.jsonl`), { force: true })
+    return void res.status(204).end()
+  }
+  void sess.sdk.abort()
   sess.titleAbort?.abort()
   sessions.delete(sess.id)
+  await sess.run
+  sess.sdk.dispose()
   await sess.persistQueue?.catch(() => {})
   await fs.rm(transcriptPath(sess.id), { force: true })
+  await fs.rm(path.join(SESSIONS_DIR, `${sess.id}.jsonl`), { force: true })
   res.status(204).end()
-})
+}))
 
-app.get('/session/:id/message', async (req, res) => {
+app.get('/session/:id/message', asyncRoute(async (req, res) => {
   const sess = await openSession(req.params.id)
-  res.json(sess ? toHistory(sess.agent.state.messages) : [])
-})
+  res.json(sess ? toHistory(historyMessages(sess)) : [])
+}))
 
-app.post('/session/:id/prompt_async', async (req, res) => {
+app.post('/session/:id/prompt_async', asyncRoute(async (req, res) => {
   const sess = await openSession(req.params.id)
   if (!sess) return void res.status(404).end()
   const parts: Array<{ type: string; text: string }> = req.body?.parts ?? []
   const text = parts.find(p => p.type === 'text')?.text?.trim() ?? ''
   if (!text) return void res.status(400).end()
   if (sess.busy) return void res.status(409).json({ error: 'session is busy' })
+  if (!sess.gateway.apiKey) return void res.status(409).json({ error: 'session requires model registration' })
   sess.busy = true
   res.status(204).end()
   sess.run = runPrompt(sess, text)
-})
+}))
 
-app.post('/session/:id/abort', async (req, res) => {
+app.post('/session/:id/abort', asyncRoute(async (req, res) => {
   const sess = await openSession(req.params.id)
-  sess?.agent.abort()
+  await sess?.sdk.abort()
   sess?.titleAbort?.abort()
   res.status(204).end()
-})
+}))
 
 app.get('/event', (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream')
@@ -509,6 +516,12 @@ app.get('/event', (req, res) => {
   sseClients.add(send)
   req.on('close', () => sseClients.delete(send))
 })
+
+const errorHandler: ErrorRequestHandler = (error, _req, res, _next) => {
+  console.error('[http]', error)
+  res.status(error.status ?? 500).json({ error: error.message ?? 'internal error' })
+}
+app.use(errorHandler)
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`[pi-harness] listening on :${PORT}`)

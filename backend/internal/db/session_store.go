@@ -8,7 +8,7 @@ import (
 	"github.com/wellch4n/cattery/internal/model"
 )
 
-const sessionColumns = `session_id, project_id, model, effort, status, phase, title, created_at, last_seen_at`
+const sessionColumns = `session_id, project_id, model, effort, status, phase, title, title_manual, created_at, last_seen_at`
 
 type SessionStore struct{ db *sqlx.DB }
 
@@ -55,13 +55,6 @@ func (s *SessionStore) MarkSeen(ctx context.Context, id uuid.UUID) error {
 	return err
 }
 
-func (s *SessionStore) UpdateTitle(ctx context.Context, id uuid.UUID, title string) error {
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE sessions SET title=$1, title_manual=TRUE WHERE session_id=$2`, title, id,
-	)
-	return err
-}
-
 func (s *SessionStore) UpdateModel(ctx context.Context, id uuid.UUID, model, effort string) error {
 	_, err := s.db.ExecContext(ctx,
 		`UPDATE sessions SET model=$1, effort=$2 WHERE session_id=$3`, model, effort, id,
@@ -76,13 +69,41 @@ func (s *SessionStore) HardDelete(ctx context.Context, id uuid.UUID) error {
 	return err
 }
 
-// UpdateAutoTitle atomically protects manual names, including concurrent renames.
-func (s *SessionStore) UpdateAutoTitle(ctx context.Context, id uuid.UUID, title string) (bool, error) {
-	result, err := s.db.ExecContext(ctx,
-		`UPDATE sessions SET title=$1 WHERE session_id=$2 AND NOT title_manual`, title, id)
+// SyncTitle serializes native-name writes and the UI projection with a row lock,
+// including across backend replicas. A nil title repairs the native name from
+// the current projection on registration. Manual titles reject automatic proposals.
+func (s *SessionStore) SyncTitle(ctx context.Context, id uuid.UUID, title *string, manual bool, syncName func(string) (string, error)) (string, bool, error) {
+	tx, err := s.db.BeginTxx(ctx, nil)
 	if err != nil {
-		return false, err
+		return "", false, err
 	}
-	n, err := result.RowsAffected()
-	return n > 0, err
+	defer tx.Rollback()
+	var current *string
+	var isManual bool
+	if err := tx.QueryRowContext(ctx, `SELECT title, title_manual FROM sessions WHERE session_id=$1 FOR UPDATE`, id).Scan(&current, &isManual); err != nil {
+		return "", false, err
+	}
+	if title != nil && !manual && isManual {
+		return "", false, nil
+	}
+	name := ""
+	if current != nil {
+		name = *current
+	}
+	if title != nil {
+		name = *title
+	}
+	normalized, err := syncName(name)
+	if err != nil {
+		return "", false, err
+	}
+	if title != nil || current != nil || normalized != "" {
+		if _, err := tx.ExecContext(ctx, `UPDATE sessions SET title=$1, title_manual=$2 WHERE session_id=$3`, normalized, isManual || manual, id); err != nil {
+			return "", false, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return "", false, err
+	}
+	return normalized, true, nil
 }

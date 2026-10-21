@@ -252,3 +252,33 @@ func (c *Client) Stop(ctx context.Context, base string) error {
 	}
 	return nil
 }
+
+// SetSessionName writes pi's native session_info and returns its normalized name.
+func (c *Client) SetSessionName(ctx context.Context, sandboxURL, sessionID, name string) (string, error) {
+	body, err := json.Marshal(struct {
+		Name string `json:"name"`
+	}{name})
+	if err != nil {
+		return "", err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, sandboxURL+"/session/"+sessionID+"/name", bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("agent set session name: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("agent set session name status %d", resp.StatusCode)
+	}
+	var result struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", err
+	}
+	return result.Name, nil
+}

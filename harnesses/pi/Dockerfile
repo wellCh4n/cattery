@@ -1,9 +1,11 @@
-FROM node:22-slim
+# Trixie provides fd with --no-require-git, required by pi find outside Git repos.
+FROM node:22-trixie-slim
 
-# ripgrep backs the grep/glob tools; git + curl are what the agent reaches for
+# ripgrep and fd back the grep/find tools; git + curl are what the agent reaches for
 # most often from bash.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git ca-certificates curl ripgrep \
+    git ca-certificates curl ripgrep fd-find \
+    && ln -s /usr/bin/fdfind /usr/local/bin/fd \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

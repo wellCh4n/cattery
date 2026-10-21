@@ -2,7 +2,7 @@
 
 Self-hosted, team-oriented AI coding agent platform. Work is organised into **Projects**: shared workspaces with their own files and members. Users talk to the agent through **Sessions**. Each project runs one isolated Kubernetes Sandbox Pod that all of its sessions share.
 
-The agent is [pi](https://github.com/earendil-works/pi): the harness in [`harnesses/pi`](harnesses/pi) embeds `@earendil-works/pi-agent-core` + `pi-ai`, provides the coding tools (read/write/edit/bash/grep/glob/ls), and emits the platform event protocol directly. The model is chosen per session.
+The agent is [pi](https://github.com/earendil-works/pi): the harness in [`harnesses/pi`](harnesses/pi) embeds the `@earendil-works/pi-coding-agent` SDK for sessions, persistence, resource discovery, automatic compaction/retry, and coding tools. The SDK built-in tools are used without wrappers; Cattery forwards their output through its HTTP/SSE protocol. The model is chosen per session.
 
 ```mermaid
 graph TD
@@ -232,7 +232,9 @@ from that exchange, with a 15-second timeout. The original first-message title
 remains if generation fails or returns no usable title. Generation is attempted
 once per session, including across restarts. Manual names always take precedence;
 existing nonempty titles are preserved when migration 00006 is applied. Title
-requests do not enter the conversation transcript, and credentials stay in memory.
+requests do not enter the conversation transcript, and credentials stay in memory in isolated per-session model runtimes.
+
+Conversation history uses SDK JSONL files at `/work/.cattery/sessions/<id>.jsonl`; `<id>.json` holds only platform metadata. Legacy JSON conversations are unsupported after this migration; delete those sessions and start new ones. Project files are unaffected.
 The response text streams normally; the run becomes idle after the title attempt.
 
 ### LaTeX file previews
@@ -295,3 +297,16 @@ registers and restores the session. File operations and LaTeX previews continue
 through the filemgr container. Deleting a project or its owning account tears down
 the shared Sandbox and workspace PVC. Container-specific readiness allows file
 access while pi is restarting, provided the Pod itself is running.
+
+Session titles are synchronized through pi's native `AgentSession.setSessionName()`
+and stored as `session_info` entries in its JSONL transcript. The database keeps
+an index for the session list. Both accepted automatic titles and manual renames
+write the native name before updating that index and returning it to the UI.
+Manual renames start the sandbox when needed; a failed synchronization returns
+an error instead of reporting success. Registration resynchronizes existing
+platform titles, including sessions created before native naming was enabled.
+A database row lock orders name writes and prevents automatic titles from
+replacing manual names. The two stores do not share a transaction; registration
+repairs the native name from the database if a database commit fails after the
+native write. Pi defers writing an empty conversation's JSONL until its first
+message; the database retains its name for restoration in the meantime.
