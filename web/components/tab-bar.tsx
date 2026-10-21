@@ -18,9 +18,6 @@ import { type Tab, rememberProjectTab, projectTabToRestore, sameTab, tabForPath,
 
 interface ResolvedTab {
   title: string
-  // Parent context shown under the title: project name for session and file
-  // tabs.
-  subtitle: string
   exists: boolean
   icon: React.ReactNode
 }
@@ -37,11 +34,10 @@ function resolveTab(tab: Tab, projects: ProjectWithSessions[]): ResolvedTab {
   if (tab.kind === "session") {
     const found = findSession(projects, tab.id)
     if (!found) {
-      return { title: "Session", subtitle: "", exists: false, icon: <MessageSquare className="size-3.5 shrink-0 text-muted-foreground" /> }
+      return { title: "Session", exists: false, icon: <MessageSquare className="size-3.5 shrink-0 text-muted-foreground" /> }
     }
     return {
       title: found.session.title ?? "New Session",
-      subtitle: found.project.project_name ?? "Untitled Project",
       exists: true,
       icon: <MessageSquare className={cn("size-3.5 shrink-0", sessionIconColor(found.session.status))} />,
     }
@@ -49,7 +45,6 @@ function resolveTab(tab: Tab, projects: ProjectWithSessions[]): ResolvedTab {
   if (tab.kind === "skill") {
     return {
       title: tab.id,
-      subtitle: "Skills",
       exists: true,
       icon: <Puzzle className="size-3.5 shrink-0 text-muted-foreground" />,
     }
@@ -59,17 +54,14 @@ function resolveTab(tab: Tab, projects: ProjectWithSessions[]): ResolvedTab {
     const title = tab.id.charAt(0).toUpperCase() + tab.id.slice(1)
     return {
       title,
-      subtitle: "Admin",
       exists: true,
       icon: <Shield className="size-3.5 shrink-0 text-muted-foreground" />,
     }
   }
-  // file: name from the path basename, project name as context.
+  // File tabs use the path basename as their title.
   const name = tab.id.split("/").filter(Boolean).pop() ?? tab.id
-  const project = projects.find(p => p.project_id === tab.projectId)
   return {
     title: name,
-    subtitle: project?.project_name ?? "Files",
     exists: true,
     icon: <FileIcon className="size-3.5 shrink-0 text-muted-foreground" />,
   }
@@ -185,7 +177,7 @@ export function TabBar() {
   if (tabs.length === 0) return null
 
   return (
-    <div className="no-scrollbar flex h-12 shrink-0 items-stretch overflow-x-auto border-b bg-muted/20">
+    <div className="no-scrollbar flex h-9 shrink-0 items-stretch overflow-x-auto border-b bg-muted/20">
       {tabs.map(tab => {
         const key = tabKey(tab)
         const r = resolveTab(tab, projects)
@@ -211,13 +203,8 @@ export function TabBar() {
           >
             {isActive && <span className="absolute inset-x-0 top-0 h-0.5 bg-primary" />}
             {r.icon}
-            <div className="min-w-0 flex-1 leading-tight">
-              <div className={cn("truncate", !r.exists && "italic line-through opacity-60")}>
-                {r.title}
-              </div>
-              <div className="truncate text-[10px] text-muted-foreground/70">
-                {r.subtitle}
-              </div>
+            <div className={cn("min-w-0 flex-1 truncate", !r.exists && "italic line-through opacity-60")}>
+              {r.title}
             </div>
             <span className="relative flex size-4 shrink-0 items-center justify-center">
               {busy && (
