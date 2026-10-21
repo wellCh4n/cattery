@@ -28,18 +28,18 @@ function percent(n: number): string {
 function Ring({ used, buffer }: { used: number; buffer: number }) {
   // pathLength=100 makes dash lengths read as percentages of the circle.
   return (
-    <svg viewBox="0 0 32 32" className="size-8 -rotate-90" aria-hidden="true">
-      <circle cx="16" cy="16" r="14.5" fill="none" strokeWidth="3" className="stroke-muted" />
+    <svg viewBox="0 0 20 20" className="block size-6 -rotate-90" aria-hidden="true">
+      <circle cx="10" cy="10" r="8.5" fill="none" strokeWidth="3" className="stroke-muted group-hover/button:stroke-muted-foreground/25 group-aria-expanded/button:stroke-muted-foreground/25" />
       {buffer > 0 && (
         <circle
-          cx="16" cy="16" r="14.5" fill="none" strokeWidth="3" pathLength={100}
+          cx="10" cy="10" r="8.5" fill="none" strokeWidth="3" pathLength={100}
           strokeDasharray={`${buffer} 100`} strokeDashoffset={buffer - 100}
           className="stroke-muted-foreground/40"
         />
       )}
       {used > 0 && (
         <circle
-          cx="16" cy="16" r="14.5" fill="none" strokeWidth="3" pathLength={100}
+          cx="10" cy="10" r="8.5" fill="none" strokeWidth="3" pathLength={100}
           strokeDasharray={`${Math.min(used, 100)} 100`} strokeLinecap="round"
           className="stroke-foreground"
         />
@@ -59,7 +59,7 @@ function Row({ swatch, label, value, share }: { swatch?: string; label: string; 
   )
 }
 
-export function ContextMeter({ usage }: { usage: SessionUsageData }) {
+export function ContextMeter({ usage, className }: { usage: SessionUsageData; className?: string }) {
   const { contextTokens: used, contextWindow: size, reserveTokens: reserve } = usage
   const usedPct = used === null ? 0 : (used / size) * 100
   const bufferPct = (reserve / size) * 100
@@ -76,7 +76,7 @@ export function ContextMeter({ usage }: { usage: SessionUsageData }) {
           render={
             <PopoverTrigger
               render={
-                <InputGroupButton size="icon-sm" variant="ghost" className="rounded-full p-0 hover:bg-transparent aria-expanded:bg-transparent dark:hover:bg-transparent" aria-label={`Context: ${summary}`} />
+                <InputGroupButton size="icon-sm" variant="ghost" className={cn("self-center rounded-full dark:hover:bg-muted dark:aria-expanded:bg-muted", className)} aria-label={`Context: ${summary}`} />
               }
             />
           }
@@ -85,7 +85,7 @@ export function ContextMeter({ usage }: { usage: SessionUsageData }) {
         </TooltipTrigger>
         <TooltipContent>{summary}</TooltipContent>
       </Tooltip>
-      <PopoverContent side="top" align="end" className="w-72 gap-3 p-3">
+      <PopoverContent side="top" align="start" className="w-72 gap-3 p-3">
         <div className="flex flex-col gap-2">
           <div className="font-medium">Context</div>
           <div className="flex items-baseline justify-between">

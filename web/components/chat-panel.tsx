@@ -254,7 +254,7 @@ function ChatPanelContent({ session }: Props) {
       </div>
 
       <div className="mx-auto w-full max-w-3xl px-4 pb-4 md:px-8">
-        {/* The AI Elements Model Selector input: field, model and effort pills, context, send. */}
+        {/* The AI Elements Model Selector input: field, context, model and effort pills, send. */}
         <form ref={formRef} onSubmit={handleSubmit}>
           {/* InputGroup fades as a whole when anything inside is disabled — here
               that's the empty-field send button or the field while the agent
@@ -278,11 +278,12 @@ function ChatPanelContent({ session }: Props) {
               }}
             />
             <InputGroupAddon align="block-end" className="gap-2 px-3 pb-3">
+              {usage && <ContextMeter usage={usage} className="ml-auto" />}
               <ModelPicker
                 sessionId={session.session_id}
                 model={session.model}
                 disabled={sending}
-                className="ml-auto"
+                className={usage ? undefined : "ml-auto"}
               />
               <EffortPicker
                 sessionId={session.session_id}
@@ -290,7 +291,6 @@ function ChatPanelContent({ session }: Props) {
                 effort={session.effort}
                 disabled={sending}
               />
-              {usage && <ContextMeter usage={usage} />}
               {sending ? (
                 <InputGroupButton
                   variant="destructive"
