@@ -6,7 +6,6 @@ import {
   Cat,
   Check,
   ChevronDown,
-  MoreHorizontal,
   FolderOpen,
   KeyRound,
   Loader2,
@@ -80,7 +79,6 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
   const [renameTarget, setRenameTarget] = useState<Session | null>(null)
   const [renameOpen, setRenameOpen] = useState(false)
   const [projectPickerOpen, setProjectPickerOpen] = useState(false)
-  const [projectActionsId, setProjectActionsId] = useState<string | null>(null)
   const [deleteProjectTarget, setDeleteProjectTarget] = useState<ProjectWithSessions | null>(null)
   const [renameProjectTarget, setRenameProjectTarget] = useState<ProjectWithSessions | null>(null)
   const projectPickerRef = useRef<HTMLDivElement>(null)
@@ -244,7 +242,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
           ) : (
             <button
               type="button"
-              onClick={() => { setProjectPickerOpen(o => !o); setProjectActionsId(null) }}
+              onClick={() => setProjectPickerOpen(o => !o)}
               aria-expanded={projectPickerOpen}
               className={cn(
                 "flex h-7 w-full cursor-pointer items-center gap-1.5 rounded-md border border-border px-2 text-xs transition-colors",
@@ -267,7 +265,6 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                 const agentOn = project.sandbox_status === "ready" || project.sandbox_status === "starting"
                 const starting = startingProjects.has(project.project_id) || project.sandbox_status === "starting"
                 const powerLabel = starting ? "Agent starting" : agentOn ? "Stop agent" : project.sandbox_status === "failed" ? "Retry starting agent" : "Start agent"
-                const actionsOpen = projectActionsId === project.project_id
                 return (
                   <div key={project.project_id}>
                     <div className={cn("flex items-center gap-1 px-2 py-1 transition-colors hover:bg-muted focus-within:bg-muted", active && "bg-muted/60")}>
@@ -317,29 +314,16 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                           </button>
                           <button
                             type="button"
-                            aria-label={`Project actions: ${project.project_name ?? "Untitled"}`}
-                            aria-expanded={actionsOpen}
-                            title="Project actions"
-                            onClick={() => setProjectActionsId(actionsOpen ? null : project.project_id)}
-                            className={cn("flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground", actionsOpen && "bg-foreground/10 text-foreground")}
+                            aria-label="Delete project"
+                            title="Delete project"
+                            onClick={() => { setProjectPickerOpen(false); setDeleteProjectTarget(project) }}
+                            className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
                           >
-                            <MoreHorizontal className="size-4" />
+                            <Trash2 className="size-3.5" />
                           </button>
                         </>
                       )}
                     </div>
-                    {actionsOpen && ownsProject && (
-                      <div className="mx-2 mb-2 rounded-lg border bg-background p-1">
-                        <button
-                          type="button"
-                          onClick={() => { setProjectPickerOpen(false); setDeleteProjectTarget(project) }}
-                          className="flex h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left text-xs text-destructive hover:bg-destructive/10"
-                        >
-                          <Trash2 className="size-3.5" />
-                          Delete project
-                        </button>
-                      </div>
-                    )}
                   </div>
                 )
               })}
