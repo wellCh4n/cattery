@@ -527,7 +527,7 @@ export function Sidebar() {
         <div className={cn("min-h-0 flex-1 overflow-hidden", view === "files" ? "block" : "hidden")}>
           {visitedViews.has("files") && (
             currentProject ? (
-              <FileBrowserPanel key={currentProject.project_id} projectId={currentProject.project_id} />
+              <FileBrowserPanel key={currentProject.project_id} projectId={currentProject.project_id} active={view === "files"} />
             ) : (
               <NoProjectPlaceholder onCreate={() => setNewProjectOpen(true)} />
             )

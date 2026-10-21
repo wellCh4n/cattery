@@ -69,7 +69,7 @@ interface TreeProps {
 
 export function Tree({ items, className }: TreeProps) {
   return (
-    <div className={className}>
+    <div className={cn("group/tree", className)}>
       {items.map(item => <TreeItemView key={item.id} node={item} depth={0} />)}
     </div>
   )
@@ -212,7 +212,7 @@ function leafContentIndent(depth: number) {
 
 // GuideLines — vertical alignment guides for nested rows. Each rendered
 // guide sits at an ancestor's chevron column (depth `i`'s chevron center
-// is at i*INDENT_PX + BASE_PX + half-chevron). Always faintly visible; the
+// is at i*INDENT_PX + BASE_PX + half-chevron). Visible only on tree hover; the
 // guide connecting to the immediate parent (the last one) brightens when
 // the row is hovered, mirroring VS Code's explorer active-guide style.
 function GuideLines({ depth }: { depth: number }) {
@@ -226,7 +226,7 @@ function GuideLines({ depth }: { depth: number }) {
             key={i}
             aria-hidden="true"
             className={cn(
-              "pointer-events-none absolute inset-y-0 w-px bg-border transition-colors",
+              "pointer-events-none absolute inset-y-0 w-px bg-border opacity-0 transition-[background-color,opacity] group-hover/tree:opacity-100",
               isParentGuide && "group-hover/treerow:bg-foreground/40",
             )}
             style={{ left: guideLeft(i) }}

@@ -11,6 +11,7 @@ import { useEffect, useState } from "react"
 import { Download, File as FileIcon, Loader2 } from "lucide-react"
 import { FileViewer } from "@/components/file-viewer"
 import { Markdown } from "@/components/markdown"
+import { JsonPreview } from "@/components/json-preview"
 import { cn } from "@/lib/utils"
 import {
   downloadFileURL,
@@ -26,7 +27,7 @@ const IMAGE_EXTS = new Set([
 const HTML_EXTS = new Set(["html", "htm"])
 const MARKDOWN_EXTS = new Set(["md", "markdown", "mdown", "mkd"])
 
-type FileKind = "text" | "image" | "pdf" | "html" | "markdown"
+type FileKind = "text" | "image" | "pdf" | "html" | "markdown" | "json"
 type PreviewMode = "preview" | "source"
 
 function extOf(path: string): string {
@@ -38,6 +39,7 @@ function kindForPath(path: string): FileKind {
   const ext = extOf(path)
   if (IMAGE_EXTS.has(ext)) return "image"
   if (ext === "pdf") return "pdf"
+  if (ext === "json") return "json"
   if (HTML_EXTS.has(ext)) return "html"
   if (MARKDOWN_EXTS.has(ext)) return "markdown"
   return "text"
@@ -47,7 +49,7 @@ export function FileView({ projectId, path }: { projectId: string; path: string 
   const kind = kindForPath(path)
   // Only text-like files are fetched into memory; images/pdfs are streamed by
   // the browser straight from the raw endpoints.
-  const needsRead = kind === "text" || kind === "html" || kind === "markdown"
+  const needsRead = kind === "text" || kind === "html" || kind === "markdown" || kind === "json"
   const [data, setData] = useState<FileReadResponse | null>(null)
   const [loading, setLoading] = useState<boolean>(() => needsRead)
   const [error, setError] = useState<string | null>(null)
@@ -77,7 +79,7 @@ export function FileView({ projectId, path }: { projectId: string; path: string 
     return () => { cancelled = true }
   }, [projectId, path, needsRead])
 
-  const canToggle = kind === "html" || kind === "markdown"
+  const canToggle = kind === "html" || kind === "markdown" || kind === "json"
   const showSource = canToggle && mode === "source"
 
   return (
@@ -147,6 +149,8 @@ export function FileView({ projectId, path }: { projectId: string; path: string 
           <p className="p-6 italic text-muted-foreground">
             Binary file ({data.size} bytes). Use download to fetch it.
           </p>
+        ) : kind === "json" && !showSource ? (
+          <JsonPreview path={path} content={data?.content ?? ""} truncated={data?.truncated ?? false} />
         ) : kind === "markdown" && !showSource ? (
           <div className="mx-auto w-full max-w-4xl p-6">
             <Markdown className="text-foreground">{data?.content ?? ""}</Markdown>

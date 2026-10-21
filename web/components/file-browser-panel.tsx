@@ -10,7 +10,7 @@
 // on a folder (or on blank space, for root) uploads; dragging an existing
 // entry onto another folder moves it there.
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import {
   File as FileIcon,
@@ -51,6 +51,7 @@ const MIN_REFRESH_SPIN_MS = 1000
 
 interface Props {
   projectId: string
+  active: boolean
 }
 
 function joinPath(parent: string, name: string): string {
@@ -71,7 +72,7 @@ function sortEntries(entries: FileEntry[]): FileEntry[] {
   })
 }
 
-export function FileBrowserPanel({ projectId }: Props) {
+export function FileBrowserPanel({ projectId, active }: Props) {
   const router = useRouter()
   const [childrenByPath, setChildrenByPath] = useState<Record<string, FileEntry[]>>({})
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
@@ -87,42 +88,75 @@ export function FileBrowserPanel({ projectId }: Props) {
   const uploadDirRef = useRef<string>("/")
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const scrollTopRef = useRef(0)
+  const refreshInFlight = useRef(false)
+  const requestVersions = useRef(new Map<string, number>())
+
   const loadDir = useCallback(async (path: string) => {
+    const version = (requestVersions.current.get(path) ?? 0) + 1
+    requestVersions.current.set(path, version)
     setLoadingPaths(prev => new Set(prev).add(path))
-    setError(null)
     try {
-      const list = await listFiles(projectId, path)
-      setChildrenByPath(prev => ({ ...prev, [path]: sortEntries(list) }))
+      const list = sortEntries(await listFiles(projectId, path))
+      if (requestVersions.current.get(path) !== version) return null
+      // A successful parent listing is authoritative, including deleted folders.
+      const directories = new Set(list.filter(entry => entry.type === "dir").map(entry => joinPath(path, entry.name)))
+      const prefix = path === "/" ? "/" : `${path}/`
+      const removed = (candidate: string) => {
+        if (candidate === path || !candidate.startsWith(prefix)) return false
+        const child = prefix + candidate.slice(prefix.length).split("/")[0]
+        return !directories.has(child)
+      }
+      for (const [candidate, pendingVersion] of requestVersions.current) {
+        if (removed(candidate)) requestVersions.current.set(candidate, pendingVersion + 1)
+      }
+      setChildrenByPath(prev => ({
+        ...Object.fromEntries(Object.entries(prev).filter(([candidate]) => !removed(candidate))),
+        [path]: list,
+      }))
+      setExpanded(prev => new Set([...prev].filter(candidate => !removed(candidate))))
+      setLoadingPaths(prev => new Set([...prev].filter(candidate => !removed(candidate))))
+      return list
     } catch (e) {
-      setError(e instanceof Error ? e.message : "failed to load")
+      if (requestVersions.current.get(path) === version) {
+        setError(e instanceof Error ? e.message : "failed to load")
+      }
+      return null
     } finally {
-      setLoadingPaths(prev => {
-        const next = new Set(prev)
-        next.delete(path)
-        return next
-      })
+      if (requestVersions.current.get(path) === version) {
+        setLoadingPaths(prev => {
+          const next = new Set(prev)
+          next.delete(path)
+          return next
+        })
+      }
     }
   }, [projectId])
 
+  // Restore after showing the still-mounted tree or replacing its listings.
+  // Scroll events keep this current if the user scrolls during a refresh.
+  useLayoutEffect(() => {
+    if (active && scrollRef.current) scrollRef.current.scrollTop = scrollTopRef.current
+  }, [active, childrenByPath, error])
+
+  const refreshOnActivate = useEffectEvent(() => { void refresh() })
   useEffect(() => {
+    if (!active) return
     let cancelled = false
-    queueMicrotask(() => {
-      if (!cancelled) void loadDir("/")
-    })
+    queueMicrotask(() => { if (!cancelled) refreshOnActivate() })
     return () => { cancelled = true }
-  }, [loadDir])
+  }, [active])
 
   function toggleExpand(path: string) {
+    const opening = !expanded.has(path)
     setExpanded(prev => {
       const next = new Set(prev)
-      if (next.has(path)) {
-        next.delete(path)
-      } else {
-        next.add(path)
-        if (!childrenByPath[path]) void loadDir(path)
-      }
+      if (opening) next.add(path)
+      else next.delete(path)
       return next
     })
+    if (opening && !childrenByPath[path]) void loadDir(path)
   }
 
   // Open a file as a tab in the main pane (FileView renders it there).
@@ -196,18 +230,30 @@ export function FileBrowserPanel({ projectId }: Props) {
   }
 
   async function refresh() {
+    if (refreshInFlight.current) return
+    refreshInFlight.current = true
     setRefreshing(true)
+    setError(null)
     const startedAt = Date.now()
+    const paths = new Set(expanded)
     try {
-      await Promise.all([
-        loadDir("/"),
-        ...Array.from(expanded)
-          .filter(path => path !== "/")
-          .map(path => loadDir(path)),
-      ])
+      // Refresh parents first so deleted subtrees are never requested.
+      // Collapsed ancestors are traversed only when they contain remembered expansions.
+      const visit = async (path: string): Promise<void> => {
+        const entries = await loadDir(path)
+        if (!entries) return
+        await Promise.all(entries.filter(entry => entry.type === "dir").map(async entry => {
+          const child = joinPath(path, entry.name)
+          if (paths.has(child) || [...paths].some(p => p.startsWith(`${child}/`))) {
+            await visit(child)
+          }
+        }))
+      }
+      await visit("/")
     } finally {
       const remaining = MIN_REFRESH_SPIN_MS - (Date.now() - startedAt)
       if (remaining > 0) await new Promise(resolve => setTimeout(resolve, remaining))
+      refreshInFlight.current = false
       setRefreshing(false)
     }
   }
@@ -371,6 +417,10 @@ export function FileBrowserPanel({ projectId }: Props) {
       </div>
 
       <div
+        ref={scrollRef}
+        onScroll={event => {
+          if (active) scrollTopRef.current = event.currentTarget.scrollTop
+        }}
         className={cn(
           "relative flex-1 min-h-0 overflow-y-auto transition-colors",
           dragging && "bg-muted/30 ring-1 ring-inset ring-ring"
@@ -415,7 +465,7 @@ export function FileBrowserPanel({ projectId }: Props) {
             </div>
           </div>
         )}
-        {!error && rootChildren && rootChildren.length > 0 && (
+        {rootChildren && rootChildren.length > 0 && (
           <Tree items={rootChildren.map(entry => buildFileNode(entry, joinPath("/", entry.name)))} />
         )}
       </div>
