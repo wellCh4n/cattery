@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import {
   ArrowUpIcon,
   CheckIcon,
@@ -30,6 +30,7 @@ import {
   MessageScrollerItem,
   MessageScrollerProvider,
   MessageScrollerViewport,
+  useMessageScroller,
 } from "@/components/ui/message-scroller"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import {
@@ -102,6 +103,23 @@ function toSegments(bubbles: Bubble[]): Segment[] {
 }
 
 export function ChatPanel({ session }: Props) {
+  return (
+    <MessageScrollerProvider key={session.session_id} autoScroll>
+      <ChatPanelContent session={session} />
+    </MessageScrollerProvider>
+  )
+}
+
+function ChatPanelContent({ session }: Props) {
+  const { scrollToEnd } = useMessageScroller()
+  const [submission, setSubmission] = useState(0)
+
+  // Resume following after the submitted message has committed, even if the
+  // first reply arrives in the same render and replaces the pending row.
+  useLayoutEffect(() => {
+    if (submission > 0) scrollToEnd({ behavior: "auto" })
+  }, [submission, scrollToEnd])
+
   const [input, setInput] = useState("")
   const formRef = useRef<HTMLFormElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -136,158 +154,153 @@ export function ChatPanel({ session }: Props) {
     if (!canSend) return
     const text = input.trim()
     setInput("")
+    setSubmission(value => value + 1)
     void sendMessage(session.session_id, text)
   }
 
   return (
-    <MessageScrollerProvider autoScroll>
-      <div className="flex h-full flex-col bg-background">
-        <div className="min-h-0 flex-1">
-          {session.status === "creating" ? (
-            <Empty className="h-full">
-              <EmptyHeader>
-                <EmptyMedia variant="icon">
-                  <LoaderCircleIcon className="animate-spin" />
-                </EmptyMedia>
-                <EmptyTitle>Starting sandbox</EmptyTitle>
-                <EmptyDescription>{phaseLabel(session.phase)}</EmptyDescription>
-              </EmptyHeader>
-            </Empty>
-          ) : session.status === "failed" ? (
-            <Empty className="h-full">
-              <EmptyHeader>
-                <EmptyMedia variant="icon" className="text-destructive">
-                  <TriangleAlertIcon />
-                </EmptyMedia>
-                <EmptyTitle>Session failed to start</EmptyTitle>
-                <EmptyDescription>{phaseLabel(session.phase)}</EmptyDescription>
-              </EmptyHeader>
-            </Empty>
-          ) : turns.length === 0 ? (
-            <Empty className="h-full">
-              <EmptyHeader>
-                <EmptyMedia variant="icon">
-                  <MessageCircleDashedIcon />
-                </EmptyMedia>
-                <EmptyTitle>What should we build?</EmptyTitle>
-                <EmptyDescription>
-                  The agent can read the project&apos;s files, run commands and make changes.
-                </EmptyDescription>
-              </EmptyHeader>
-            </Empty>
-          ) : (
-            <MessageScroller>
-              <MessageScrollerViewport>
-                <MessageScrollerContent aria-busy={sending} className="mx-auto max-w-3xl px-4 py-6 md:px-8">
-                  {turns.map((turn, i) =>
-                    turn.role === "user" ? (
-                      <MessageScrollerItem
-                        key={turn.id}
-                        messageId={turn.id}
-                        // Only a newly submitted prompt should request turn anchoring.
-                        // Keeping history marked lets equal-count row replacements
-                        // (pending -> reply) re-anchor previously unhandled prompts.
-                        scrollAnchor={sending && i === turns.length - 1}
-                      >
-                        <Message align="end">
-                          <MessageContent>
-                            <BubbleUI align="end" variant="muted">
-                              <BubbleContent className="whitespace-pre-wrap">{turn.bubbles[0].content}</BubbleContent>
-                            </BubbleUI>
-                          </MessageContent>
-                        </Message>
-                      </MessageScrollerItem>
-                    ) : (
-                      <MessageScrollerItem key={turn.id} messageId={turn.id}>
-                        <AgentTurn
-                          bubbles={turn.bubbles}
-                          streaming={sending && i === turns.length - 1}
-                        />
-                      </MessageScrollerItem>
-                    ),
-                  )}
-                  {sending && turns.at(-1)?.role === "user" && (
-                    // Between submit and the first event of the reply.
-                    <MessageScrollerItem messageId="pending">
-                      <Trace>
-                        <TraceLine status="running">
-                          <TraceIcon><LoaderCircleIcon className="animate-spin" /></TraceIcon>
-                          <TraceTitle>Working</TraceTitle>
-                        </TraceLine>
-                      </Trace>
+    <div className="flex h-full flex-col bg-background">
+      <div className="min-h-0 flex-1">
+        {session.status === "creating" ? (
+          <Empty className="h-full">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <LoaderCircleIcon className="animate-spin" />
+              </EmptyMedia>
+              <EmptyTitle>Starting sandbox</EmptyTitle>
+              <EmptyDescription>{phaseLabel(session.phase)}</EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        ) : session.status === "failed" ? (
+          <Empty className="h-full">
+            <EmptyHeader>
+              <EmptyMedia variant="icon" className="text-destructive">
+                <TriangleAlertIcon />
+              </EmptyMedia>
+              <EmptyTitle>Session failed to start</EmptyTitle>
+              <EmptyDescription>{phaseLabel(session.phase)}</EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        ) : turns.length === 0 ? (
+          <Empty className="h-full">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <MessageCircleDashedIcon />
+              </EmptyMedia>
+              <EmptyTitle>What should we build?</EmptyTitle>
+              <EmptyDescription>
+                The agent can read the project&apos;s files, run commands and make changes.
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        ) : (
+          <MessageScroller>
+            <MessageScrollerViewport>
+              <MessageScrollerContent aria-busy={sending} className="mx-auto max-w-3xl px-4 py-6 md:px-8">
+                {turns.map((turn, i) =>
+                  turn.role === "user" ? (
+                    <MessageScrollerItem
+                      key={turn.id}
+                      messageId={turn.id}
+                    >
+                      <Message align="end">
+                        <MessageContent>
+                          <BubbleUI align="end" variant="muted">
+                            <BubbleContent className="whitespace-pre-wrap">{turn.bubbles[0].content}</BubbleContent>
+                          </BubbleUI>
+                        </MessageContent>
+                      </Message>
                     </MessageScrollerItem>
-                  )}
-                </MessageScrollerContent>
-              </MessageScrollerViewport>
-              <MessageScrollerButton />
-            </MessageScroller>
-          )}
-        </div>
-
-        <div className="mx-auto w-full max-w-3xl px-4 pb-4 md:px-8">
-          {/* The AI Elements Model Selector input: field, model and effort pills, send. */}
-          <form ref={formRef} onSubmit={handleSubmit}>
-            {/* InputGroup fades as a whole when anything inside is disabled — here
-                that's the empty-field send button or the field while the agent
-                replies, which would grey out the pickers and Stop too. Disabled
-                controls already dim themselves, so keep the box as is. */}
-            <InputGroup className="rounded-3xl bg-background has-disabled:bg-background has-disabled:opacity-100 dark:has-disabled:bg-input/30">
-              <InputGroupTextarea
-                ref={inputRef}
-                value={input}
-                disabled={!ready || sending}
-                onChange={e => setInput(e.target.value)}
-                placeholder={ready ? "Ask the agent to change your code…" : "Waiting for the sandbox…"}
-                aria-label="Message"
-                className="max-h-48 min-h-16 px-4 pt-4 text-base md:text-sm [field-sizing:content]"
-                onKeyDown={e => {
-                  if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                    e.preventDefault()
-                    formRef.current?.requestSubmit()
-                  }
-                }}
-              />
-              <InputGroupAddon align="block-end" className="gap-2 px-3 pb-3">
-                <ModelPicker
-                  sessionId={session.session_id}
-                  model={session.model}
-                  disabled={sending}
-                  className="ml-auto"
-                />
-                <EffortPicker
-                  sessionId={session.session_id}
-                  model={session.model}
-                  effort={session.effort}
-                  disabled={sending}
-                />
-                {sending ? (
-                  <InputGroupButton
-                    variant="destructive"
-                    size="icon-sm"
-                    aria-label="Stop"
-                    className="rounded-full"
-                    onClick={() => void stopSession(session.session_id)}
-                  >
-                    <SquareIcon />
-                  </InputGroupButton>
-                ) : (
-                  <InputGroupButton
-                    type="submit"
-                    variant="default"
-                    size="icon-sm"
-                    aria-label="Send"
-                    className="rounded-full"
-                    disabled={!canSend}
-                  >
-                    <ArrowUpIcon />
-                  </InputGroupButton>
+                  ) : (
+                    <MessageScrollerItem key={turn.id} messageId={turn.id}>
+                      <AgentTurn
+                        bubbles={turn.bubbles}
+                        streaming={sending && i === turns.length - 1}
+                      />
+                    </MessageScrollerItem>
+                  ),
                 )}
-              </InputGroupAddon>
-            </InputGroup>
-          </form>
-        </div>
+                {sending && turns.at(-1)?.role === "user" && (
+                  // Between submit and the first event of the reply.
+                  <MessageScrollerItem messageId="pending">
+                    <Trace>
+                      <TraceLine status="running">
+                        <TraceIcon><LoaderCircleIcon className="animate-spin" /></TraceIcon>
+                        <TraceTitle>Working</TraceTitle>
+                      </TraceLine>
+                    </Trace>
+                  </MessageScrollerItem>
+                )}
+              </MessageScrollerContent>
+            </MessageScrollerViewport>
+            <MessageScrollerButton />
+          </MessageScroller>
+        )}
       </div>
-    </MessageScrollerProvider>
+
+      <div className="mx-auto w-full max-w-3xl px-4 pb-4 md:px-8">
+        {/* The AI Elements Model Selector input: field, model and effort pills, send. */}
+        <form ref={formRef} onSubmit={handleSubmit}>
+          {/* InputGroup fades as a whole when anything inside is disabled — here
+              that's the empty-field send button or the field while the agent
+              replies, which would grey out the pickers and Stop too. Disabled
+              controls already dim themselves, so keep the box as is. */}
+          <InputGroup className="rounded-3xl bg-background has-disabled:bg-background has-disabled:opacity-100 dark:has-disabled:bg-input/30">
+            <InputGroupTextarea
+              ref={inputRef}
+              value={input}
+              disabled={!ready || sending}
+              onChange={e => setInput(e.target.value)}
+              placeholder={ready ? "Ask the agent to change your code…" : "Waiting for the sandbox…"}
+              aria-label="Message"
+              className="max-h-48 min-h-16 px-4 pt-4 text-base md:text-sm [field-sizing:content]"
+              onKeyDown={e => {
+                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault()
+                  formRef.current?.requestSubmit()
+                }
+              }}
+            />
+            <InputGroupAddon align="block-end" className="gap-2 px-3 pb-3">
+              <ModelPicker
+                sessionId={session.session_id}
+                model={session.model}
+                disabled={sending}
+                className="ml-auto"
+              />
+              <EffortPicker
+                sessionId={session.session_id}
+                model={session.model}
+                effort={session.effort}
+                disabled={sending}
+              />
+              {sending ? (
+                <InputGroupButton
+                  variant="destructive"
+                  size="icon-sm"
+                  aria-label="Stop"
+                  className="rounded-full"
+                  onClick={() => void stopSession(session.session_id)}
+                >
+                  <SquareIcon />
+                </InputGroupButton>
+              ) : (
+                <InputGroupButton
+                  type="submit"
+                  variant="default"
+                  size="icon-sm"
+                  aria-label="Send"
+                  className="rounded-full"
+                  disabled={!canSend}
+                >
+                  <ArrowUpIcon />
+                </InputGroupButton>
+              )}
+            </InputGroupAddon>
+          </InputGroup>
+        </form>
+      </div>
+    </div>
   )
 }
 
