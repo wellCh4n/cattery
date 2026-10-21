@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { usePathname, useRouter } from "next/navigation"
 import {
-  Cat,
   Check,
   ChevronDown,
   FolderOpen,
@@ -25,6 +24,7 @@ import {
   UserCircle2,
   Users,
 } from "lucide-react"
+import { CatteryLogo } from "@/components/cattery-logo"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ChangePasswordDialog } from "@/components/change-password-dialog"
@@ -227,7 +227,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
   return (
     <>
       <header className="flex h-12 shrink-0 items-center gap-2 px-3">
-        <Cat className="size-4 shrink-0 text-foreground" />
+        <CatteryLogo className="size-6 shrink-0" />
         <span className="font-heading shrink-0 text-base font-semibold tracking-tight">Cattery</span>
         <div ref={projectPickerRef} className="relative min-w-0 w-44">
           {projects.length === 0 ? (

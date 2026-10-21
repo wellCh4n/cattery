@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="157 156 940 940" fill="none" role="img" aria-labelledby="title desc">
+  <title id="title">Cattery</title>
+  <desc id="desc">A compact black-and-white terminal cat. A white greater-than and underscore sit in the black left side; a black less-than eye sits in the white right side.</desc>
+
+  <!-- Shared silhouette: cat ears, terminal sides, and compact lower edge. -->
+  <path fill="#000" d="
+    M 254 1058
+    C 198 1058 159 1020 159 962
+    V 488
+    C 159 473 161 458 165 443
+    L 215 264
+    C 225 225 249 198 278 196
+    C 304 194 326 204 346 225
+    L 440 332
+    H 812
+    L 908 225
+    C 928 204 950 194 976 196
+    C 1005 198 1029 225 1039 264
+    L 1089 443
+    C 1093 458 1095 473 1095 488
+    V 962
+    C 1095 1020 1056 1058 1000 1058
+    Z
+  "/>
+
+  <!-- White cheek follows the terminal's straight side and rounded corner. -->
+  <path fill="#fff" d="
+    M 635 377
+    H 838
+    C 845 377 849 373 855 367
+    L 956 274
+    C 966 264 981 263 989 274
+    C 993 280 996 290 999 303
+    L 1043 466
+    C 1045 474 1045 481 1045 489
+    V 954
+    C 1045 995 1024 1018 984 1018
+    H 620
+    C 660 994 685 958 685 905
+    L 682 486
+    C 682 445 666 405 635 377
+    Z
+  "/>
+
+  <!-- Vector strokes: no fonts or embedded bitmap images. -->
+  <g stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 296 636 L 412 714 L 294 790" stroke="#fff" stroke-width="62"/>
+    <path d="M 449 819 H 579" stroke="#fff" stroke-width="52"/>
+    <path d="M 941 640 L 805 724 L 941 813" stroke="#000" stroke-width="62"/>
+  </g>
+</svg>

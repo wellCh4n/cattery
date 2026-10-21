@@ -2,7 +2,8 @@
 
 import { FormEvent, Suspense, useEffect, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { Cat, Loader2 } from "lucide-react"
+import { Loader2 } from "lucide-react"
+import { CatteryLogo } from "@/components/cattery-logo"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -66,7 +67,7 @@ function LoginForm() {
   return (
     <form onSubmit={onSubmit} className="w-full max-w-sm space-y-5">
       <div className="flex flex-col items-center gap-2 mb-2">
-        <Cat className="size-7 text-foreground" />
+        <CatteryLogo className="size-10" />
         <span className="font-heading font-semibold tracking-tight">Cattery</span>
       </div>
 
