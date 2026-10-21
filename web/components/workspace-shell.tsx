@@ -333,7 +333,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
             onStop={() => setStopSandboxTarget(currentProject)}
           />
         )}
-        <div ref={userMenuRef} className={cn("relative shrink-0", !currentProject && "ml-auto")}>
+        <div ref={userMenuRef} className="relative ml-auto shrink-0">
           {userMenuOpen && (
             <div className="absolute right-0 top-full z-30 mt-2 min-w-44 overflow-hidden rounded-lg border bg-popover text-sm shadow-md">
               <div className="border-b px-2.5 py-2">
@@ -770,7 +770,7 @@ function ProjectRunButton({
       title={running && !canStop ? "Only the project owner can stop the agent" : label}
       onClick={running ? onStop : onStart}
       className={cn(
-        "ml-auto flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-xs font-medium transition-colors disabled:cursor-default disabled:opacity-50",
+        "flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-xs font-medium transition-colors disabled:cursor-default disabled:opacity-50",
         starting ? "text-muted-foreground" : running || failed ? "text-destructive hover:bg-destructive/10" : "text-emerald-500 hover:bg-emerald-500/10",
       )}
     >
