@@ -1,6 +1,7 @@
 import type { ComponentType } from "react"
 
 export interface FilePreviewProps {
+  projectId: string
   path: string
   content: string
   truncated: boolean

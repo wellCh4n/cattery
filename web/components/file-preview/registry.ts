@@ -1,3 +1,4 @@
+import { LatexPreview } from "./latex-preview"
 import { HtmlPreview } from "./html-preview"
 import { CsvPreview } from "./csv-preview"
 import { ImagePreview } from "./image-preview"
@@ -18,6 +19,7 @@ export const textPreview: FilePreviewDefinition = {
 // Register new formats here. First matching entry wins; unknown extensions
 // fall back to textPreview, which also renders every format's Source mode.
 export const filePreviews: readonly FilePreviewDefinition[] = [
+  { id: "latex", extensions: ["tex"], input: "content", supportsSource: true, component: LatexPreview },
   {
     id: "image",
     extensions: ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico", "avif"],

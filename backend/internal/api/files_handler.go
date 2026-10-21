@@ -1,50 +1,31 @@
-// Package api — files_handler proxies file operations to the per-project
-// filemgr Pod, which mounts the project's workspace PVC at /work and exposes
-// /list /read /download /upload over FileMgrPort. The Pod is created when the
-// project is created; this handler also lazy-creates it as a fallback so
-// existing projects (or recovered ones) get a filemgr the first time a file
-// API is hit. Frontend reaches the Pod through this proxy so it never
-// needs the in-cluster Pod IP.
+// File operations proxy to the filemgr container in the shared project Pod.
 package api
 
 import (
-	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/wellch4n/cattery/internal/db"
-	"github.com/wellch4n/cattery/internal/k8s"
 	"github.com/wellch4n/cattery/internal/model"
 	"github.com/wellch4n/cattery/internal/sandbox"
 )
 
 type FilesHandler struct {
 	projects *db.ProjectStore
-	k8s      *k8s.Client
+	sandbox  *sandbox.Manager
 }
 
-func NewFilesHandler(projects *db.ProjectStore, k8sClient *k8s.Client) *FilesHandler {
-	return &FilesHandler{projects: projects, k8s: k8sClient}
+func NewFilesHandler(projects *db.ProjectStore, sandboxMgr *sandbox.Manager) *FilesHandler {
+	return &FilesHandler{projects: projects, sandbox: sandboxMgr}
 }
 
-// fileMgrReadyTimeout caps how long a /files request can block waiting for
-// the project's filemgr Pod to come up. New projects usually hit this on the
-// very first request after Create — the Pod was scheduled but image pull /
-// PVC binding can take a few seconds.
-const fileMgrReadyTimeout = 30 * time.Second
-
-// requireFileMgrURL verifies the caller has the requested access to
-// :project_id, then returns the URL of that project's filemgr Pod. Ensures
-// PVC + Pod exist (idempotent) and waits for Pod readiness.
+// File requests wait only for the filemgr container in the shared project Pod.
 func (h *FilesHandler) requireFileMgrURL(c echo.Context, write bool) (string, error) {
-	var (
-		access *model.ProjectAccess
-		err    error
-	)
+	var access *model.ProjectAccess
+	var err error
 	if write {
 		access, err = requireWritableProject(c, h.projects)
 	} else {
@@ -53,32 +34,11 @@ func (h *FilesHandler) requireFileMgrURL(c echo.Context, write bool) (string, er
 	if err != nil {
 		return "", err
 	}
-	ctx := c.Request().Context()
-	projectID := access.Project.ProjectID
-	pvcName := sandbox.PVCNameForProjectID(projectID)
-	if err := h.k8s.EnsurePVC(ctx, pvcName, k8s.ComponentWorkspace, map[string]string{
-		k8s.LabelProjectID: projectID.String(),
-	}); err != nil {
-		return "", echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("ensure pvc: %v", err))
-	}
-	podName := sandbox.FileMgrPodNameForProject(projectID)
-	if err := h.k8s.EnsureFileMgrPod(ctx, k8s.FileMgrPodSpec{
-		Name:      podName,
-		ProjectID: projectID.String(),
-		PVCName:   pvcName,
-		Image:     sandbox.FileMgrImage,
-		Port:      sandbox.FileMgrPort,
-	}); err != nil {
-		return "", echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("ensure filemgr: %v", err))
-	}
-	ip, err := h.k8s.WaitPodReady(ctx, podName, fileMgrReadyTimeout)
+	url, err := h.sandbox.FileURL(c.Request().Context(), access.Project.ProjectID)
 	if err != nil {
-		return "", echo.NewHTTPError(http.StatusServiceUnavailable, fmt.Sprintf("filemgr not ready: %v", err))
+		return "", echo.NewHTTPError(http.StatusServiceUnavailable, err.Error())
 	}
-	return (&url.URL{
-		Scheme: "http",
-		Host:   fmt.Sprintf("%s:%d", ip, sandbox.FileMgrPort),
-	}).String(), nil
+	return url, nil
 }
 
 // List proxies GET /projects/:id/files/list?path=...
@@ -250,4 +210,20 @@ func forward(c echo.Context, req *http.Request) error {
 	c.Response().WriteHeader(resp.StatusCode)
 	_, _ = io.Copy(c.Response().Writer, resp.Body)
 	return nil
+}
+
+// Latex reads cached preview status or explicitly compiles a document.
+func (h *FilesHandler) Latex(c echo.Context) error {
+	if c.Request().Method == http.MethodGet {
+		return h.proxyGET(c, "/latex")
+	}
+	base, err := h.requireFileMgrURL(c, true)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(c.Request().Context(), http.MethodPost, base+"/latex?"+c.Request().URL.RawQuery, nil)
+	if err != nil {
+		return err
+	}
+	return forward(c, req)
 }

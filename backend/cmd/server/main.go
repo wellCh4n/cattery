@@ -50,7 +50,7 @@ func main() {
 
 	projectH := api.NewProjectHandler(projectStore, memberStore, userStore, sandboxMgr, k8s)
 	sessionH := api.NewSessionHandler(sessionStore, projectStore, harnessClient, sandboxMgr, models)
-	filesH := api.NewFilesHandler(projectStore, k8s)
+	filesH := api.NewFilesHandler(projectStore, sandboxMgr)
 	skillsH := api.NewSkillsHandler(k8s)
 	authH := api.NewAuthHandler(userStore, signer)
 	adminH := api.NewAdminHandler(userStore, projectStore, sandboxMgr)

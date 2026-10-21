@@ -515,3 +515,17 @@ function appendToken(url: string): string {
   const sep = url.includes("?") ? "&" : "?"
   return `${url}${sep}token=${encodeURIComponent(token)}`
 }
+
+export interface LatexPreviewState {
+  pdf?: string
+  version?: string
+  stale: boolean
+}
+
+export async function latexPreview(projectId: string, path: string, compile = false): Promise<LatexPreviewState> {
+  const res = await authedFetch(`${API_BASE}/api/v1/projects/${projectId}/files/latex?path=${encodeURIComponent(path)}`, {
+    method: compile ? "POST" : "GET", cache: "no-store",
+  })
+  if (!res.ok) throw new Error(await readErrorMessage(res, `LaTeX preview failed (${res.status})`))
+  return res.json()
+}

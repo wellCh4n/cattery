@@ -61,24 +61,9 @@ func (h *ProjectHandler) Create(c echo.Context) error {
 	if err := h.projects.Create(c.Request().Context(), project); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
-	// Project 一经创建立刻把工作区 PVC 和 filemgr Pod 备好。agent sandbox
-	// 按需拉起时复用同一块 PVC；filemgr Pod 让文件浏览/上传在 sandbox 没有
-	// 运行的时候也可用。失败时记日志不阻塞 API：files_handler 在第一次访问
-	// 时还会重新 EnsurePVC + EnsureFileMgrPod 兜底。
-	pvcName := sandbox.PVCNameForProjectID(project.ProjectID)
-	if err := h.k8s.EnsurePVC(c.Request().Context(), pvcName, k8s.ComponentWorkspace, map[string]string{
-		k8s.LabelProjectID: project.ProjectID.String(),
-	}); err != nil {
-		log.Printf("warn: ensure workspace pvc for project %s: %v", project.ProjectID, err)
-	}
-	if err := h.k8s.EnsureFileMgrPod(c.Request().Context(), k8s.FileMgrPodSpec{
-		Name:      sandbox.FileMgrPodNameForProject(project.ProjectID),
-		ProjectID: project.ProjectID.String(),
-		PVCName:   pvcName,
-		Image:     sandbox.FileMgrImage,
-		Port:      sandbox.FileMgrPort,
-	}); err != nil {
-		log.Printf("warn: ensure filemgr pod for project %s: %v", project.ProjectID, err)
+	// Provision both containers at project creation; file requests retry on failure.
+	if err := h.sandbox.EnsureProject(c.Request().Context(), project.ProjectID); err != nil {
+		log.Printf("warn: ensure project pod %s: %v", project.ProjectID, err)
 	}
 	owner, _ := h.users.GetByID(c.Request().Context(), userID)
 	ownerUsername := ""
@@ -146,15 +131,8 @@ func (h *ProjectHandler) Delete(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	h.sandbox.Stop(c.Request().Context(), access.Project.ProjectID)
-	if err := h.k8s.DeletePod(c.Request().Context(), sandbox.FileMgrPodNameForProject(access.Project.ProjectID)); err != nil {
-		log.Printf("warn: delete filemgr pod for project %s: %v", access.Project.ProjectID, err)
-	}
-	// Drop the workspace PVC last — the sandbox and filemgr Pods (which mount
-	// it) must be terminating first, otherwise the PVC delete blocks on the in-use
-	// finalizer until the Pod releases the volume.
-	if err := h.k8s.DeletePVC(c.Request().Context(), sandbox.PVCNameForProjectID(access.Project.ProjectID)); err != nil {
-		log.Printf("warn: delete workspace pvc for project %s: %v", access.Project.ProjectID, err)
+	if err := h.sandbox.Destroy(c.Request().Context(), access.Project.ProjectID); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	if err := h.projects.DeleteForOwner(c.Request().Context(), access.Project.ProjectID, access.Project.OwnerUserID); err != nil {
 		if errors.Is(err, db.ErrProjectNotFound) {
@@ -165,8 +143,7 @@ func (h *ProjectHandler) Delete(c echo.Context) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
-// StopSandbox stops the project's agent sandbox. Sessions survive: their
-// transcripts live on the workspace PVC and the sandbox restarts on next use.
+// StopSandbox releases agent sessions but keeps the project Pod and files available.
 // StartSandbox brings the project's sandbox up ahead of the first message. The
 // start runs detached (a pod can take a while) and the caller polls the
 // project's sandbox_status. Any member may start it — sending a message would
@@ -190,7 +167,9 @@ func (h *ProjectHandler) StopSandbox(c echo.Context) error {
 	if err != nil {
 		return err
 	}
-	h.sandbox.Stop(c.Request().Context(), access.Project.ProjectID)
+	if err := h.sandbox.Stop(c.Request().Context(), access.Project.ProjectID); err != nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, err.Error())
+	}
 	return c.NoContent(http.StatusNoContent)
 }
 

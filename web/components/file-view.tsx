@@ -54,6 +54,7 @@ export function FileView({ projectId, path }: { projectId: string; path: string 
   const renderer = canToggle && mode === "source" ? textPreview : preview
   const Preview = renderer.component
   const previewProps = {
+    projectId,
     path,
     content: data?.content ?? "",
     truncated: data?.truncated ?? false,
@@ -107,7 +108,7 @@ export function FileView({ projectId, path }: { projectId: string; path: string 
 
       <div className="min-h-0 flex-1 overflow-auto">
         {renderer.input === "url" ? (
-          <Preview {...previewProps} />
+          <Preview key={`${projectId}:${path}`} {...previewProps} />
         ) : loading ? (
           <div className="p-4 text-muted-foreground"><Loader2 className="size-4 animate-spin" /></div>
         ) : error ? (
@@ -117,7 +118,7 @@ export function FileView({ projectId, path }: { projectId: string; path: string 
             Binary file ({data.size} bytes). Use download to fetch it.
           </p>
         ) : (
-          <Preview {...previewProps} />
+          <Preview key={`${projectId}:${path}`} {...previewProps} />
         )}
       </div>
     </div>

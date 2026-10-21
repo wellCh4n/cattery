@@ -17,6 +17,7 @@ test('automatic titles use small_model, preserve fallback on failure, and surviv
     const body = JSON.parse(data)
     requests.push({ ...body, auth: req.headers.authorization })
     const title = body.model === 'small'
+    if (!title && mode === 'hang') return
     if ((title && mode === 'title-error') || (!title && mode === 'main-error')) {
       res.writeHead(400, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ error: { message: 'test failure', type: 'invalid_request_error' } }))
@@ -107,6 +108,10 @@ test('automatic titles use small_model, preserve fallback on failure, and surviv
     assert.equal(JSON.parse(transcript).titleAttempted, true)
     assert.ok(!transcript.includes('small-key') && !transcript.includes('main-key'))
     assert.ok(!transcript.includes('修复登录问题'))
+    assert.equal((await fetch(url + '/stop', { method: 'POST' })).status, 204)
+    assert.deepEqual(await (await fetch(url + '/session')).json(), [])
+    assert.equal(await readFile(path.join(dir, 'success.json'), 'utf8'), transcript)
+    await register('success')
     await stop(); await start(); await register('success')
     const count = requests.length
     assert.equal((await prompt('success')).filter(e => e.type === 'session.title').length, 0)
@@ -126,6 +131,20 @@ test('automatic titles use small_model, preserve fallback on failure, and surviv
     assert.ok(failed.some(e => e.type === 'session.error'))
     mode = 'success'
     assert.deepEqual((await prompt('retry')).filter(e => e.type === 'session.title').map(e => e.data.title), ['修复登录问题'])
+    mode = 'hang'
+    await register('stop-running')
+    const beforeStop = requests.length
+    const pending = prompt('stop-running')
+    for (let i = 0; i < 100 && requests.length === beforeStop; i++) await new Promise(r => setTimeout(r, 10))
+    assert.ok(requests.length > beforeStop)
+    assert.equal((await fetch(url + '/stop', { method: 'POST' })).status, 204)
+    assert.ok((await pending).some(e => e.type === 'session.idle'))
+    assert.deepEqual(await (await fetch(url + '/session')).json(), [])
+    assert.ok(JSON.parse(await readFile(path.join(dir, 'stop-running.json'), 'utf8')).messages.length > 0)
+    mode = 'success'
+    await register('stop-running')
+    assert.ok((await prompt('stop-running')).some(e => e.type === 'session.idle'))
+
   } finally {
     await stop()
     provider.closeAllConnections()

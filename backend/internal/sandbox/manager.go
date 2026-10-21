@@ -1,11 +1,10 @@
 // Package sandbox 负责 project agent sandbox 的生命周期（启动 / 等待就绪 / 停止）。
-// 每个 project 一个 sandbox，按需拉起（创建 session / 发消息 / 读历史时）。
+// 每个 project 一个常驻 Pod，agent 和 filemgr 共享工作区。
 package sandbox
 
 import (
 	"context"
 	"fmt"
-	"log"
 	"sync"
 	"time"
 
@@ -20,8 +19,7 @@ import (
 // Port 是 agent sandbox 容器对外暴露的端口。
 const Port = 1114
 
-// FileMgrPort 是 filemgr Pod 监听的端口。一个 project 启动时会拉起一个独立
-// 的 filemgr Pod 挂载 project PVC，后端 /files 路由把请求转发到这个端口。
+// FileMgrPort is the filemgr container port in the shared project Pod.
 const FileMgrPort = 1115
 
 // FileMgrImage 是 filemgr 镜像。`make build-pod` 构建。
@@ -62,7 +60,8 @@ type Manager struct {
 
 	// locks serializes EnsureReady per project so concurrent session creates
 	// and message sends don't race each other into a double start.
-	locks sync.Map // uuid.UUID → *sync.Mutex
+	locks          sync.Map // uuid.UUID → *sync.Mutex
+	provisionLocks sync.Map
 }
 
 func NewManager(store *db.ProjectStore, k8sClient *k8s.Client, harnessClient *harness.Client, cfg *config.Config) *Manager {
@@ -85,90 +84,78 @@ func (m *Manager) lock(projectID uuid.UUID) func() {
 	return mu.Unlock
 }
 
-// EnsureReady 确保 project 的 agent sandbox 在线并返回其 URL：
-//   - 已在运行：直接返回（pod IP 每次都从 K8s 现查，不入库）
-//   - 否则：拉起 Sandbox CR 并等待 ready
-//
-// 耗时可达分钟级；同一 project 的并发调用会排队，后到的直接复用结果。
-func (m *Manager) EnsureReady(ctx context.Context, projectID uuid.UUID) (string, error) {
-	name := NameFor(projectID)
-	if url, ok := m.k8sClient.ResolveURL(ctx, name); ok {
+// EnsureProject provisions the shared project Pod without activating agent sessions.
+func (m *Manager) EnsureProject(ctx context.Context, projectID uuid.UUID) error {
+	v, _ := m.provisionLocks.LoadOrStore(projectID, &sync.Mutex{})
+	mu := v.(*sync.Mutex)
+	mu.Lock()
+	defer mu.Unlock()
+	return m.ensureProject(ctx, projectID)
+}
+
+func (m *Manager) ensureProject(ctx context.Context, projectID uuid.UUID) error {
+	pvcName := PVCNameForProjectID(projectID)
+	if err := m.k8sClient.EnsurePVC(ctx, pvcName, k8s.ComponentWorkspace, map[string]string{k8s.LabelProjectID: projectID.String()}); err != nil {
+		return err
+	}
+	if err := m.k8sClient.EnsurePVC(ctx, SkillsPVCName, k8s.ComponentSkills, nil); err != nil {
+		return err
+	}
+	if err := m.k8sClient.RunTask(ctx, k8s.SandboxSpec{
+		Name: NameFor(projectID), ProjectID: projectID.String(), Image: Image, ContainerPort: Port,
+		FileMgrImage: FileMgrImage, FileMgrPort: FileMgrPort,
+		Env:          map[string]string{"PORT": fmt.Sprint(Port), "PROJECT_ID": projectID.String()},
+		WorkspacePVC: pvcName, SkillsPVC: SkillsPVCName, SkillsMount: SkillsMountPath,
+	}); err != nil {
+		return err
+	}
+	// Clean up the obsolete standalone file service after the shared spec exists.
+	return m.k8sClient.DeletePod(ctx, FileMgrPodNameForProject(projectID))
+}
+
+func (m *Manager) FileURL(ctx context.Context, projectID uuid.UUID) (string, error) {
+	if url, ok := m.k8sClient.ResolveContainerURL(ctx, NameFor(projectID), "filemgr", FileMgrPort); ok {
 		return url, nil
 	}
+	if err := m.EnsureProject(ctx, projectID); err != nil {
+		return "", err
+	}
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+	defer cancel()
+	return m.k8sClient.WaitContainerReady(ctx, NameFor(projectID), "filemgr", FileMgrPort)
+}
 
+func (m *Manager) EnsureReady(ctx context.Context, projectID uuid.UUID) (string, error) {
 	unlock := m.lock(projectID)
 	defer unlock()
-	// Someone may have finished bringing it up while we waited for the lock.
-	if url, ok := m.k8sClient.ResolveURL(ctx, name); ok {
+	if err := m.EnsureProject(ctx, projectID); err != nil {
+		_ = m.store.UpdateSandboxStatus(ctx, projectID, "failed")
+		return "", err
+	}
+	if url, ok := m.URL(ctx, projectID); ok {
 		_ = m.store.UpdateSandboxStatus(ctx, projectID, "ready")
 		return url, nil
 	}
-
-	env := map[string]string{
-		"PORT":       fmt.Sprintf("%d", Port),
-		"PROJECT_ID": projectID.String(),
-	}
-	// Model endpoints and keys are not baked into the pod: the backend passes
-	// them with each session registration (see SessionHandler.ensureAgentSession).
-
-	// On failure also drop the CR: its pod uses restartPolicy Never, so a
-	// crashed one would otherwise sit un-Ready and every retry would wait on
-	// it (RunTask tolerates AlreadyExists) instead of starting fresh.
-	fail := func(err error) (string, error) {
-		bg := context.Background()
-		if stopErr := m.k8sClient.StopTask(bg, name); stopErr != nil && !apierrors.IsNotFound(stopErr) {
-			log.Printf("warn: clean up sandbox %s: %v", name, stopErr)
-		}
-		_ = m.store.UpdateSandboxStatus(bg, projectID, "failed")
-		return "", err
-	}
-
-	pvcName := PVCNameForProjectID(projectID)
-	if err := m.k8sClient.EnsurePVC(ctx, pvcName, k8s.ComponentWorkspace, map[string]string{
-		k8s.LabelProjectID: projectID.String(),
-	}); err != nil {
-		return fail(fmt.Errorf("ensure workspace pvc: %w", err))
-	}
-	// The skills PVC is normally created by the skillmgr path, but ensure it
-	// here too: on a fresh cluster nobody may have opened the Skills panel yet,
-	// and a missing PVC would block the sandbox Pod from scheduling.
-	if err := m.k8sClient.EnsurePVC(ctx, SkillsPVCName, k8s.ComponentSkills, nil); err != nil {
-		return fail(fmt.Errorf("ensure skills pvc: %w", err))
-	}
-
 	_ = m.store.UpdateSandboxStatus(ctx, projectID, "starting")
-	if err := m.k8sClient.RunTask(ctx, k8s.SandboxSpec{
-		Name:          name,
-		ProjectID:     projectID.String(),
-		Image:         Image,
-		ContainerPort: Port,
-		Env:           env,
-		WorkspacePVC:  pvcName,
-		SkillsPVC:     SkillsPVCName,
-		SkillsMount:   SkillsMountPath,
-	}); err != nil {
-		return fail(fmt.Errorf("run sandbox: %w", err))
+	readyCtx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+	defer cancel()
+	url, err := m.k8sClient.WaitContainerReady(readyCtx, NameFor(projectID), "agent", Port)
+	if err == nil {
+		err = m.harnessClient.WaitHTTPReady(readyCtx, url, 2*time.Minute)
 	}
-
-	url, err := m.k8sClient.WaitReady(ctx, name, 3*time.Minute)
 	if err != nil {
-		return fail(err)
-	}
-	if err := m.harnessClient.WaitHTTPReady(ctx, url, 2*time.Minute); err != nil {
-		return fail(err)
+		// Keep the shared Pod and file service alive when the agent is unhealthy.
+		_ = m.store.UpdateSandboxStatus(context.Background(), projectID, "failed")
+		return "", err
 	}
 	_ = m.store.UpdateSandboxStatus(ctx, projectID, "ready")
 	return url, nil
 }
 
 // Await is EnsureReady for request handlers: the bring-up runs detached so a
-// client that disconnects mid-start doesn't cancel it (a cancelled start would
-// count as a failure and tear the sandbox down), while the caller stops
+// client that disconnects mid-start does not cancel provisioning, while it stops
 // waiting as soon as ctx is done.
 func (m *Manager) Await(ctx context.Context, projectID uuid.UUID) (string, error) {
-	if url, ok := m.URL(ctx, projectID); ok {
-		return url, nil
-	}
 	type result struct {
 		url string
 		err error
@@ -189,19 +176,38 @@ func (m *Manager) Await(ctx context.Context, projectID uuid.UUID) (string, error
 // URL resolves the project sandbox's current address straight from K8s. There
 // is no DB cache of the pod IP (it's ephemeral and goes stale on reschedule),
 // so callers resolve it fresh — once per connection. Returns ("", false) when
-// the sandbox isn't Ready / has no published pod IP yet.
+// the agent container is not ready or has no published Pod IP yet.
 func (m *Manager) URL(ctx context.Context, projectID uuid.UUID) (string, bool) {
-	return m.k8sClient.ResolveURL(ctx, NameFor(projectID))
+	return m.k8sClient.ResolveContainerURL(ctx, NameFor(projectID), "agent", Port)
 }
 
-// Stop 删除 project 的 Sandbox CR；本地状态置 idle。Session transcript 在
-// workspace PVC 上，下次拉起后可继续。
-func (m *Manager) Stop(ctx context.Context, projectID uuid.UUID) {
-	name := NameFor(projectID)
-	go func() {
-		if err := m.k8sClient.StopTask(context.Background(), name); err != nil && !apierrors.IsNotFound(err) {
-			log.Printf("warn: stop sandbox %s: %v", name, err)
+// Stop releases agent sessions while keeping the shared project Pod alive.
+func (m *Manager) Stop(ctx context.Context, projectID uuid.UUID) error {
+	unlock := m.lock(projectID)
+	defer unlock()
+	if url, ok := m.URL(ctx, projectID); ok {
+		stopCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		if err := m.harnessClient.Stop(stopCtx, url); err != nil {
+			return err
 		}
-	}()
-	_ = m.store.UpdateSandboxStatus(ctx, projectID, "idle")
+	}
+	return m.store.UpdateSandboxStatus(ctx, projectID, "idle")
+}
+
+// Destroy is reserved for project/account deletion, never the Stop agent action.
+func (m *Manager) Destroy(ctx context.Context, projectID uuid.UUID) error {
+	unlock := m.lock(projectID)
+	defer unlock()
+	v, _ := m.provisionLocks.LoadOrStore(projectID, &sync.Mutex{})
+	mu := v.(*sync.Mutex)
+	mu.Lock()
+	defer mu.Unlock()
+	if err := m.k8sClient.StopTask(ctx, NameFor(projectID)); err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+	if err := m.k8sClient.DeletePod(ctx, FileMgrPodNameForProject(projectID)); err != nil {
+		return err
+	}
+	return m.k8sClient.DeletePVC(ctx, PVCNameForProjectID(projectID))
 }

@@ -54,6 +54,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/list", handleList)
 	mux.HandleFunc("/read", handleRead)
+	mux.HandleFunc("/latex", handleLatex)
 	mux.HandleFunc("/raw", handleRaw)
 	mux.HandleFunc("/download", handleDownload)
 	mux.HandleFunc("/upload", handleUpload)

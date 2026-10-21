@@ -55,7 +55,7 @@ build-harness:
 	@echo "→ building cattery-pi:dev"
 	@docker build -t cattery-pi:dev harnesses/pi/
 
-# Standalone Pod images (run as their own Pod, not as sandbox sidecars).
+# Service images: filemgr shares the project Pod; skillmgr runs independently.
 # make build-pod              — build all pod images
 # make build-pod POD=filemgr  — build one
 # make build-pod POD=skillmgr — build one

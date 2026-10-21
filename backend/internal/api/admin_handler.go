@@ -166,8 +166,7 @@ func (h *AdminHandler) UpdateUser(c echo.Context) error {
 // DeleteUser drops the user and (because of ON DELETE CASCADE) their
 // projects and sessions. The DB cascade does NOT touch K8s — we
 // must stop each Sandbox CR explicitly first or it'll keep running forever as
-// an orphan. We do this synchronously before the DB delete; sandbox.Stop is
-// itself fire-and-forget so it just kicks off the deletion.
+// an orphan. Destroy shared project resources before deleting database rows.
 func (h *AdminHandler) DeleteUser(c echo.Context) error {
 	callerID, _ := UserIDFromContext(c)
 	targetID, err := uuid.Parse(c.Param("user_id"))
@@ -183,16 +182,17 @@ func (h *AdminHandler) DeleteUser(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusNotFound, "user not found")
 	}
 
-	// Stop sandboxes before cutting the project rows out from under them.
-	// Use a detached background context so a request cancel doesn't leave
-	// half-stopped sandboxes — Stop is fast (just queues a K8s delete).
+	// Destroy project resources before removing the database rows.
+	// A detached context lets cleanup finish if the caller disconnects.
 	projects, err := h.projects.ListForOwner(ctx, targetID)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	bg := context.Background()
 	for _, p := range projects {
-		h.sandbox.Stop(bg, p.ProjectID)
+		if err := h.sandbox.Destroy(bg, p.ProjectID); err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+		}
 	}
 
 	if err := h.users.Delete(ctx, targetID); err != nil {

@@ -423,7 +423,7 @@ export function Sidebar() {
             <span className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
               Sessions
               <span
-                title={`sandbox: ${sandboxStatus}`}
+                title={`agent: ${sandboxStatus}`}
                 className={cn("size-1.5 shrink-0 rounded-full", sandboxDot(sandboxStatus))}
               />
             </span>
@@ -434,10 +434,10 @@ export function Sidebar() {
                   size="icon-sm"
                   onClick={() => {
                     startSandbox(currentProject.project_id).catch(err =>
-                      window.alert(err instanceof Error ? err.message : "Failed to start sandbox"),
+                      window.alert(err instanceof Error ? err.message : "Failed to start agent"),
                     )
                   }}
-                  title={sandboxStatus === "failed" ? "Retry starting sandbox" : "Start sandbox"}
+                  title={sandboxStatus === "failed" ? "Retry starting agent" : "Start agent"}
                 >
                   <Play />
                 </Button>
@@ -447,7 +447,7 @@ export function Sidebar() {
                   variant="ghost"
                   size="icon-sm"
                   onClick={() => setStopSandboxTarget(currentProject)}
-                  title="Stop sandbox"
+                  title="Stop agent"
                 >
                   <Power />
                 </Button>
@@ -599,13 +599,13 @@ export function Sidebar() {
       <ConfirmDialog
         open={stopSandboxTarget !== null}
         onOpenChange={open => { if (!open) setStopSandboxTarget(null) }}
-        title="Stop sandbox?"
+        title="Stop agent?"
         description={
           <>
-            The agent sandbox for{" "}
+            The agent for{" "}
             <span className="font-medium text-foreground">{stopSandboxTarget?.project_name ?? "Untitled"}</span>
-            {" "}will be stopped and any running turn aborted. Sessions and files are kept; the sandbox
-            starts again on the next message.
+            {" "}will stop running tasks and release loaded sessions. Files remain available,
+            and conversations resume on the next message.
           </>
         }
         confirmLabel="Stop"

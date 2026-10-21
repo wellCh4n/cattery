@@ -130,6 +130,8 @@ func NewRouter(
 	projects.DELETE("/:project_id/members/:user_id", projectH.DeleteMember)
 	projects.GET("/:project_id/files/list", filesH.List)
 	projects.GET("/:project_id/files/read", filesH.Read)
+	projects.GET("/:project_id/files/latex", filesH.Latex)
+	projects.POST("/:project_id/files/latex", filesH.Latex)
 	projects.GET("/:project_id/files/raw", filesH.Raw)
 	projects.GET("/:project_id/files/raw-path/*", filesH.RawPath)
 	projects.GET("/:project_id/files/download", filesH.Download)

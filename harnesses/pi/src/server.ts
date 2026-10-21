@@ -221,6 +221,7 @@ interface Session {
   busy: boolean
   titleAbort?: AbortController
   persistQueue?: Promise<void>
+  run?: Promise<void>
 }
 interface Transcript { model: ModelRef; messages: AgentMessage[]; titleAttempted?: boolean }
 
@@ -384,6 +385,40 @@ async function runPrompt(sess: Session, text: string): Promise<void> {
 const app = express()
 app.use(express.json({ limit: '10mb' }))
 
+let stopping: Promise<void> | undefined
+const sessionRequests = new Set<Promise<void>>()
+app.use((req, res, next) => {
+  // Readiness and event streams remain available while sessions are released.
+  if (!req.path.startsWith('/session') || (req.method === 'GET' && req.path === '/session')) return next()
+  if (stopping) return void res.status(503).json({ error: 'agent is stopping' })
+  let complete!: () => void
+  const pending = new Promise<void>(resolve => { complete = resolve })
+  sessionRequests.add(pending)
+  const done = () => { sessionRequests.delete(pending); complete() }
+  res.once('finish', done)
+  res.once('close', done)
+  next()
+})
+
+app.post('/stop', async (_req, res, next) => {
+  stopping ??= (async () => {
+    await Promise.all([...sessionRequests])
+    const active = [...sessions.values()]
+    for (const sess of active) {
+      sess.agent.abort()
+      sess.titleAbort?.abort()
+    }
+    await Promise.allSettled(active.map(sess => sess.run))
+    await Promise.all(active.map(sess => persist(sess)))
+    sessions.clear()
+  })().finally(() => { stopping = undefined })
+  try {
+    await stopping
+    res.status(204).end()
+  } catch (err) { next(err) }
+})
+
+
 app.get('/session', (_req, res) => {
   res.json([...sessions.keys()])
 })
@@ -455,7 +490,7 @@ app.post('/session/:id/prompt_async', async (req, res) => {
   if (sess.busy) return void res.status(409).json({ error: 'session is busy' })
   sess.busy = true
   res.status(204).end()
-  void runPrompt(sess, text)
+  sess.run = runPrompt(sess, text)
 })
 
 app.post('/session/:id/abort', async (req, res) => {

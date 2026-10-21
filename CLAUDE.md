@@ -19,7 +19,7 @@ make dev-front                    # Next.js dev on :3000 (bun)
 make build                        # compile Go server to backend/bin/server
 make stop                         # kill :8080 and :3000
 make build-harness                # build the pi agent image (cattery-pi:dev)
-make build-pod                    # build all standalone Pod images (filemgr, skillmgr)
+make build-pod                    # build filemgr and skillmgr images (filemgr, skillmgr)
 make build-pod POD=filemgr        # build a single Pod image (filemgr | skillmgr)
 
 make docker-db                    # local Postgres via docker compose (also: docker-up | docker-down | docker-reset-db)
@@ -50,8 +50,8 @@ web (Next.js + shadcn, bun)   →   backend (Go + Echo)   →   K8s Sandbox Pod 
 
 ### Resource model: Project → Session
 
-- **Project** — shared workspace owned by a user, with its own PVC-backed file workspace (served by a per-project filemgr Pod) and one agent sandbox (`projects.sandbox_status`: idle | starting | ready | failed). Access is two roles only — `owner` and `member` (`model.AccessOwner` / `model.AccessMember`); there is no viewer/editor tier, and added members are always written as `member`. Role currently grants all-or-nothing access: `requireWritableSession` is just an alias for `requireReadableSession`, so read/write are not yet differentiated. Deleting a Project tears down its sandbox, filemgr Pod, and workspace PVC.
-- **Sandbox** — one K8s `agents.x-k8s.io/v1beta1` Sandbox CR per Project, named `cattery-sandbox-<projectID>` (`sandbox.NameFor`), image `cattery-pi:dev`. Note the `agents.x-k8s.io` API group is the upstream Agent Sandbox controller — unrelated to Cattery's own naming. It is started **on demand** by `sandbox.Manager.EnsureReady` (serialized per project with a mutex): on session create, and from `Await` when a message/history request finds it down. The pod URL is **not** persisted — it's the ephemeral pod IP, resolved live from K8s on each connection (`Manager.URL` → `k8sClient.ResolveURL`). A failed start deletes the CR so the next attempt starts clean (`restartPolicy: Never`).
+- **Project** — shared workspace owned by a user, with its own PVC-backed file workspace (shared by pi and filemgr containers in one Pod) and one agent sandbox (`projects.sandbox_status`: idle | starting | ready | failed). Access is two roles only — `owner` and `member` (`model.AccessOwner` / `model.AccessMember`); there is no viewer/editor tier, and added members are always written as `member`. Role currently grants all-or-nothing access: `requireWritableSession` is just an alias for `requireReadableSession`, so read/write are not yet differentiated. Deleting a Project tears down its shared Sandbox Pod and workspace PVC.
+- **Sandbox** — one K8s `agents.x-k8s.io/v1beta1` Sandbox CR per Project, named `cattery-sandbox-<projectID>`. Its Pod runs pi (`cattery-pi:dev`, port 1114) and filemgr (`cattery-filemgr:dev`, port 1115), with `restartPolicy: Always` and a shared workspace PVC at `/work`. `EnsureProject` provisions it at project creation or lazily on access. `EnsureReady` activates the agent and updates status. `Stop` calls pi's `/stop` to abort and release sessions without deleting the Pod; `Destroy` deletes project resources. URLs resolve from each container's readiness through `ResolveContainerURL`, so a restarting agent does not block file browsing. Failed agent startup keeps the Pod alive. See README for migration of existing single-container Sandboxes.
 - **Session** — a conversation with the agent, carrying its own `model`. The agent keys its transcript by the platform `session_id` (no separate agent-side id). Transcripts live on the workspace PVC at `/work/.cattery/sessions/<id>.json`, so sessions survive sandbox stop/restart.
 
 Creating a Session kicks off `bringUp` (`backend/internal/api/session_handler.go`): `EnsureReady` the project sandbox, then `POST /session {id, model, provider, baseUrl, apiKey}` on the agent. The session's `status` goes `creating → ready | failed`; `phase` says where it failed. `SendMessage` re-registers the session (idempotent) before every prompt, so a lost transcript degrades to an empty session instead of a 404.
@@ -115,14 +115,15 @@ The response is itself an SSE stream; the frontend reads it directly from the `f
 
 Stateless HS256 JWT (`backend/internal/auth/jwt.go`), 7-day TTL, no server-side revocation — the token is the source of truth until expiry (demoting an admin only takes effect on the next token). Every route except `POST /auth/login` sits behind `AuthMiddleware` (`auth_middleware.go`), which accepts the bearer token from the `Authorization: Bearer` header or, failing that, a `?token=` query param (for `<img>`/`<iframe>`/download URLs that can't set headers; redacted from access logs). Admin-only routes layer `AdminOnly` on top.
 
-### The filemgr Pod (per-project file manager)
+### The filemgr container (per-project file manager)
 
-`filemgr` is the file browser/upload backend that powers `web/components/file-browser-panel.tsx`. It is **not** a sidecar in the Sandbox CR — it runs as its own standalone Pod, one per project, named `cattery-filemgr-<projectID>` (`EnsureFileMgrPod` in `backend/internal/k8s/client.go`). Its image lives under `pods/filemgr/` and is built with `make build-pod`.
-
-- **Lifecycle is tied to the project, not the sandbox.** The Pod (and the workspace PVC) is created when the project is created (`project_handler.go`), so file browse/upload works even when the agent sandbox is not running. `files_handler.go` also lazy-creates it as a fallback on the first `/files` request, for recovered or pre-existing projects.
-- It mounts the project's workspace PVC at `/work` — the same PVC the agent sandbox mounts, but a separate Pod. Agent transcripts live under `/work/.cattery/`.
-- The backend proxies `/projects/:id/files/*` to the Pod IP on `FileMgrPort`, so the frontend never needs the in-cluster IP (`files_handler.go`).
-- When changing it, update the Pod spec in `backend/internal/k8s/client.go` (and `backend/internal/sandbox/manager.go` for names/ports/image) plus the image build under `pods/filemgr/`.
+`filemgr` powers the file browser and LaTeX previews. It is the second container
+in the project's Sandbox Pod, sharing `/work` with pi and exposing port 1115.
+Its image remains in `pods/filemgr/`, built with `make build-pod POD=filemgr`.
+`FilesHandler` uses `sandbox.Manager.FileURL`, which waits only for filemgr's
+readiness. Stopping agent sessions keeps file access available. The old
+`cattery-filemgr-<projectID>` Pod name is retained only for migration cleanup.
+The shared Pod spec lives in `backend/internal/k8s/client.go`.
 
 ### The skillmgr Pod (global skill library)
 

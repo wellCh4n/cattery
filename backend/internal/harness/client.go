@@ -235,3 +235,20 @@ func (c *Client) StreamEventsUntilIdle(ctx context.Context, sandboxURL, sessionI
 	}
 	return scanner.Err()
 }
+
+// Stop releases every in-memory session without deleting transcripts.
+func (c *Client) Stop(ctx context.Context, base string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/stop", nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("agent stop status %d", resp.StatusCode)
+	}
+	return nil
+}

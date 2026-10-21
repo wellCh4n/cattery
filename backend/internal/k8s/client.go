@@ -3,7 +3,8 @@ package k8s
 import (
 	"context"
 	"fmt"
-	"strings"
+	"net"
+	"strconv"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -117,6 +118,8 @@ type SandboxSpec struct {
 	ProjectID     string
 	Image         string
 	ContainerPort int
+	FileMgrImage  string
+	FileMgrPort   int
 	Env           map[string]string
 	WorkspacePVC  string
 	// WorkVolumeMount is the path the workspace volume is mounted at in the
@@ -168,6 +171,19 @@ func (c *Client) RunTask(ctx context.Context, spec SandboxSpec) error {
 		},
 	}
 
+	containers = append(containers, map[string]interface{}{
+		"name": "filemgr", "image": spec.FileMgrImage,
+		"ports":        []interface{}{map[string]interface{}{"containerPort": int64(spec.FileMgrPort)}},
+		"env":          []interface{}{map[string]interface{}{"name": "FILEMGR_ROOT", "value": workMount}, map[string]interface{}{"name": "PORT", "value": fmt.Sprint(spec.FileMgrPort)}},
+		"volumeMounts": []interface{}{map[string]interface{}{"name": workVolumeName, "mountPath": workMount}},
+		"resources": map[string]interface{}{
+			"requests": map[string]interface{}{"cpu": "50m", "memory": "64Mi"},
+			"limits":   map[string]interface{}{"cpu": "1", "memory": "1Gi"},
+		},
+		"readinessProbe": map[string]interface{}{"httpGet": map[string]interface{}{"path": "/healthz", "port": int64(spec.FileMgrPort)}, "periodSeconds": int64(2)},
+	})
+	containers[0].(map[string]interface{})["readinessProbe"] = map[string]interface{}{"httpGet": map[string]interface{}{"path": "/session", "port": int64(spec.ContainerPort)}, "periodSeconds": int64(2)}
+
 	labels := commonLabels(ComponentSandbox, spec.Name)
 	labels[LabelProjectID] = spec.ProjectID
 	workspaceVolume := map[string]interface{}{
@@ -209,7 +225,7 @@ func (c *Client) RunTask(ctx context.Context, spec SandboxSpec) error {
 						"labels": labels,
 					},
 					"spec": map[string]interface{}{
-						"restartPolicy": "Never",
+						"restartPolicy": "Always",
 						// The pi image runs as the unprivileged `node` user (uid 1000)
 						// and needs write access to /work. fsGroup makes K8s chown the
 						// volume to gid 1000 so node can write.
@@ -226,9 +242,18 @@ func (c *Client) RunTask(ctx context.Context, spec SandboxSpec) error {
 
 	_, err := c.dynamic.Resource(sandboxGVR).Namespace(c.namespace).Create(ctx, sandbox, metav1.CreateOptions{})
 	if apierrors.IsAlreadyExists(err) {
-		// A previous start is still around (e.g. backend restarted mid-start);
-		// callers wait on its Ready condition either way.
-		return nil
+
+		existing, getErr := c.dynamic.Resource(sandboxGVR).Namespace(c.namespace).Get(ctx, spec.Name, metav1.GetOptions{})
+		if getErr != nil {
+			return getErr
+		}
+		items, _, _ := unstructured.NestedSlice(existing.Object, "spec", "podTemplate", "spec", "containers")
+		for _, item := range items {
+			if container, ok := item.(map[string]interface{}); ok && container["name"] == "filemgr" {
+				return nil
+			}
+		}
+		return fmt.Errorf("project %s uses the legacy single-container sandbox; recreate its Sandbox and remove the legacy filemgr Pod during deployment (keep the workspace PVC)", spec.ProjectID)
 	}
 	return err
 }
@@ -272,105 +297,15 @@ func (c *Client) EnsurePVC(ctx context.Context, name, component string, extra ma
 		},
 	}
 	_, err = c.dynamic.Resource(pvcGVR).Namespace(c.namespace).Create(ctx, pvc, metav1.CreateOptions{})
+	if apierrors.IsAlreadyExists(err) {
+		return nil
+	}
 	return err
 }
 
-func (c *Client) WaitReady(ctx context.Context, name string, timeout time.Duration) (string, error) {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		obj, err := c.dynamic.Resource(sandboxGVR).Namespace(c.namespace).Get(ctx, name, metav1.GetOptions{})
-		if err == nil {
-			if url, ok := c.readyURL(ctx, obj.Object); ok {
-				return url, nil
-			}
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-	return "", fmt.Errorf("timeout waiting for sandbox %s", name)
-}
-
-// ResolveURL does a single, non-polling read of the Sandbox CR and returns its
-// current agent URL if the CR is Ready and a pod IP is published. Unlike
-// WaitReady it never blocks: callers use it to resolve the address fresh on
-// each connection rather than trusting a persisted (and quickly-stale) value —
-// the pod IP is ephemeral and changes whenever the pod is rescheduled.
-func (c *Client) ResolveURL(ctx context.Context, name string) (string, bool) {
-	obj, err := c.dynamic.Resource(sandboxGVR).Namespace(c.namespace).Get(ctx, name, metav1.GetOptions{})
-	if err != nil {
-		return "", false
-	}
-	return c.readyURL(ctx, obj.Object)
-}
-
-// readyURL extracts the agent URL from a Sandbox CR object when its Ready
-// condition is True and a routable pod IP is available.
-func (c *Client) readyURL(ctx context.Context, obj map[string]interface{}) (string, bool) {
-	conditions, _, _ := unstructured.NestedSlice(obj, "status", "conditions")
-	for _, raw := range conditions {
-		cond, ok := raw.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		if cond["type"] == "Ready" && cond["status"] == "True" {
-			port := containerPort(obj)
-			if url, ok := urlFromStatusPodIPs(obj, port); ok {
-				return url, true
-			}
-			if url, ok := c.urlFromSelectedPod(ctx, obj, port); ok {
-				return url, true
-			}
-		}
-	}
-	return "", false
-}
-
-func urlFromStatusPodIPs(obj map[string]interface{}, port int64) (string, bool) {
-	podIPs, _, _ := unstructured.NestedStringSlice(obj, "status", "podIPs")
-	for _, ip := range podIPs {
-		if ip != "" && !strings.Contains(ip, ":") {
-			return fmt.Sprintf("http://%s:%d", ip, port), true
-		}
-	}
-	return "", false
-}
-
-func (c *Client) urlFromSelectedPod(ctx context.Context, obj map[string]interface{}, port int64) (string, bool) {
-	selector, _, _ := unstructured.NestedString(obj, "status", "selector")
-	if selector == "" {
-		return "", false
-	}
-	pods, err := c.dynamic.Resource(podGVR).Namespace(c.namespace).List(ctx, metav1.ListOptions{LabelSelector: selector})
-	if err != nil {
-		return "", false
-	}
-	for _, pod := range pods.Items {
-		ip, _, _ := unstructured.NestedString(pod.Object, "status", "podIP")
-		if ip != "" && !strings.Contains(ip, ":") {
-			return fmt.Sprintf("http://%s:%d", ip, port), true
-		}
-	}
-	return "", false
-}
-
-func containerPort(obj map[string]interface{}) int64 {
-	containers, _, _ := unstructured.NestedSlice(obj, "spec", "podTemplate", "spec", "containers")
-	if len(containers) > 0 {
-		if c, ok := containers[0].(map[string]interface{}); ok {
-			ports, _, _ := unstructured.NestedSlice(c, "ports")
-			if len(ports) > 0 {
-				if p, ok := ports[0].(map[string]interface{}); ok {
-					if v, ok := p["containerPort"].(int64); ok {
-						return v
-					}
-				}
-			}
-		}
-	}
-	return 1114
-}
-
 func (c *Client) StopTask(ctx context.Context, name string) error {
-	return c.dynamic.Resource(sandboxGVR).Namespace(c.namespace).Delete(ctx, name, metav1.DeleteOptions{})
+	policy := metav1.DeletePropagationForeground
+	return c.dynamic.Resource(sandboxGVR).Namespace(c.namespace).Delete(ctx, name, metav1.DeleteOptions{PropagationPolicy: &policy})
 }
 
 func (c *Client) ListSandboxes(ctx context.Context) ([]unstructured.Unstructured, error) {
@@ -379,75 +314,6 @@ func (c *Client) ListSandboxes(ctx context.Context) ([]unstructured.Unstructured
 		return nil, err
 	}
 	return list.Items, nil
-}
-
-// FileMgrPodSpec describes the filemgr Pod that lives once per project and
-// exposes /list /read /upload etc. over the project's workspace PVC.
-type FileMgrPodSpec struct {
-	Name      string
-	ProjectID string
-	PVCName   string
-	Image     string
-	Port      int
-}
-
-// EnsureFileMgrPod creates a bare Pod running the filemgr image with the
-// project PVC mounted at /work. Idempotent: if a Pod with the same name
-// already exists, returns nil without re-creating.
-func (c *Client) EnsureFileMgrPod(ctx context.Context, spec FileMgrPodSpec) error {
-	if _, err := c.dynamic.Resource(podGVR).Namespace(c.namespace).Get(ctx, spec.Name, metav1.GetOptions{}); err == nil {
-		return nil
-	} else if !apierrors.IsNotFound(err) {
-		return err
-	}
-	labels := commonLabels(ComponentFileMgr, spec.Name)
-	labels[LabelProjectID] = spec.ProjectID
-	pod := &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "v1",
-			"kind":       "Pod",
-			"metadata": map[string]interface{}{
-				"name":      spec.Name,
-				"namespace": c.namespace,
-				"labels":    labels,
-			},
-			"spec": map[string]interface{}{
-				// Always-restart so a crashed filemgr comes back without
-				// operator intervention. Node loss still drops the Pod —
-				// upgrade to a Deployment if that matters later.
-				"restartPolicy": "Always",
-				"securityContext": map[string]interface{}{
-					"fsGroup": int64(1000),
-				},
-				"volumes": []interface{}{
-					map[string]interface{}{
-						"name": "workspace",
-						"persistentVolumeClaim": map[string]interface{}{
-							"claimName": spec.PVCName,
-						},
-					},
-				},
-				"containers": []interface{}{
-					map[string]interface{}{
-						"name":  "filemgr",
-						"image": spec.Image,
-						"ports": []interface{}{
-							map[string]interface{}{"containerPort": int64(spec.Port)},
-						},
-						"env": []interface{}{
-							map[string]interface{}{"name": "FILEMGR_ROOT", "value": "/work"},
-							map[string]interface{}{"name": "PORT", "value": fmt.Sprintf("%d", spec.Port)},
-						},
-						"volumeMounts": []interface{}{
-							map[string]interface{}{"name": "workspace", "mountPath": "/work"},
-						},
-					},
-				},
-			},
-		},
-	}
-	_, err := c.dynamic.Resource(podGVR).Namespace(c.namespace).Create(ctx, pod, metav1.CreateOptions{})
-	return err
 }
 
 // SkillMgrPodSpec describes the single, global skillmgr Pod. It mounts the
@@ -563,4 +429,45 @@ func (c *Client) DeletePVC(ctx context.Context, name string) error {
 		return err
 	}
 	return nil
+}
+
+// ResolveContainerURL checks only the requested container, so a restarting agent
+// does not make the healthy file manager unavailable.
+func (c *Client) ResolveContainerURL(ctx context.Context, name, container string, port int) (string, bool) {
+	pods, err := c.dynamic.Resource(podGVR).Namespace(c.namespace).List(ctx, metav1.ListOptions{LabelSelector: LabelInstance + "=" + name + "," + LabelComponent + "=" + ComponentSandbox})
+	if err != nil {
+		return "", false
+	}
+	for _, pod := range pods.Items {
+		if pod.GetDeletionTimestamp() != nil {
+			continue
+		}
+		ip, _, _ := unstructured.NestedString(pod.Object, "status", "podIP")
+		if ip == "" {
+			continue
+		}
+		statuses, _, _ := unstructured.NestedSlice(pod.Object, "status", "containerStatuses")
+		for _, raw := range statuses {
+			status, ok := raw.(map[string]interface{})
+			if ok && status["name"] == container && status["ready"] == true {
+				return "http://" + net.JoinHostPort(ip, strconv.Itoa(port)), true
+			}
+		}
+	}
+	return "", false
+}
+
+func (c *Client) WaitContainerReady(ctx context.Context, name, container string, port int) (string, error) {
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if url, ok := c.ResolveContainerURL(ctx, name, container, port); ok {
+			return url, nil
+		}
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-ticker.C:
+		}
+	}
 }
