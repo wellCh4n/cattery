@@ -5,7 +5,8 @@ import { usePathname, useRouter } from "next/navigation"
 import {
   Cat,
   Check,
-  ChevronsUpDown,
+  ChevronDown,
+  MoreHorizontal,
   FolderOpen,
   KeyRound,
   Loader2,
@@ -79,6 +80,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
   const [renameTarget, setRenameTarget] = useState<Session | null>(null)
   const [renameOpen, setRenameOpen] = useState(false)
   const [projectPickerOpen, setProjectPickerOpen] = useState(false)
+  const [projectActionsId, setProjectActionsId] = useState<string | null>(null)
   const [deleteProjectTarget, setDeleteProjectTarget] = useState<ProjectWithSessions | null>(null)
   const [renameProjectTarget, setRenameProjectTarget] = useState<ProjectWithSessions | null>(null)
   const projectPickerRef = useRef<HTMLDivElement>(null)
@@ -105,13 +107,23 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!projectPickerOpen) return
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setProjectPickerOpen(false)
+        projectPickerRef.current?.querySelector<HTMLButtonElement>("button")?.focus()
+      }
+    }
     function onPointerDown(e: PointerEvent) {
       if (projectPickerRef.current && !projectPickerRef.current.contains(e.target as Node)) {
         setProjectPickerOpen(false)
       }
     }
     document.addEventListener("pointerdown", onPointerDown)
-    return () => document.removeEventListener("pointerdown", onPointerDown)
+    document.addEventListener("keydown", onKeyDown)
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown)
+      document.removeEventListener("keydown", onKeyDown)
+    }
   }, [projectPickerOpen])
 
   useEffect(() => {
@@ -157,7 +169,6 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
     [projects, currentProjectId],
   )
   const sessions = useMemo(() => [...(currentProject?.sessions ?? [])].sort(compareSessionActivity), [currentProject?.sessions])
-  const sandboxStatus = currentProject?.sandbox_status ?? "idle"
 
   // Project controls can start an agent without selecting that project.
   const startingProjectIds = projects.filter(p => p.sandbox_status === "starting").map(p => p.project_id).sort().join(",")
@@ -233,7 +244,8 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
           ) : (
             <button
               type="button"
-              onClick={() => setProjectPickerOpen(o => !o)}
+              onClick={() => { setProjectPickerOpen(o => !o); setProjectActionsId(null) }}
+              aria-expanded={projectPickerOpen}
               className={cn(
                 "flex h-7 w-full cursor-pointer items-center gap-1.5 rounded-md border border-border px-2 text-xs transition-colors",
                 "hover:bg-muted",
@@ -241,104 +253,93 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
               )}
               title="Switch project"
             >
+              <span className="shrink-0 text-xs text-muted-foreground">Project</span>
               <span className="min-w-0 flex-1 truncate text-left text-sm font-semibold text-foreground">
                 {currentProject?.project_name ?? "Untitled"}
               </span>
-              <span
-                title={`Project agent: ${sandboxStatus}`}
-                className={cn("size-1.5 shrink-0 rounded-full", sandboxDot(sandboxStatus))}
-              />
-              <ChevronsUpDown className="size-3 shrink-0 text-muted-foreground" />
+              <ChevronDown className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", projectPickerOpen && "rotate-180")} />
             </button>
           )}
           {projectPickerOpen && (
-            <div className="absolute left-0 top-full z-30 mt-1 w-max min-w-full max-w-[400px] max-h-[60vh] overflow-y-auto rounded-md border bg-popover text-sm shadow-md">
+            <div className="absolute left-0 top-full z-30 mt-1 w-72 max-w-[calc(100vw-2rem)] max-h-[60vh] overflow-y-auto rounded-md border bg-popover text-sm shadow-md">
               {projects.map(project => {
                 const active = project.project_id === currentProjectId
                 const ownsProject = project.access_role === "owner"
                 const agentOn = project.sandbox_status === "ready" || project.sandbox_status === "starting"
                 const starting = startingProjects.has(project.project_id) || project.sandbox_status === "starting"
-                const powerLabel = starting ? "Agent starting" : agentOn ? "Stop project agent" : project.sandbox_status === "failed" ? "Retry starting project agent" : "Start project agent"
+                const powerLabel = starting ? "Agent starting" : agentOn ? "Stop agent" : project.sandbox_status === "failed" ? "Retry starting agent" : "Start agent"
+                const actionsOpen = projectActionsId === project.project_id
                 return (
-                  <div
-                    key={project.project_id}
-                    className={cn(
-                      "group/proj flex min-h-9 cursor-pointer items-center gap-2 px-2.5 py-1.5 text-left hover:bg-muted",
-                      active && "bg-muted/60",
-                    )}
-                    onClick={() => {
-                      setCurrentProject(project.project_id)
-                      setProjectPickerOpen(false)
-                    }}
-                  >
-                    <span className="flex size-4 shrink-0 items-center justify-center text-foreground">
-                      {active ? <Check className="size-3.5" /> : null}
-                    </span>
-                    <span className="flex min-w-0 flex-1 flex-col">
-                      <span className="truncate text-xs">
-                        {project.project_name ?? "Untitled"}
-                      </span>
-                      <span className="whitespace-nowrap font-mono text-[10px] leading-tight text-muted-foreground">
-                        {project.project_id}
-                      </span>
-                    </span>
-                    {!ownsProject && (
-                      <Badge variant="secondary" className="h-4 shrink-0 px-1.5 text-[10px] font-normal">
-                        {project.access_role}
-                      </Badge>
-                    )}
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={agentOn}
-                      aria-label={`${powerLabel}: ${project.project_name ?? "Untitled"}`}
-                      title={agentOn && !ownsProject ? "Only the project owner can stop the agent" : powerLabel}
-                      disabled={starting || (agentOn && !ownsProject)}
-                      onClick={e => {
-                        e.stopPropagation()
-                        if (agentOn) {
+                  <div key={project.project_id}>
+                    <div className={cn("flex items-center gap-1 px-2 py-1 transition-colors hover:bg-muted focus-within:bg-muted", active && "bg-muted/60")}>
+                      <button
+                        type="button"
+                        aria-current={active ? "true" : undefined}
+                        title={project.project_name ?? "Untitled"}
+                        className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded px-1 py-1.5 text-left"
+                        onClick={() => {
+                          setCurrentProject(project.project_id)
                           setProjectPickerOpen(false)
-                          setStopSandboxTarget(project)
-                        } else {
-                          void handleStartProject(project.project_id)
-                        }
-                      }}
-                      className={cn(
-                        "inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded transition-colors hover:bg-foreground/10 disabled:cursor-default disabled:opacity-50",
-                        agentOn ? "text-emerald-500" : project.sandbox_status === "failed" ? "text-destructive" : "text-muted-foreground",
+                        }}
+                      >
+                        <span className="flex size-4 shrink-0 items-center justify-center">
+                          {active && <Check className="size-3.5 text-primary" />}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate text-xs font-medium">{project.project_name ?? "Untitled"}</span>
+                        {!ownsProject && <Badge variant="secondary" className="h-4 shrink-0 px-1.5 text-[10px] font-normal">{project.access_role}</Badge>}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={starting || (agentOn && !ownsProject)}
+                        aria-label={powerLabel}
+                        title={agentOn && !ownsProject ? "Only the project owner can stop the agent" : powerLabel}
+                        onClick={() => {
+                          if (agentOn) {
+                            setProjectPickerOpen(false)
+                            setStopSandboxTarget(project)
+                          } else {
+                            void handleStartProject(project.project_id)
+                          }
+                        }}
+                        className={cn("flex size-7 shrink-0 cursor-pointer items-center justify-center rounded transition-colors hover:bg-foreground/10 disabled:cursor-default disabled:opacity-50", agentOn ? "text-emerald-500" : project.sandbox_status === "failed" ? "text-destructive" : "text-muted-foreground hover:text-foreground")}
+                      >
+                        {starting ? <Loader2 className="size-3.5 animate-spin" /> : <Power className="size-3.5" />}
+                      </button>
+                      {ownsProject && (
+                        <>
+                          <button
+                            type="button"
+                            aria-label="Rename project"
+                            title="Rename project"
+                            onClick={() => { setProjectPickerOpen(false); setRenameProjectTarget(project) }}
+                            className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
+                          >
+                            <Pencil className="size-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            aria-label={`Project actions: ${project.project_name ?? "Untitled"}`}
+                            aria-expanded={actionsOpen}
+                            title="Project actions"
+                            onClick={() => setProjectActionsId(actionsOpen ? null : project.project_id)}
+                            className={cn("flex size-7 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground", actionsOpen && "bg-foreground/10 text-foreground")}
+                          >
+                            <MoreHorizontal className="size-4" />
+                          </button>
+                        </>
                       )}
-                    >
-                      {starting ? <Loader2 className="size-3.5 animate-spin" /> : <Power className="size-3.5" />}
-                    </button>
-                    {ownsProject && (
-                      <>
+                    </div>
+                    {actionsOpen && ownsProject && (
+                      <div className="mx-2 mb-2 rounded-md border bg-background p-1">
                         <button
                           type="button"
-                          title="Rename project"
-                          aria-label="Rename project"
-                          onClick={e => {
-                            e.stopPropagation()
-                            setProjectPickerOpen(false)
-                            setRenameProjectTarget(project)
-                          }}
-                          className="inline-flex size-6 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
-                        >
-                          <Pencil className="size-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          title="Delete project"
-                          aria-label="Delete project"
-                          onClick={e => {
-                            e.stopPropagation()
-                            setProjectPickerOpen(false)
-                            setDeleteProjectTarget(project)
-                          }}
-                          className="inline-flex size-6 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/15 hover:text-destructive"
+                          onClick={() => { setProjectPickerOpen(false); setDeleteProjectTarget(project) }}
+                          className="flex h-8 w-full cursor-pointer items-center gap-2 rounded px-2 text-left text-xs text-destructive hover:bg-destructive/10"
                         >
                           <Trash2 className="size-3.5" />
+                          Delete project
                         </button>
-                      </>
+                      </div>
                     )}
                   </div>
                 )
@@ -662,13 +663,6 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
       />
     </>
   )
-}
-
-function sandboxDot(status: string): string {
-  if (status === "ready") return "bg-emerald-500"
-  if (status === "failed") return "bg-destructive"
-  if (status === "starting") return "bg-amber-400 animate-pulse"
-  return "bg-muted-foreground/40"
 }
 
 function formatSessionTime(timestamp: string): string {
