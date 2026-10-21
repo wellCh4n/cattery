@@ -266,7 +266,8 @@ function ChatPanelContent({ session }: Props) {
               onChange={e => setInput(e.target.value)}
               placeholder={ready ? "Ask the agent to change your code…" : "Waiting for the sandbox…"}
               aria-label="Message"
-              className="max-h-48 min-h-16 px-4 pt-4 text-base md:text-sm [field-sizing:content]"
+              rows={1}
+              className="max-h-48 min-h-0 px-4 pt-4 text-base md:text-sm [field-sizing:content]"
               onKeyDown={e => {
                 if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                   e.preventDefault()
