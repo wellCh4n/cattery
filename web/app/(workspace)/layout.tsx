@@ -46,9 +46,9 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-background">
+    <div className="flex h-screen flex-col overflow-hidden bg-canvas">
       <WorkspaceShell>
-        <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <main className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-md border bg-background">
           <TabBar />
           <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
         </main>

@@ -201,7 +201,7 @@ export function TabBar() {
                 : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
             )}
           >
-            {isActive && <span className="absolute inset-x-0 top-0 h-0.5 bg-primary" />}
+            {isActive && <span className="absolute inset-x-0 bottom-0 h-0.5 bg-primary" />}
             {r.icon}
             <div className={cn("min-w-0 flex-1 truncate", !r.exists && "italic line-through opacity-60")}>
               {r.title}

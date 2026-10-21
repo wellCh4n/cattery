@@ -225,7 +225,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
 
   return (
     <>
-      <header className="flex h-12 shrink-0 items-center gap-2 border-b bg-sidebar px-3">
+      <header className="flex h-12 shrink-0 items-center gap-2 px-3">
         <Cat className="size-4 shrink-0 text-foreground" />
         <span className="font-heading shrink-0 text-base font-semibold tracking-tight">Cattery</span>
         <div ref={projectPickerRef} className="relative min-w-0 w-44">
@@ -233,7 +233,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
             <button
               type="button"
               onClick={() => setNewProjectOpen(true)}
-              className="flex h-7 w-full cursor-pointer items-center gap-1.5 rounded-md border border-dashed border-border px-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              className="flex h-7 w-full cursor-pointer items-center gap-1.5 rounded-md border border-dashed border-border bg-background px-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
               title="Create your first project"
             >
               <Plus className="size-3 shrink-0" />
@@ -248,8 +248,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
               aria-expanded={projectPickerOpen}
               className={cn(
                 "flex h-7 w-full cursor-pointer items-center gap-1.5 rounded-md border border-border px-2 text-xs transition-colors",
-                "hover:bg-muted",
-                projectPickerOpen && "bg-muted",
+                projectPickerOpen ? "bg-muted" : "bg-background hover:bg-muted",
               )}
               title="Switch project"
             >
@@ -402,18 +401,20 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1">
+      {/* Islands layout: the side panel and the main area are rounded cards
+          floating on the canvas; header, activity bar and status bar stay flat. */}
+      <div className="flex min-h-0 flex-1 gap-1.5 pr-1.5">
         <aside
-          className="relative flex h-full shrink-0 flex-col border-r bg-sidebar"
+          className="relative flex h-full shrink-0 flex-col"
           style={{ width: sidebarWidth }}
         >
           <div
             onMouseDown={onSidebarMouseDown}
-            className="absolute right-0 top-0 z-10 h-full w-1 translate-x-1/2 cursor-col-resize transition-colors hover:bg-primary/40"
+            className="absolute -right-1.5 top-0 z-10 h-full w-1.5 cursor-col-resize rounded-full transition-colors hover:bg-primary/40"
           />
 
           <div className="flex min-h-0 flex-1 flex-row">
-          <div className="flex w-12 shrink-0 flex-col gap-1 border-r">
+          <div className="flex w-12 shrink-0 flex-col gap-1">
             <ActivityButton
               icon={<MessagesSquare className="size-5" />}
               label="Sessions"
@@ -467,7 +468,8 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
               </div>
             </div>
           </div>
-          <div className={cn("min-w-0 flex-1 flex-col", view === "sessions" ? "flex" : "hidden")}>
+          <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-md border bg-background">
+          <div className={cn("min-h-0 min-w-0 flex-1 flex-col", view === "sessions" ? "flex" : "hidden")}>
           {currentProject && (
             <div className="flex h-9 shrink-0 items-center justify-between border-b px-2">
               <span className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
@@ -572,6 +574,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
           </div>
           <div className={cn("min-h-0 flex-1 overflow-hidden", view === "skills" ? "block" : "hidden")}>
             {visitedViews.has("skills") && <SkillBrowserPanel active={view === "skills"} />}
+          </div>
           </div>
           </div>
 

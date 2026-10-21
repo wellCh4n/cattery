@@ -25,7 +25,7 @@ export function StatusBar() {
   const project = useWorkspaceStore(state => (sessionId ? findSession(state.projects, sessionId)?.project ?? null : null))
 
   return (
-    <footer className="flex h-7 shrink-0 items-center border-t bg-sidebar text-xs">
+    <footer className="flex h-7 shrink-0 items-center text-xs">
       <div className="flex shrink-0 items-center gap-1.5 px-2.5 text-muted-foreground">
         <UserCircle2 className="size-3.5" />
         <span className="text-foreground/80">{user?.username ?? "-"}</span>
