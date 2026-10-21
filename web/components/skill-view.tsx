@@ -117,7 +117,7 @@ export function SkillView({ slug, name }: { slug: string; name: string }) {
         <span className="min-w-0 flex-1 truncate font-medium" title={name}>{name}</span>
       </div>
       <div className="flex min-h-0 flex-1 gap-3 p-3">
-        <div className="flex w-44 shrink-0 flex-col overflow-hidden rounded border">
+        <div className="flex w-44 shrink-0 flex-col overflow-hidden rounded-lg border">
           <div className="flex h-9 shrink-0 items-center border-b px-2">
             <span className="text-[10px] font-medium uppercase tracking-wide text-foreground/70">
               SKILL
@@ -135,7 +135,7 @@ export function SkillView({ slug, name }: { slug: string; name: string }) {
             )}
           </div>
         </div>
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded border">
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-lg border">
           <div className="flex h-9 shrink-0 items-center gap-2 border-b px-2">
             <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground" title={selected}>
               {selected}
@@ -144,12 +144,12 @@ export function SkillView({ slug, name }: { slug: string; name: string }) {
               <span className="shrink-0 text-[10px] text-amber-600 dark:text-amber-400">truncated</span>
             )}
             {isMd && (
-              <div className="flex h-6 shrink-0 items-center rounded border bg-muted/30 p-0.5">
+              <div className="flex h-6 shrink-0 items-center rounded-md border bg-muted/30 p-0.5">
                 <button
                   type="button"
                   onClick={() => setMode("preview")}
                   className={cn(
-                    "h-5 cursor-pointer rounded px-1.5 text-[10px]",
+                    "h-5 cursor-pointer rounded-sm px-1.5 text-[10px]",
                     mode === "preview" ? "bg-background text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground",
                   )}
                 >
@@ -159,7 +159,7 @@ export function SkillView({ slug, name }: { slug: string; name: string }) {
                   type="button"
                   onClick={() => setMode("source")}
                   className={cn(
-                    "h-5 cursor-pointer rounded px-1.5 text-[10px]",
+                    "h-5 cursor-pointer rounded-sm px-1.5 text-[10px]",
                     mode === "source" ? "bg-background text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground",
                   )}
                 >

@@ -57,7 +57,7 @@ const components: Components = {
     <hr className={cn("border-border my-4", className)} {...props} />
   ),
   table: ({ className, ...props }) => (
-    <div className="my-3 overflow-x-auto rounded-md border">
+    <div className="my-3 overflow-x-auto rounded-lg border">
       <table className={cn("w-full text-xs", className)} {...props} />
     </div>
   ),
@@ -83,7 +83,7 @@ const components: Components = {
     return (
       <code
         className={cn(
-          "rounded bg-secondary text-secondary-foreground px-1 py-0.5 font-mono text-[0.85em]",
+          "rounded-sm bg-secondary text-secondary-foreground px-1 py-0.5 font-mono text-[0.85em]",
           className,
         )}
         {...props}
@@ -103,7 +103,7 @@ const components: Components = {
       const codeText = extractText(child.props.children)
       return <CodeBlock code={codeText.replace(/\n$/, "")} lang={lang} />
     }
-    return <pre className="my-3 max-h-96 overflow-auto rounded-md border bg-background/60 p-3 text-xs">{children}</pre>
+    return <pre className="my-3 max-h-96 overflow-auto rounded-lg border bg-background/60 p-3 text-xs">{children}</pre>
   },
   strong: ({ className, ...props }) => (
     <strong className={cn("font-semibold", className)} {...props} />

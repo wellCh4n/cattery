@@ -59,7 +59,7 @@ function useCatalog() {
   return catalog
 }
 
-const pill = "rounded-full text-foreground hover:border-foreground/30 aria-expanded:border-foreground/30 dark:hover:border-foreground/30 dark:aria-expanded:border-foreground/30"
+const pill = "text-foreground hover:border-foreground/30 aria-expanded:border-foreground/30 dark:hover:border-foreground/30 dark:aria-expanded:border-foreground/30"
 
 export function ModelPicker({ sessionId, model, disabled, className }: Omit<Props, "effort">) {
   const catalog = useCatalog()

@@ -73,12 +73,12 @@ export function FileView({ projectId, path }: { projectId: string; path: string 
           <span className="shrink-0 text-[10px] text-amber-600 dark:text-amber-400">truncated</span>
         )}
         {canToggle && (
-          <div className="flex h-6 shrink-0 items-center rounded border bg-muted/30 p-0.5">
+          <div className="flex h-6 shrink-0 items-center rounded-md border bg-muted/30 p-0.5">
             <button
               type="button"
               onClick={() => setMode("preview")}
               className={cn(
-                "h-5 cursor-pointer rounded px-1.5 text-[10px]",
+                "h-5 cursor-pointer rounded-sm px-1.5 text-[10px]",
                 mode === "preview" ? "bg-background text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground",
               )}
             >
@@ -88,7 +88,7 @@ export function FileView({ projectId, path }: { projectId: string; path: string 
               type="button"
               onClick={() => setMode("source")}
               className={cn(
-                "h-5 cursor-pointer rounded px-1.5 text-[10px]",
+                "h-5 cursor-pointer rounded-sm px-1.5 text-[10px]",
                 mode === "source" ? "bg-background text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground",
               )}
             >
@@ -98,7 +98,7 @@ export function FileView({ projectId, path }: { projectId: string; path: string 
         )}
         <a
           href={downloadFileURL(projectId, path)}
-          className="shrink-0 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+          className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
           title="Download"
           aria-label="Download"
         >

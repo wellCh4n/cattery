@@ -60,7 +60,7 @@ export function QuestionnaireCard({ bubble, sessionId }: { bubble: Bubble; sessi
   if (!questions.length) return <p className="text-sm text-muted-foreground">{bubble.toolOutput || "Invalid questionnaire"}</p>
 
   return (
-    <section aria-label="Questionnaire" className="w-full rounded-2xl border bg-card p-4 shadow-sm">
+    <section aria-label="Questionnaire" className="w-full rounded-xl border bg-card p-4 shadow-sm">
       <div className="mb-4 flex items-center gap-2 text-sm font-medium">
         {closed ? <CheckIcon className="size-4" /> : <MessageCircleQuestionIcon className="size-4" />}
         {closed ? (result?.cancelled ? "Questionnaire cancelled" : result?.answers ? "Answers submitted" : submitted ? "Response submitted" : "Questionnaire ended") : "Waiting for your answer"}
@@ -86,13 +86,13 @@ export function QuestionnaireCard({ bubble, sessionId }: { bubble: Bubble; sessi
             <fieldset disabled={submitting} className="space-y-2">
               <legend className="mb-3 whitespace-pre-wrap text-sm font-medium">{q.prompt}</legend>
               {q.options.map((option, i) => (
-                <label key={i} className="flex cursor-pointer items-start gap-3 rounded-xl border p-3 text-sm has-checked:border-primary has-checked:bg-primary/5">
+                <label key={i} className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 text-sm has-checked:border-primary has-checked:bg-primary/5">
                   <input type="radio" name={`${bubble.id}-${q.id}`} className="mt-1 accent-primary" checked={answers[q.id]?.wasCustom === false && answers[q.id]?.value === option.value} onChange={() => setAnswer(q, option.value, false)} />
                   <span className="min-w-0 break-words"><span className="font-medium">{option.label}</span>{option.description && <span className="mt-1 block text-xs text-muted-foreground">{option.description}</span>}</span>
                 </label>
               ))}
               {q.allowOther !== false && (
-                <label className="block rounded-xl border p-3 text-sm has-checked:border-primary has-checked:bg-primary/5">
+                <label className="block rounded-lg border p-3 text-sm has-checked:border-primary has-checked:bg-primary/5">
                   <span className="flex items-center gap-3"><input type="radio" name={`${bubble.id}-${q.id}`} className="accent-primary" checked={answers[q.id]?.wasCustom === true} onChange={() => setAnswer(q, "", true)} />Write your own answer</span>
                   {answers[q.id]?.wasCustom && <textarea aria-label={`Your answer to ${q.prompt}`} className="mt-3 min-h-20 w-full rounded-lg border bg-background p-2 outline-none focus:ring-2 focus:ring-ring" value={answers[q.id].value} onChange={e => setAnswer(q, e.target.value, true)} />}
                 </label>

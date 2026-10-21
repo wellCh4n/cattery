@@ -48,7 +48,7 @@ export const TreeRowAction = forwardRef<HTMLButtonElement, TreeRowActionProps>(
         ref={ref}
         type={type ?? "button"}
         className={cn(
-          "hidden size-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors focus-visible:inline-flex group-hover/treerow:inline-flex disabled:cursor-not-allowed disabled:opacity-40",
+          "hidden size-5 shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground transition-colors focus-visible:inline-flex group-hover/treerow:inline-flex disabled:cursor-not-allowed disabled:opacity-40",
           destructive
             ? "hover:bg-destructive/15 hover:text-destructive"
             : "hover:bg-foreground/10 hover:text-foreground",

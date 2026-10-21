@@ -216,7 +216,7 @@ export function TabBar() {
                 title="Close"
                 onClick={e => { e.stopPropagation(); handleClose(tab) }}
                 className={cn(
-                  "absolute inset-0 flex cursor-pointer items-center justify-center rounded hover:bg-foreground/10 hover:text-foreground",
+                  "absolute inset-0 flex cursor-pointer items-center justify-center rounded-sm hover:bg-foreground/10 hover:text-foreground",
                   busy
                     ? "opacity-0 group-hover/tab:opacity-100"
                     : isActive
@@ -284,7 +284,7 @@ function TabContextMenu({
     <div
       ref={ref}
       role="menu"
-      className="fixed z-50 min-w-36 overflow-hidden rounded-md border bg-popover py-1 text-xs text-popover-foreground shadow-md"
+      className="fixed z-50 min-w-36 overflow-hidden rounded-lg border bg-popover py-1 text-xs text-popover-foreground shadow-md"
       style={{ top: y, left: x }}
     >
       <MenuItem onClick={onCloseTab}>Close</MenuItem>

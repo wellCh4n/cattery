@@ -261,7 +261,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
             </button>
           )}
           {projectPickerOpen && (
-            <div className="absolute left-0 top-full z-30 mt-1 w-72 max-w-[calc(100vw-2rem)] max-h-[60vh] overflow-y-auto rounded-md border bg-popover text-sm shadow-md">
+            <div className="absolute left-0 top-full z-30 mt-1 w-72 max-w-[calc(100vw-2rem)] max-h-[60vh] overflow-y-auto rounded-lg border bg-popover text-sm shadow-md">
               {projects.map(project => {
                 const active = project.project_id === currentProjectId
                 const ownsProject = project.access_role === "owner"
@@ -276,7 +276,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                         type="button"
                         aria-current={active ? "true" : undefined}
                         title={project.project_name ?? "Untitled"}
-                        className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded px-1 py-1.5 text-left"
+                        className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md px-1 py-1.5 text-left"
                         onClick={() => {
                           setCurrentProject(project.project_id)
                           setProjectPickerOpen(false)
@@ -301,7 +301,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                             void handleStartProject(project.project_id)
                           }
                         }}
-                        className={cn("flex size-7 shrink-0 cursor-pointer items-center justify-center rounded transition-colors hover:bg-foreground/10 disabled:cursor-default disabled:opacity-50", agentOn ? "text-emerald-500" : project.sandbox_status === "failed" ? "text-destructive" : "text-muted-foreground hover:text-foreground")}
+                        className={cn("flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-foreground/10 disabled:cursor-default disabled:opacity-50", agentOn ? "text-emerald-500" : project.sandbox_status === "failed" ? "text-destructive" : "text-muted-foreground hover:text-foreground")}
                       >
                         {starting ? <Loader2 className="size-3.5 animate-spin" /> : <Power className="size-3.5" />}
                       </button>
@@ -312,7 +312,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                             aria-label="Rename project"
                             title="Rename project"
                             onClick={() => { setProjectPickerOpen(false); setRenameProjectTarget(project) }}
-                            className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
+                            className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
                           >
                             <Pencil className="size-3.5" />
                           </button>
@@ -322,7 +322,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                             aria-expanded={actionsOpen}
                             title="Project actions"
                             onClick={() => setProjectActionsId(actionsOpen ? null : project.project_id)}
-                            className={cn("flex size-7 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground", actionsOpen && "bg-foreground/10 text-foreground")}
+                            className={cn("flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground", actionsOpen && "bg-foreground/10 text-foreground")}
                           >
                             <MoreHorizontal className="size-4" />
                           </button>
@@ -330,11 +330,11 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                       )}
                     </div>
                     {actionsOpen && ownsProject && (
-                      <div className="mx-2 mb-2 rounded-md border bg-background p-1">
+                      <div className="mx-2 mb-2 rounded-lg border bg-background p-1">
                         <button
                           type="button"
                           onClick={() => { setProjectPickerOpen(false); setDeleteProjectTarget(project) }}
-                          className="flex h-8 w-full cursor-pointer items-center gap-2 rounded px-2 text-left text-xs text-destructive hover:bg-destructive/10"
+                          className="flex h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left text-xs text-destructive hover:bg-destructive/10"
                         >
                           <Trash2 className="size-3.5" />
                           Delete project
@@ -361,7 +361,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
         </div>
         <div ref={userMenuRef} className="relative ml-auto shrink-0">
           {userMenuOpen && (
-            <div className="absolute right-0 top-full z-30 mt-2 min-w-44 overflow-hidden rounded-md border bg-popover text-sm shadow-md">
+            <div className="absolute right-0 top-full z-30 mt-2 min-w-44 overflow-hidden rounded-lg border bg-popover text-sm shadow-md">
               <div className="border-b px-2.5 py-2">
                 <div className="flex items-center gap-2">
                   <span className="min-w-0 flex-1 truncate text-xs font-medium">{user?.username ?? "-"}</span>
@@ -442,7 +442,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
             <div className="mt-auto flex flex-col gap-1">
               <div ref={settingsMenuRef} className="relative">
                 {settingsMenuOpen && (
-                  <div className="absolute bottom-0 left-full z-30 ml-1 min-w-44 overflow-hidden rounded-md border bg-popover text-sm shadow-md">
+                  <div className="absolute bottom-0 left-full z-30 ml-1 min-w-44 overflow-hidden rounded-lg border bg-popover text-sm shadow-md">
                     {user?.is_admin && (
                       <button
                         className="flex h-8 w-full cursor-pointer items-center gap-2 px-2.5 text-left hover:bg-muted"

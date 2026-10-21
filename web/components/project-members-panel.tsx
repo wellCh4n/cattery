@@ -363,7 +363,7 @@ function TransferList({
   disabled: boolean
 }) {
   return (
-    <div className="flex min-w-0 flex-1 flex-col rounded-md border">
+    <div className="flex min-w-0 flex-1 flex-col rounded-lg border">
       <div className="border-b px-2 py-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
         {title}
       </div>
@@ -398,7 +398,7 @@ function TransferList({
                 aria-checked={active}
                 disabled={disabled}
                 onClick={() => onToggle(item.id)}
-                className="flex h-7 w-full cursor-pointer items-center gap-2 rounded px-1.5 text-left text-sm hover:bg-muted disabled:opacity-50"
+                className="flex h-7 w-full cursor-pointer items-center gap-2 rounded-md px-1.5 text-left text-sm hover:bg-muted disabled:opacity-50"
               >
                 <span
                   className={

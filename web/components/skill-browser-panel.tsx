@@ -204,7 +204,7 @@ function SkillRow({
         type="button"
         title="Delete skill"
         aria-label="Delete skill"
-        className="shrink-0 cursor-pointer rounded p-1 text-muted-foreground opacity-0 transition hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+        className="shrink-0 cursor-pointer rounded-md p-1 text-muted-foreground opacity-0 transition hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
         onClick={e => { e.stopPropagation(); onDelete() }}
       >
         <Trash2 className="size-3.5" />

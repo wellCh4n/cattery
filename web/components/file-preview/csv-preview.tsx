@@ -41,9 +41,9 @@ function CsvTable({ rows, limited }: { rows: string[][]; limited: boolean }) {
         </label>
         {limited && <span role="status">Preview limited to the first {rows.length} records.</span>}
         <div className="ml-auto flex items-center gap-2">
-          <button type="button" disabled={page === 0} onClick={() => setPage(value => value - 1)} className="cursor-pointer rounded border px-2 py-1 disabled:cursor-default disabled:opacity-40">Previous</button>
+          <button type="button" disabled={page === 0} onClick={() => setPage(value => value - 1)} className="cursor-pointer rounded-md border px-2 py-1 disabled:cursor-default disabled:opacity-40">Previous</button>
           <span>Page {page + 1} / {pages}</span>
-          <button type="button" disabled={page + 1 >= pages} onClick={() => setPage(value => value + 1)} className="cursor-pointer rounded border px-2 py-1 disabled:cursor-default disabled:opacity-40">Next</button>
+          <button type="button" disabled={page + 1 >= pages} onClick={() => setPage(value => value + 1)} className="cursor-pointer rounded-md border px-2 py-1 disabled:cursor-default disabled:opacity-40">Next</button>
         </div>
       </div>
       <table className="w-full border-separate border-spacing-0">

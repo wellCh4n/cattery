@@ -68,7 +68,7 @@ function JsonNode({ value, label, depth }: { value: JsonValue; label?: string; d
         type="button"
         aria-expanded={expanded}
         onClick={() => setExpanded(current => !current)}
-        className="flex w-full cursor-pointer items-start rounded py-0.5 text-left hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring"
+        className="flex w-full cursor-pointer items-start rounded-sm py-0.5 text-left hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring"
       >
         <ChevronRight aria-hidden="true" className={cn("mt-1 size-4 shrink-0 transition-transform", expanded && "rotate-90")} />
         <span className="min-w-0 pl-1 [overflow-wrap:anywhere]">
@@ -88,7 +88,7 @@ function JsonNode({ value, label, depth }: { value: JsonValue; label?: string; d
             />
           })}
           {visibleCount < count && (
-            <button type="button" className="cursor-pointer rounded px-2 py-1 text-xs text-primary hover:bg-muted"
+            <button type="button" className="cursor-pointer rounded-md px-2 py-1 text-xs text-primary hover:bg-muted"
               onClick={() => setVisibleCount(current => current + PAGE_SIZE)}>
               Show next {Math.min(PAGE_SIZE, count - visibleCount)} ({count - visibleCount} remaining)
             </button>

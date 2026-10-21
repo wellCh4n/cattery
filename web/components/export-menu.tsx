@@ -30,7 +30,7 @@ export function ExportMenu({ sessionId }: { sessionId: string }) {
         aria-expanded={open}
         onClick={() => setOpen(o => !o)}
         className={cn(
-          "flex size-6 items-center justify-center rounded text-muted-foreground transition-colors cursor-pointer hover:bg-muted hover:text-foreground",
+          "flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors cursor-pointer hover:bg-muted hover:text-foreground",
           open && "bg-muted text-foreground",
         )}
       >
@@ -39,7 +39,7 @@ export function ExportMenu({ sessionId }: { sessionId: string }) {
       {open && (
         <div
           role="menu"
-          className="absolute right-0 bottom-full z-20 mb-1 w-56 overflow-hidden rounded-md border bg-popover text-sm shadow-md"
+          className="absolute right-0 bottom-full z-20 mb-1 w-56 overflow-hidden rounded-lg border bg-popover text-sm shadow-md"
         >
           <a
             href={exportSessionURL(sessionId, "md")}

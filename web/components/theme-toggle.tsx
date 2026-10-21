@@ -45,7 +45,7 @@ export function ThemeToggle() {
             aria-label={label}
             aria-pressed={active}
             className={cn(
-              "flex size-5 cursor-pointer items-center justify-center rounded transition-colors",
+              "flex size-5 cursor-pointer items-center justify-center rounded-sm transition-colors",
               active ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground",
             )}
           >

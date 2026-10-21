@@ -258,7 +258,7 @@ function ChatPanelContent({ session }: Props) {
               that's the empty-field send button or the field while the agent
               replies, which would grey out the pickers and Stop too. Disabled
               controls already dim themselves, so keep the box as is. */}
-          <InputGroup className="rounded-3xl bg-background has-disabled:bg-background has-disabled:opacity-100 dark:has-disabled:bg-input/30">
+          <InputGroup className="rounded-xl bg-background has-disabled:bg-background has-disabled:opacity-100 dark:has-disabled:bg-input/30">
             <InputGroupTextarea
               ref={inputRef}
               value={input}
@@ -292,7 +292,6 @@ function ChatPanelContent({ session }: Props) {
                   variant="destructive"
                   size="icon-sm"
                   aria-label="Stop"
-                  className="rounded-full"
                   onClick={() => void stopSession(session.session_id)}
                 >
                   <SquareIcon />
@@ -303,7 +302,6 @@ function ChatPanelContent({ session }: Props) {
                   variant="default"
                   size="icon-sm"
                   aria-label="Send"
-                  className="rounded-full"
                   disabled={!canSend}
                 >
                   <ArrowUpIcon />

@@ -84,7 +84,7 @@ export default function AdminUsersPage() {
         </div>
 
         {error && (
-          <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive mb-4">
+          <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive mb-4">
             {error}
           </div>
         )}
@@ -94,7 +94,7 @@ export default function AdminUsersPage() {
             <Loader2 className="size-5 animate-spin" />
           </div>
         ) : (
-          <div className="rounded-md border overflow-hidden">
+          <div className="rounded-lg border overflow-hidden">
             <table className="w-full text-sm">
               <thead className="bg-muted/40 text-muted-foreground">
                 <tr className="text-left">
@@ -123,14 +123,14 @@ export default function AdminUsersPage() {
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap">
                         <button
-                          className="opacity-0 group-hover:opacity-100 inline-flex items-center justify-center size-7 rounded text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer transition"
+                          className="opacity-0 group-hover:opacity-100 inline-flex items-center justify-center size-7 rounded-md text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer transition"
                           title="Reset password"
                           onClick={() => setResetTarget(u)}
                         >
                           <KeyRound className="size-3.5" />
                         </button>
                         <button
-                          className="opacity-0 group-hover:opacity-100 inline-flex items-center justify-center size-7 rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive cursor-pointer disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-muted-foreground disabled:cursor-not-allowed transition"
+                          className="opacity-0 group-hover:opacity-100 inline-flex items-center justify-center size-7 rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive cursor-pointer disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-muted-foreground disabled:cursor-not-allowed transition"
                           title={isMe ? "You cannot delete yourself" : "Delete"}
                           disabled={isMe}
                           onClick={() => setDeleteTarget(u)}
