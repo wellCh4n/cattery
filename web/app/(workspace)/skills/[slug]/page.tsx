@@ -12,12 +12,12 @@ interface PageParams {
 export default function SkillPage({ params }: { params: Promise<PageParams> }) {
   const { slug } = use(params)
   // The pretty name lives in the catalog (SKILL.md frontmatter); resolve it for
-  // the header/title, falling back to the slug until it loads or if it's gone.
+  // the browser title, falling back to the slug until it loads or if it's gone.
   const catalog = useSkillsStore(state => state.entries.catalog?.data)
   const name = catalog?.find(skill => skill.slug === slug)?.name ?? slug
   useEffect(() => { void useSkillsStore.getState().load("catalog") }, [])
 
   useDocumentTitle(name)
 
-  return <SkillView key={slug} slug={slug} name={name} />
+  return <SkillView key={slug} slug={slug} />
 }

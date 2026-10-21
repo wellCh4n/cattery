@@ -1,7 +1,7 @@
 "use client"
 
-// SkillView — renders one skill filling its container: a header (skill name)
-// over a two-pane body. Left is the skill's file tree (lazy-listed via the
+// SkillView — renders one skill filling its container as a two-pane body (the
+// editor tab already shows the skill's name). Left is the skill's file tree (lazy-listed via the
 // skillmgr list endpoint); right previews the selected file — SKILL.md and
 // other markdown render through Markdown (with a source toggle), everything
 // else through the shiki-highlighted FileViewer. A markdown file's YAML
@@ -10,7 +10,7 @@
 // counterpart to the skill browser's old modal.
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { File as FileIcon, Folder, Loader2, Puzzle, TriangleAlert } from "lucide-react"
+import { File as FileIcon, Folder, Loader2, TriangleAlert } from "lucide-react"
 import { FileViewer } from "@/components/file-viewer"
 import { Markdown } from "@/components/markdown"
 import { Tree, type TreeNode } from "@/components/tree"
@@ -46,7 +46,7 @@ function sortEntries(entries: FileEntry[]): FileEntry[] {
   })
 }
 
-export function SkillView({ slug, name }: { slug: string; name: string }) {
+export function SkillView({ slug }: { slug: string }) {
   const base = `/${slug}`
   const manifestPath = `${base}/SKILL.md`
   const directories = useSkillDirectoriesStore(state => state.entries)
@@ -121,10 +121,6 @@ export function SkillView({ slug, name }: { slug: string; name: string }) {
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background text-xs">
-      <div className="flex h-9 shrink-0 items-center gap-2 border-b px-3">
-        <Puzzle className="size-3.5 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 flex-1 truncate font-medium" title={name}>{name}</span>
-      </div>
       <div className="flex min-h-0 flex-1 gap-3 p-3">
         <div className="flex w-44 shrink-0 flex-col overflow-hidden rounded-lg border">
           <div className="flex h-9 shrink-0 items-center border-b px-2">
