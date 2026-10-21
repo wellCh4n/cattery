@@ -305,10 +305,10 @@ export function FileBrowserPanel({ projectId, active }: Props) {
       onItemDropped: isDir ? sourcePath => moveEntry(sourcePath, path) : undefined,
       body: (
         <>
-          {!isDir && <FileIcon className="size-3.5 shrink-0 text-muted-foreground/70" />}
+          {!isDir && <FileIcon className="size-4 shrink-0 text-muted-foreground/70" />}
           <span className="truncate flex-1">{entry.name}</span>
           {!isDir && (
-            <span className="hidden sm:inline text-2xs text-muted-foreground/60 shrink-0 group-hover/treerow:hidden">
+            <span className="hidden sm:inline text-xs text-muted-foreground/60 shrink-0 group-hover/treerow:hidden">
               {formatSize(entry.size)}
             </span>
           )}
@@ -321,7 +321,7 @@ export function FileBrowserPanel({ projectId, active }: Props) {
             title="Rename"
             aria-label="Rename"
           >
-            <Pencil className="size-3.5" />
+            <Pencil className="size-4" />
           </TreeRowAction>
           {isDir && (
             <TreeRowAction
@@ -329,7 +329,7 @@ export function FileBrowserPanel({ projectId, active }: Props) {
               title="New folder"
               aria-label="New folder"
             >
-              <FolderPlus className="size-3.5" />
+              <FolderPlus className="size-4" />
             </TreeRowAction>
           )}
           {isDir && (
@@ -339,7 +339,7 @@ export function FileBrowserPanel({ projectId, active }: Props) {
               title="Upload here"
               aria-label="Upload here"
             >
-              {uploading === path ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />}
+              {uploading === path ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
             </TreeRowAction>
           )}
           <TreeRowAction
@@ -348,7 +348,7 @@ export function FileBrowserPanel({ projectId, active }: Props) {
             title="Delete"
             aria-label="Delete"
           >
-            <Trash2 className="size-3.5" />
+            <Trash2 className="size-4" />
           </TreeRowAction>
         </>
       ),

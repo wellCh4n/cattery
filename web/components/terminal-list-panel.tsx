@@ -65,14 +65,14 @@ export function TerminalListPanel({ projectId }: { projectId: string }) {
       body: (
         <>
           {state === "connecting" ? (
-            <Loader2 className="size-3 shrink-0 animate-spin text-muted-foreground" />
+            <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
           ) : (
             <SquareTerminal
-              className={cn("size-3.5 shrink-0", state === "open" ? "text-emerald-500" : "text-muted-foreground")}
+              className={cn("size-4 shrink-0", state === "open" ? "text-emerald-500" : "text-muted-foreground")}
             />
           )}
           <span className="flex-1 truncate">{terminal.title}</span>
-          <span className="shrink-0 text-2xs font-normal text-muted-foreground/70 group-hover/treerow:hidden">
+          <span className="shrink-0 text-xs font-normal text-muted-foreground/70 group-hover/treerow:hidden">
             {statusLabel(state)}
           </span>
         </>
@@ -84,7 +84,7 @@ export function TerminalListPanel({ projectId }: { projectId: string }) {
             aria-label="Rename terminal"
             onClick={e => { e.stopPropagation(); setRenameTarget(terminal) }}
           >
-            <Pencil className="size-3.5" />
+            <Pencil className="size-4" />
           </TreeRowAction>
           <TreeRowAction
             destructive
@@ -92,7 +92,7 @@ export function TerminalListPanel({ projectId }: { projectId: string }) {
             aria-label="Delete terminal"
             onClick={e => { e.stopPropagation(); remove(terminal) }}
           >
-            <Trash2 className="size-3.5" />
+            <Trash2 className="size-4" />
           </TreeRowAction>
         </>
       ),

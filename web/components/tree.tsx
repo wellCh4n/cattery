@@ -155,7 +155,7 @@ function TreeItemView({ node, depth }: { node: TreeNode; depth: number }) {
     <>
       {node.editing ? (
         <div
-          className="relative flex h-7 items-center gap-1 bg-muted/40"
+          className="relative flex h-8 items-center gap-1.5 bg-muted/40"
           style={{ paddingLeft: contentIndent, paddingRight: BASE_PX }}
         >
           <GuideLines depth={depth} />
@@ -177,7 +177,7 @@ function TreeItemView({ node, depth }: { node: TreeNode; depth: number }) {
               className="flex size-4 shrink-0 items-center justify-center text-muted-foreground"
               aria-hidden="true"
             >
-              <ChevronRight className={cn("size-3 transition-transform", node.expanded && "rotate-90")} />
+              <ChevronRight className={cn("size-3.5 transition-transform", node.expanded && "rotate-90")} />
             </span>
           ) : null}
           {node.body}
@@ -187,11 +187,11 @@ function TreeItemView({ node, depth }: { node: TreeNode; depth: number }) {
       {node.subline}
       {node.expanded && node.loadingChildren && !node.children && (
         <div
-          className="relative flex h-7 items-center text-muted-foreground"
+          className="relative flex h-8 items-center text-muted-foreground"
           style={{ paddingLeft: leafContentIndent(depth + 1) }}
         >
           <GuideLines depth={depth + 1} />
-          <Loader2 className="size-3 animate-spin" />
+          <Loader2 className="size-3.5 animate-spin" />
         </div>
       )}
       {node.expanded && node.children?.map(child => (

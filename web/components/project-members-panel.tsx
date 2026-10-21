@@ -171,7 +171,7 @@ function MemberRow({
             title="Remove member"
             aria-label="Remove member"
           >
-            {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
+            {busy ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
           </TreeRowAction>
         </>
       )}

@@ -689,19 +689,19 @@ function buildSessionNode({
     body: (
       <>
         {busy || session.status === "creating" ? (
-          <Loader2 className="size-3 shrink-0 animate-spin text-muted-foreground" />
+          <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
         ) : (
           <MessageSquare
-            className={cn("size-3.5 shrink-0", session.status === "failed" ? "text-destructive" : "text-muted-foreground")}
+            className={cn("size-4 shrink-0", session.status === "failed" ? "text-destructive" : "text-muted-foreground")}
           />
         )}
         <span className="flex-1 truncate">{session.title ?? "New Session"}</span>
         <span className="flex shrink-0 items-center gap-1.5 text-muted-foreground/70 group-hover/treerow:hidden">
           <span className="flex items-center" title={session.model}>
-            <ModelIcon id={session.model} className="size-3" />
+            <ModelIcon id={session.model} className="size-3.5" />
           </span>
           <span
-            className="font-mono text-2xs font-normal tabular-nums"
+            className="font-mono text-xs font-normal tabular-nums"
             title={new Date(sessionActivityTime(session)).toLocaleString()}
           >
             {formatSessionTime(sessionActivityTime(session))}
@@ -716,7 +716,7 @@ function buildSessionNode({
           aria-label="Rename session"
           onClick={e => { e.stopPropagation(); onRequestRename(session) }}
         >
-          <Pencil className="size-3.5" />
+          <Pencil className="size-4" />
         </TreeRowAction>
         <TreeRowAction
           destructive
@@ -724,7 +724,7 @@ function buildSessionNode({
           aria-label="Delete session"
           onClick={e => { e.stopPropagation(); onRequestDelete(session) }}
         >
-          <Trash2 className="size-3.5" />
+          <Trash2 className="size-4" />
         </TreeRowAction>
       </>
     ),

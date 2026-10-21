@@ -182,22 +182,22 @@ function SkillRow({
   return (
     <div
       className={
-        "group flex items-start gap-2 border-b px-3 py-2" +
+        "group flex items-start gap-2 border-b px-3 py-2.5 text-[13px]" +
         (skill.valid ? " cursor-pointer hover:bg-accent/50" : " bg-destructive/5")
       }
       onClick={skill.valid ? onOpen : undefined}
     >
       {skill.valid
-        ? <Puzzle className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-        : <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-destructive" />}
+        ? <Puzzle className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+        : <TriangleAlert className="mt-0.5 size-4 shrink-0 text-destructive" />}
       <div className="min-w-0 flex-1">
         <div className="truncate font-medium">{skill.name}</div>
         {skill.valid ? (
           skill.description
-            ? <p className="mt-0.5 line-clamp-2 text-muted-foreground">{skill.description}</p>
-            : <p className="mt-0.5 text-muted-foreground/70 italic">No description in SKILL.md frontmatter.</p>
+            ? <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{skill.description}</p>
+            : <p className="mt-0.5 text-xs text-muted-foreground/70 italic">No description in SKILL.md frontmatter.</p>
         ) : (
-          <p className="mt-0.5 text-destructive/80">{skill.reason ?? "Not a valid skill."}</p>
+          <p className="mt-0.5 text-xs text-destructive/80">{skill.reason ?? "Not a valid skill."}</p>
         )}
       </div>
       <button

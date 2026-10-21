@@ -5,7 +5,7 @@
 //
 // Each tree owns its own data and indent scheme; this primitive just pins
 // down the row-level visual chrome (height, gap, hover, selected state) and
-// the size-5 hover-revealed action button. That keeps the two trees from
+// the size-6 hover-revealed action button. That keeps the two trees from
 // drifting apart on row chrome without forcing their indent math to match.
 // Action buttons reveal on the closest ancestor with `group/treerow`, which
 // TreeRow sets — so nested rows don't unmask their parents' actions.
@@ -24,7 +24,7 @@ export const TreeRow = forwardRef<HTMLDivElement, TreeRowProps>(
       <div
         ref={ref}
         className={cn(
-          "group/treerow flex h-7 cursor-pointer items-center gap-1 text-xs transition-colors select-none",
+          "group/treerow flex h-8 cursor-pointer items-center gap-1.5 text-[13px] transition-colors select-none",
           selected ? "bg-muted font-medium text-foreground" : "hover:bg-muted",
           className,
         )}
@@ -38,9 +38,9 @@ interface TreeRowActionProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
   destructive?: boolean
 }
 
-// Hover-revealed action icon. Sized to match a size-5 chevron / size-3.5
-// lucide icon. Stays hidden until the parent TreeRow is hovered or this
-// button is focused. Pass a size-3.5 lucide icon as the child.
+// Hover-revealed action icon, sized for the size-8 TreeRow. Stays hidden
+// until the parent TreeRow is hovered or this button is focused. Pass a
+// size-4 lucide icon as the child.
 export const TreeRowAction = forwardRef<HTMLButtonElement, TreeRowActionProps>(
   function TreeRowAction({ className, destructive, type, ...rest }, ref) {
     return (
@@ -48,7 +48,7 @@ export const TreeRowAction = forwardRef<HTMLButtonElement, TreeRowActionProps>(
         ref={ref}
         type={type ?? "button"}
         className={cn(
-          "hidden size-5 shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground transition-colors focus-visible:inline-flex group-hover/treerow:inline-flex disabled:cursor-not-allowed disabled:opacity-40",
+          "hidden size-6 shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground transition-colors focus-visible:inline-flex group-hover/treerow:inline-flex disabled:cursor-not-allowed disabled:opacity-40",
           destructive
             ? "hover:bg-destructive/15 hover:text-destructive"
             : "hover:bg-foreground/10 hover:text-foreground",
