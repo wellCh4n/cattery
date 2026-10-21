@@ -60,7 +60,7 @@ Creating a Session kicks off `bringUp` (`backend/internal/api/session_handler.go
 
 The catalog is loaded at startup by `config.LoadModels` (`backend/internal/config/models.go`); model ids must be unique across providers, and the session row stores only the id. Each provider's `type` is a pi-ai provider id (`deepseek` | `anthropic` | `openai`, or `custom` for any other OpenAI-compatible endpoint). The agent keeps pi's built-in catalog entry for the model (context window, thinking map, DeepSeek compat flags like `reasoning_content` replay) and only swaps `baseUrl` to the provider's endpoint. Reusing the built-in provider id matters — pi auto-detects DeepSeek quirks from the provider id or a `deepseek.com` URL, and a gateway URL never matches.
 
-Endpoints and keys are not in the sandbox env: `ensureAgentSession` sends the session's model with its provider's endpoint and key on every `POST /session`, and the agent holds them in memory only (never in the transcript). The frontend reads the catalog from `GET /api/v1/models` (provider names + model ids, no keys). New sessions start on the last-picked model (or the catalog `default`); the chat composer's `ModelPicker` switches it via `PATCH /sessions/:id {model}`, and the switch reaches the agent on the next prompt's re-register. Add a model or provider by editing `models.toml` and restarting the backend.
+Endpoints and keys are not in the sandbox env: `ensureAgentSession` sends the session's model with its provider's endpoint and key on every `POST /session`, and the agent holds them in memory only (never in the transcript). The frontend reads the catalog from `GET /api/v1/models` (provider names + model ids, no keys). New sessions start on the last-picked model (or the catalog `default`); the chat composer's `ModelPicker` switches it via `PATCH /sessions/:id {model}`, and the switch reaches the agent on the next prompt's re-register. Add a model or provider by editing `models.toml` and restarting the backend. Top-level `small_model` references a catalog model for lightweight tasks (defaults to `default`, independent of the session model). The harness uses it once after the first successful response to generate a session title; failure preserves the fallback title. Automatic titles are persisted only when `title_manual` is false.
 
 ### Agent HTTP contract
 
@@ -101,8 +101,8 @@ The backend calls these from `backend/internal/harness/client.go`. pi-agent-core
 `POST /api/v1/sessions/:id/message`:
 
 1. Look up Session → Project; `sandbox.Await` the project sandbox (restarts it if stopped; the start runs detached so a client disconnect doesn't cancel it).
-2. `POST /session` (idempotent re-register), then `POST /session/:id/prompt_async` (returns 204 immediately).
-3. Open SSE: `GET <sandboxURL>/event`, forward this session's events as platform-format SSE frames; persist `session.title` to the DB.
+2. `POST /session` (idempotent re-register), then subscribe to `GET <sandboxURL>/event` before sending `POST /session/:id/prompt_async` (returns 204 immediately).
+3. Forward this session's events as platform-format SSE frames; persist accepted `session.title` events to the DB before forwarding, rejecting automatic names when the user has manually renamed the session.
 4. Stop at the session's `session.idle`.
 
 The response is itself an SSE stream; the frontend reads it directly from the `fetch` body, not via `EventSource`.

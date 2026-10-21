@@ -143,9 +143,12 @@ func (h *SessionHandler) ensureAgentSession(ctx context.Context, sandboxURL stri
 	if !ok {
 		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("model %q is no longer configured; switch to another model", sess.Model))
 	}
+	small, _ := h.models.Get(h.models.SmallModel)
 	return h.harnessClient.CreateSession(ctx, sandboxURL, sess.SessionID.String(), harness.AgentModel{
 		ID: m.ID, Provider: m.Provider.Type, BaseURL: m.Provider.Endpoint, APIKey: m.Provider.Key,
 		ThinkingLevel: h.effortFor(m.ID, sess.Effort),
+	}, harness.AgentModel{
+		ID: small.ID, Provider: small.Provider.Type, BaseURL: small.Provider.Endpoint, APIKey: small.Provider.Key,
 	})
 }
 
@@ -204,44 +207,46 @@ func (h *SessionHandler) SendMessage(c echo.Context) error {
 	}
 
 	sessionID := sess.SessionID
-	if err := h.harnessClient.PromptAsync(ctx, sandboxURL, sessionID.String(), req.Text); err != nil {
-		return echo.NewHTTPError(http.StatusBadGateway, err.Error())
-	}
 
-	// Persist activity before acknowledging the send so a concurrent list/get
-	// cannot replace the client's new activity timestamp with the old value.
-	activityCtx, cancelActivity := context.WithTimeout(context.Background(), 5*time.Second)
-	if err := h.sessionStore.MarkSeen(activityCtx, sessionID); err != nil {
-		log.Printf("warn: save activity for %s: %v", sessionID, err)
-	}
-	cancelActivity()
-
-	c.Response().Header().Set("Content-Type", "text/event-stream")
-	c.Response().Header().Set("Cache-Control", "no-cache")
-	c.Response().Header().Set("Connection", "keep-alive")
-	c.Response().Header().Set("X-Accel-Buffering", "no")
-	c.Response().WriteHeader(http.StatusOK)
-	c.Response().Flush()
-
-	// 流式事件中如果出现 session.title，把 title 落库（agent 在首条消息时发）
-	onEvent := func(ev *harness.PlatformEvent) {
+	// Persist before forwarding. Suppress rejected automatic names in the UI too.
+	onEvent := func(ev *harness.PlatformEvent) bool {
 		if ev.Type != harness.EventSessionTitle {
-			return
+			return true
 		}
 		var d harness.SessionTitleData
 		if err := json.Unmarshal(ev.Data, &d); err != nil || d.Title == "" {
-			return
+			return false
 		}
-		go func(title string) {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			if err := h.sessionStore.UpdateTitle(ctx, sessionID, title); err != nil {
-				log.Printf("warn: save title for %s: %v", sessionID, err)
-			}
-		}(d.Title)
+		titleCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		updated, err := h.sessionStore.UpdateAutoTitle(titleCtx, sessionID, d.Title)
+		if err != nil {
+			log.Printf("warn: save title for %s: %v", sessionID, err)
+		}
+		return err == nil && updated
 	}
+	return h.harnessClient.StreamEventsUntilIdle(ctx, sandboxURL, sessionID.String(), c.Response(), onEvent, func() error {
+		if err := h.harnessClient.PromptAsync(ctx, sandboxURL, sessionID.String(), req.Text); err != nil {
+			return echo.NewHTTPError(http.StatusBadGateway, err.Error())
+		}
 
-	return h.harnessClient.StreamEventsUntilIdle(ctx, sandboxURL, sessionID.String(), c.Response(), onEvent)
+		// Persist activity before acknowledging the send so a concurrent list/get
+		// cannot replace the client's new activity timestamp with the old value.
+		activityCtx, cancelActivity := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := h.sessionStore.MarkSeen(activityCtx, sessionID); err != nil {
+			log.Printf("warn: save activity for %s: %v", sessionID, err)
+		}
+		cancelActivity()
+
+		c.Response().Header().Set("Content-Type", "text/event-stream")
+		c.Response().Header().Set("Cache-Control", "no-cache")
+		c.Response().Header().Set("Connection", "keep-alive")
+		c.Response().Header().Set("X-Accel-Buffering", "no")
+		c.Response().WriteHeader(http.StatusOK)
+		c.Response().Flush()
+
+		return nil
+	})
 }
 
 type updateSessionRequest struct {

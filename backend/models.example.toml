@@ -16,6 +16,11 @@
 # Model new sessions start on (optional; defaults to the first model listed).
 default = "deepseek-flash"
 
+# Lightweight tasks (currently automatic session titles). References a model
+# listed below, reusing its endpoint and key. Omitted: use default, independent
+# of the session model. Restart the backend after changes.
+small_model = "deepseek-flash"
+
 [[providers]]
 name     = "DeepSeek"
 type     = "deepseek"

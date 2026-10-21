@@ -181,7 +181,14 @@ export function ChatPanel({ session }: Props) {
                 <MessageScrollerContent aria-busy={sending} className="mx-auto max-w-3xl px-4 py-6 md:px-8">
                   {turns.map((turn, i) =>
                     turn.role === "user" ? (
-                      <MessageScrollerItem key={turn.id} messageId={turn.id} scrollAnchor>
+                      <MessageScrollerItem
+                        key={turn.id}
+                        messageId={turn.id}
+                        // Only a newly submitted prompt should request turn anchoring.
+                        // Keeping history marked lets equal-count row replacements
+                        // (pending -> reply) re-anchor previously unhandled prompts.
+                        scrollAnchor={sending && i === turns.length - 1}
+                      >
                         <Message align="end">
                           <MessageContent>
                             <BubbleUI align="end" variant="muted">

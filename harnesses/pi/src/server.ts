@@ -3,7 +3,7 @@
  * HTTP contract:
  *
  *   GET    /session                        → [id]  (readiness probe)
- *   POST   /session {id, model, provider, baseUrl, apiKey, thinkingLevel?}
+ *   POST   /session {id, model, provider, baseUrl, apiKey, thinkingLevel?, smallModel?}
  *                                          → { id }  (idempotent: reopens an existing transcript,
  *                                                     switching its model if it differs)
  *   GET    /session/:id                    → { id }
@@ -33,11 +33,13 @@ import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { Agent, type AgentEvent, type AgentMessage, type ThinkingLevel } from '@earendil-works/pi-agent-core'
-import { clampThinkingLevel, createModels, type Api, type AssistantMessage, type Model, type ModelThinkingLevel, type Provider } from '@earendil-works/pi-ai'
+import { clampThinkingLevel, createModels, createProvider, envApiKeyAuth, type Api, type AssistantMessage, type Model, type ModelThinkingLevel, type Provider } from '@earendil-works/pi-ai'
 import { anthropicProvider } from '@earendil-works/pi-ai/providers/anthropic'
 import { deepseekProvider } from '@earendil-works/pi-ai/providers/deepseek'
+import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy'
 import { openaiProvider } from '@earendil-works/pi-ai/providers/openai'
 import { createTools } from './tools.ts'
+import { TITLE_PROMPT, titleInput, parseTitle } from './title.ts'
 
 // ── Config ───────────────────────────────────────────────────────────────────
 
@@ -65,6 +67,9 @@ const models = createModels()
 models.setProvider(anthropicProvider())
 models.setProvider(deepseekProvider())
 models.setProvider(openaiProvider())
+models.setProvider(createProvider({
+  id: 'custom', auth: { apiKey: envApiKeyAuth('API key', []) }, models: [], api: openAICompletionsApi(),
+}))
 
 // Keep the catalog entry (context window, thinking map, DeepSeek compat flags
 // such as reasoning_content replay) and only swap in the configured endpoint.
@@ -204,27 +209,45 @@ function toHistory(messages: AgentMessage[]): HistoryItem[] {
 
 // gateway is never persisted: a session reopened from disk has none until the
 // backend re-registers it, which it always does before prompting.
-interface Session { id: string; model: ModelRef; gateway: Gateway; agent: Agent; titled: boolean }
-interface Transcript { model: ModelRef; messages: AgentMessage[] }
+interface SmallModel extends Gateway { model: string; provider: string }
+interface Session {
+  id: string
+  model: ModelRef
+  gateway: Gateway
+  agent: Agent
+  titled: boolean
+  titleAttempted: boolean
+  smallModel?: SmallModel
+  busy: boolean
+  titleAbort?: AbortController
+  persistQueue?: Promise<void>
+}
+interface Transcript { model: ModelRef; messages: AgentMessage[]; titleAttempted?: boolean }
 
 const sessions = new Map<string, Session>()
 // Session ids come from the backend (UUIDs); reject anything path-like.
 const validId = (id: string) => /^[A-Za-z0-9-]{1,64}$/.test(id)
 const transcriptPath = (id: string) => path.join(SESSIONS_DIR, `${id}.json`)
 
-async function persist(sess: Session): Promise<void> {
-  const file = transcriptPath(sess.id)
-  const tmp = `${file}.${process.pid}.tmp`
-  const data: Transcript = { model: sess.model, messages: sess.agent.state.messages }
-  await fs.mkdir(SESSIONS_DIR, { recursive: true })
-  await fs.writeFile(tmp, JSON.stringify(data))
-  await fs.rename(tmp, file)
+function persist(sess: Session): Promise<void> {
+  // Serialize checkpoints so an earlier message cannot overwrite the title-attempt flag.
+  const pending = (sess.persistQueue ?? Promise.resolve()).catch(() => {}).then(async () => {
+    if (sessions.get(sess.id) !== sess) return
+    const file = transcriptPath(sess.id)
+    const tmp = `${file}.${randomUUID()}.tmp`
+    const data: Transcript = { model: sess.model, messages: sess.agent.state.messages, titleAttempted: sess.titleAttempted }
+    await fs.mkdir(SESSIONS_DIR, { recursive: true })
+    await fs.writeFile(tmp, JSON.stringify(data))
+    await fs.rename(tmp, file)
+  })
+  sess.persistQueue = pending
+  return pending
 }
 
 const NO_GATEWAY: Gateway = { baseUrl: '', apiKey: '' }
 
-async function newSession(id: string, ref: ModelRef, gateway: Gateway, messages: AgentMessage[]): Promise<Session> {
-  const sess = { id, model: ref, gateway, titled: messages.some(m => m.role === 'user') } as Session
+async function newSession(id: string, ref: ModelRef, gateway: Gateway, messages: AgentMessage[], titleAttempted = false): Promise<Session> {
+  const sess = { id, model: ref, gateway, titled: messages.some(m => m.role === 'user'), titleAttempted, busy: false } as Session
   sess.agent = new Agent({
     initialState: {
       // The system prompt is rebuilt on every load (see openSession) so prompt
@@ -291,7 +314,8 @@ async function openSession(id: string): Promise<Session | null> {
     return null
   }
   // Drop persisted system messages; newSession() installs the current prompt.
-  return newSession(id, data.model, NO_GATEWAY, data.messages.filter(m => m.role !== 'system'))
+  return newSession(id, data.model, NO_GATEWAY, data.messages.filter(m => m.role !== 'system'),
+    data.titleAttempted ?? data.messages.some(m => m.role === 'assistant' && m.stopReason === 'stop'))
 }
 
 // Takes effect from the next turn. The transcript carries over; pi-ai drops
@@ -301,6 +325,34 @@ async function switchModel(sess: Session, ref: ModelRef, gateway: Gateway): Prom
   sess.gateway = gateway
   sess.agent.state.model = resolveModel(ref, gateway.baseUrl)
   await persist(sess)
+}
+
+async function generateTitle(sess: Session, text: string, reply: AssistantMessage): Promise<void> {
+  // One attempt after the first successful response, persisted across restarts.
+  sess.titleAttempted = true
+  await persist(sess)
+  const small = sess.smallModel
+  if (!small) return
+  const controller = new AbortController()
+  sess.titleAbort = controller
+  const timer = setTimeout(() => controller.abort(), 15_000)
+  try {
+    const result = await models.completeSimple(resolveModel({ provider: small.provider, id: small.model }, small.baseUrl), {
+      systemPrompt: TITLE_PROMPT,
+      messages: [{ role: 'user', content: titleInput(text, toolOutput(reply.content)), timestamp: Date.now() }],
+    }, { apiKey: small.apiKey, maxTokens: 512, signal: controller.signal })
+    if (controller.signal.aborted) return
+    const title = parseTitle(result)
+    if (title && sessions.get(sess.id) === sess) {
+      broadcast(sess.id, { type: 'session.title', data: { title } })
+    }
+  } catch {
+    // Title failure must never fail the user's run or replace its fallback title.
+    console.warn('[title] generation failed for', sess.id)
+  } finally {
+    clearTimeout(timer)
+    sess.titleAbort = undefined
+  }
 }
 
 async function runPrompt(sess: Session, text: string): Promise<void> {
@@ -314,12 +366,15 @@ async function runPrompt(sess: Session, text: string): Promise<void> {
     const last = [...sess.agent.state.messages].reverse().find(m => m.role === 'assistant') as AssistantMessage | undefined
     if (last?.stopReason === 'error') {
       broadcast(sess.id, { type: 'session.error', data: { message: last.errorMessage ?? 'model request failed' } })
+    } else if (last?.stopReason === 'stop' && !sess.titleAttempted) {
+      await generateTitle(sess, text, last).catch(() => console.warn('[title] checkpoint failed for', sess.id))
     }
   } catch (err) {
     console.error('[runPrompt]', err)
     broadcast(sess.id, { type: 'session.error', data: { message: err instanceof Error ? err.message : String(err) } })
   } finally {
-    await persist(sess).catch(err => console.error('[persist]', err))
+    if (sessions.get(sess.id) === sess) await persist(sess).catch(err => console.error('[persist]', err))
+    sess.busy = false
     broadcast(sess.id, { type: 'session.idle', data: {} })
   }
 }
@@ -334,8 +389,8 @@ app.get('/session', (_req, res) => {
 })
 
 app.post('/session', async (req, res) => {
-  const { id = randomUUID(), model, provider, baseUrl, apiKey, thinkingLevel } = (req.body ?? {}) as {
-    id?: string; model?: string; provider?: string; baseUrl?: string; apiKey?: string; thinkingLevel?: string
+  const { id = randomUUID(), model, provider, baseUrl, apiKey, thinkingLevel, smallModel } = (req.body ?? {}) as {
+    id?: string; model?: string; provider?: string; baseUrl?: string; apiKey?: string; thinkingLevel?: string; smallModel?: SmallModel
   }
   if (!validId(id)) return void res.status(400).json({ error: 'invalid id' })
   if (!model || !provider || !baseUrl || !apiKey) {
@@ -352,13 +407,14 @@ app.post('/session', async (req, res) => {
     const changed = existing.model.id !== ref.id || existing.model.provider !== ref.provider ||
       existing.gateway.baseUrl !== gateway.baseUrl
     if (changed) {
-      if (existing.agent.state.isStreaming) return void res.status(409).json({ error: 'session is busy' })
+      if (existing.busy) return void res.status(409).json({ error: 'session is busy' })
       await switchModel(existing, ref, gateway)
     } else {
       existing.gateway = gateway
     }
     sess = existing
   }
+  sess.smallModel = smallModel
   // The session's effort, applied from the next turn and clamped to the
   // levels the model supports (e.g. DeepSeek has no "medium").
   if (thinkingLevel) {
@@ -378,7 +434,9 @@ app.delete('/session/:id', async (req, res) => {
   const sess = await openSession(req.params.id)
   if (!sess) return void res.status(404).end()
   sess.agent.abort()
+  sess.titleAbort?.abort()
   sessions.delete(sess.id)
+  await sess.persistQueue?.catch(() => {})
   await fs.rm(transcriptPath(sess.id), { force: true })
   res.status(204).end()
 })
@@ -394,7 +452,8 @@ app.post('/session/:id/prompt_async', async (req, res) => {
   const parts: Array<{ type: string; text: string }> = req.body?.parts ?? []
   const text = parts.find(p => p.type === 'text')?.text?.trim() ?? ''
   if (!text) return void res.status(400).end()
-  if (sess.agent.state.isStreaming) return void res.status(409).json({ error: 'session is busy' })
+  if (sess.busy) return void res.status(409).json({ error: 'session is busy' })
+  sess.busy = true
   res.status(204).end()
   void runPrompt(sess, text)
 })
@@ -402,6 +461,7 @@ app.post('/session/:id/prompt_async', async (req, res) => {
 app.post('/session/:id/abort', async (req, res) => {
   const sess = await openSession(req.params.id)
   sess?.agent.abort()
+  sess?.titleAbort?.abort()
   res.status(204).end()
 })
 

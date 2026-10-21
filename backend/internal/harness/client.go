@@ -36,11 +36,12 @@ type AgentModel struct {
 // CreateSession 在 sandbox 内创建（或确认已存在）一个 agent session。agent 用
 // 平台的 session id 作为 transcript 的 key，所以不需要另存一份 agent 侧 id。
 // 对已存在的 session 再次调用会切换到 m（agent 只把 endpoint/key 留在内存里）。
-func (c *Client) CreateSession(ctx context.Context, sandboxURL, sessionID string, m AgentModel) error {
+func (c *Client) CreateSession(ctx context.Context, sandboxURL, sessionID string, m AgentModel, smallModel AgentModel) error {
 	body, _ := json.Marshal(struct {
 		ID string `json:"id"`
 		AgentModel
-	}{sessionID, m})
+		SmallModel AgentModel `json:"smallModel"`
+	}{sessionID, m, smallModel})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, sandboxURL+"/session", bytes.NewReader(body))
 	if err != nil {
 		return err
@@ -182,8 +183,9 @@ type sessionEvent struct {
 }
 
 // StreamEventsUntilIdle 连接 sandbox /event SSE，把属于 sessionID 的平台事件写入 w，
-// 直到该 session 进入 idle。onEvent（可选）在每个事件转发前调用，调用方可借此落库。
-func (c *Client) StreamEventsUntilIdle(ctx context.Context, sandboxURL, sessionID string, w io.Writer, onEvent func(*PlatformEvent)) error {
+// 直到该 session 进入 idle。onEvent 在转发前调用，返回 false 会过滤该事件。
+// start 在订阅成功后执行，用于发送 prompt，避免丢失开头事件。
+func (c *Client) StreamEventsUntilIdle(ctx context.Context, sandboxURL, sessionID string, w io.Writer, onEvent func(*PlatformEvent) bool, start func() error) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, sandboxURL+"/event", nil)
 	if err != nil {
 		return err
@@ -194,6 +196,15 @@ func (c *Client) StreamEventsUntilIdle(ctx context.Context, sandboxURL, sessionI
 		return err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("agent event stream status %d", resp.StatusCode)
+	}
+	// Subscribe before prompting so fast responses and fallback titles cannot be lost.
+	if start != nil {
+		if err := start(); err != nil {
+			return err
+		}
+	}
 
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 1024*1024), 4*1024*1024)
@@ -210,8 +221,8 @@ func (c *Client) StreamEventsUntilIdle(ctx context.Context, sandboxURL, sessionI
 			continue
 		}
 		platEv := &PlatformEvent{Type: ev.Type, Data: ev.Data}
-		if onEvent != nil {
-			onEvent(platEv)
+		if onEvent != nil && !onEvent(platEv) {
+			continue
 		}
 		b, _ := json.Marshal(platEv)
 		fmt.Fprintf(w, "event: message\ndata: %s\n\n", b)

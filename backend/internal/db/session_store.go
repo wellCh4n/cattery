@@ -57,7 +57,7 @@ func (s *SessionStore) MarkSeen(ctx context.Context, id uuid.UUID) error {
 
 func (s *SessionStore) UpdateTitle(ctx context.Context, id uuid.UUID, title string) error {
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE sessions SET title=$1 WHERE session_id=$2`, title, id,
+		`UPDATE sessions SET title=$1, title_manual=TRUE WHERE session_id=$2`, title, id,
 	)
 	return err
 }
@@ -74,4 +74,15 @@ func (s *SessionStore) UpdateModel(ctx context.Context, id uuid.UUID, model, eff
 func (s *SessionStore) HardDelete(ctx context.Context, id uuid.UUID) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM sessions WHERE session_id=$1`, id)
 	return err
+}
+
+// UpdateAutoTitle atomically protects manual names, including concurrent renames.
+func (s *SessionStore) UpdateAutoTitle(ctx context.Context, id uuid.UUID, title string) (bool, error) {
+	result, err := s.db.ExecContext(ctx,
+		`UPDATE sessions SET title=$1 WHERE session_id=$2 AND NOT title_manual`, title, id)
+	if err != nil {
+		return false, err
+	}
+	n, err := result.RowsAffected()
+	return n > 0, err
 }

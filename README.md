@@ -210,3 +210,26 @@ The pi harness emits platform events directly, so the backend only routes them b
 ## License
 
 Internal project — not yet licensed for public use.
+
+### Lightweight model
+
+Set `small_model` at the top level of `backend/models.toml`, before any
+`[[providers]]` tables:
+
+```toml
+default = "deepseek-v4-pro"
+small_model = "deepseek-flash"
+```
+
+Both IDs must appear in the catalog. `small_model` reuses its provider's endpoint
+and key and defaults to `default` when omitted; changing a session's model does
+not change it. This setting is shared by lightweight tasks, currently session
+title generation. Restart the backend after configuration changes.
+
+After the first successful response, the harness uses `pi-ai` to generate a title
+from that exchange, with a 15-second timeout. The original first-message title
+remains if generation fails or returns no usable title. Generation is attempted
+once per session, including across restarts. Manual names always take precedence;
+existing nonempty titles are preserved when migration 00006 is applied. Title
+requests do not enter the conversation transcript, and credentials stay in memory.
+The response text streams normally; the run becomes idle after the title attempt.

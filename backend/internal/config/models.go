@@ -66,8 +66,10 @@ func (p *Provider) HasEffort(e string) bool {
 // can only use models listed here; model ids are unique across providers.
 type Models struct {
 	// Default is the model new sessions start on; empty means the first one.
-	Default   string     `toml:"default"`
-	Providers []Provider `toml:"providers"`
+	Default string `toml:"default"`
+	// SmallModel serves lightweight tasks independently of the session model.
+	SmallModel string     `toml:"small_model"`
+	Providers  []Provider `toml:"providers"`
 }
 
 // Model is a selectable model resolved to the provider that serves it.
@@ -140,6 +142,11 @@ func (m *Models) validate() error {
 		m.Default = m.Providers[0].Models[0]
 	} else if !seen[m.Default] {
 		return fmt.Errorf("default model %q is not offered by any provider", m.Default)
+	}
+	if m.SmallModel == "" {
+		m.SmallModel = m.Default
+	} else if !seen[m.SmallModel] {
+		return fmt.Errorf("small_model %q is not offered by any provider", m.SmallModel)
 	}
 	return nil
 }

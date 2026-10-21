@@ -28,6 +28,9 @@ models   = ["deepseek-flash", " deepseek-v4-pro "]
 	if err != nil {
 		t.Fatal(err)
 	}
+	if m.SmallModel != m.Default {
+		t.Fatalf("SmallModel = %q, want default %q", m.SmallModel, m.Default)
+	}
 	if m.Default != "deepseek-flash" {
 		t.Errorf("Default = %q, want first model", m.Default)
 	}
@@ -98,6 +101,7 @@ models   = ["deepseek-flash"]
 		{"no providers", ``, "no providers"},
 		{"unknown type", strings.Replace(provider, `"deepseek"`, `"gemini"`, 1), "type must be"},
 		{"missing key", strings.Replace(provider, `key      = "sk-test"`, ``, 1), "key is required"},
+		{"unknown small model", `small_model = "missing"` + provider, "small_model"},
 		{"unknown default", `default = "gpt-5.5"` + provider, "default model"},
 		{"duplicate model", provider + strings.Replace(provider, `"DeepSeek"`, `"Mirror"`, 1), "more than once"},
 		{"typo'd key", strings.Replace(provider, "endpoint", "endpiont", 1), "unknown keys"},
@@ -110,5 +114,31 @@ models   = ["deepseek-flash"]
 				t.Fatalf("err = %v, want it to mention %q", err, tt.want)
 			}
 		})
+	}
+}
+
+func TestSmallModelReference(t *testing.T) {
+	m, err := LoadModels(writeConfig(t, `
+default = "main"
+small_model = "small"
+[[providers]]
+name = "Main"
+type = "openai"
+endpoint = "https://main.example/v1"
+key = "main-key"
+models = ["main"]
+[[providers]]
+name = "Lightweight"
+type = "custom"
+endpoint = "https://small.example/v1"
+key = "small-key"
+models = ["small"]
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	small, ok := m.Get(m.SmallModel)
+	if !ok || small.ID != "small" || small.Provider.Key != "small-key" || small.Provider.Endpoint != "https://small.example/v1" {
+		t.Fatal("small_model did not resolve to its own provider")
 	}
 }
