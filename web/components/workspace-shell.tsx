@@ -12,13 +12,11 @@ import {
   MessageSquare,
   MessagesSquare,
   Pencil,
-  Play,
   Plus,
   Puzzle,
   RefreshCw,
   Settings,
   Shield,
-  Square,
   SquareTerminal,
   Trash2,
   UserCircle2,
@@ -67,18 +65,13 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
   const setCurrentProject = useWorkspaceStore(state => state.setCurrentProject)
   const busySessions = useWorkspaceStore(state => state.busySessions)
   const loadProjects = useWorkspaceStore(state => state.loadProjects)
-  const refreshProject = useWorkspaceStore(state => state.refreshProject)
   const createSession = useWorkspaceStore(state => state.createSession)
   const deleteSession = useWorkspaceStore(state => state.deleteSession)
   const deleteProject = useWorkspaceStore(state => state.deleteProject)
-  const startSandbox = useWorkspaceStore(state => state.startSandbox)
-  const stopSandbox = useWorkspaceStore(state => state.stopSandbox)
 
   const [newProjectOpen, setNewProjectOpen] = useState(false)
   const [creatingSession, setCreatingSession] = useState(false)
-  const [startingProjects, setStartingProjects] = useState<Set<string>>(() => new Set())
   const [deleteSessionTarget, setDeleteSessionTarget] = useState<{ session_id: string; title: string } | null>(null)
-  const [stopSandboxTarget, setStopSandboxTarget] = useState<ProjectWithSessions | null>(null)
   const [renameTarget, setRenameTarget] = useState<Session | null>(null)
   const [renameOpen, setRenameOpen] = useState(false)
   const [projectPickerOpen, setProjectPickerOpen] = useState(false)
@@ -170,33 +163,6 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
     [projects, currentProjectId],
   )
   const sessions = useMemo(() => [...(currentProject?.sessions ?? [])].sort(compareSessionActivity), [currentProject?.sessions])
-
-  // Project controls can start an agent without selecting that project.
-  const startingProjectIds = projects.filter(p => p.sandbox_status === "starting").map(p => p.project_id).sort().join(",")
-  useEffect(() => {
-    if (!startingProjectIds) return
-    const timer = setInterval(() => {
-      for (const id of startingProjectIds.split(",")) {
-        void refreshProject(id).catch(() => {})
-      }
-    }, 1500)
-    return () => clearInterval(timer)
-  }, [startingProjectIds, refreshProject])
-
-  async function handleStartProject(projectId: string) {
-    setStartingProjects(prev => new Set(prev).add(projectId))
-    try {
-      await startSandbox(projectId)
-    } catch (err) {
-      window.alert(err instanceof Error ? err.message : "Failed to start agent")
-    } finally {
-      setStartingProjects(prev => {
-        const next = new Set(prev)
-        next.delete(projectId)
-        return next
-      })
-    }
-  }
 
   // Starts on the last-picked model; it can be switched from the chat.
   const handleCreateSession = useCallback(async () => {
@@ -325,14 +291,6 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
             </div>
           )}
         </div>
-        {currentProject && (
-          <ProjectRunButton
-            project={currentProject}
-            starting={startingProjects.has(currentProject.project_id)}
-            onStart={() => void handleStartProject(currentProject.project_id)}
-            onStop={() => setStopSandboxTarget(currentProject)}
-          />
-        )}
         <div ref={userMenuRef} className="relative ml-auto shrink-0">
           {userMenuOpen && (
             <div className="absolute right-0 top-full z-30 mt-2 min-w-44 overflow-hidden rounded-lg border bg-popover text-sm shadow-md">
@@ -614,26 +572,6 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
       />
 
       <ConfirmDialog
-        open={stopSandboxTarget !== null}
-        onOpenChange={open => { if (!open) setStopSandboxTarget(null) }}
-        title="Stop agent?"
-        description={
-          <>
-            The agent for{" "}
-            <span className="font-medium text-foreground">{stopSandboxTarget?.project_name ?? "Untitled"}</span>
-            {" "}will stop running tasks and release loaded sessions. Files remain available,
-            and conversations resume on the next message.
-          </>
-        }
-        confirmLabel="Stop"
-        destructive
-        onConfirm={async () => {
-          if (!stopSandboxTarget) return
-          await stopSandbox(stopSandboxTarget.project_id)
-        }}
-      />
-
-      <ConfirmDialog
         open={deleteProjectTarget !== null}
         onOpenChange={open => { if (!open) setDeleteProjectTarget(null) }}
         title="Delete project?"
@@ -741,46 +679,6 @@ function NoProjectPlaceholder({ onCreate }: { onCreate: () => void }) {
         Create project
       </Button>
     </div>
-  )
-}
-
-// IDE-style run control for the current project's agent: play to start, stop while running.
-function ProjectRunButton({
-  project,
-  starting: startRequested,
-  onStart,
-  onStop,
-}: {
-  project: ProjectWithSessions
-  starting: boolean
-  onStart: () => void
-  onStop: () => void
-}) {
-  const starting = startRequested || project.sandbox_status === "starting"
-  const running = project.sandbox_status === "ready"
-  const failed = project.sandbox_status === "failed"
-  const canStop = project.access_role === "owner"
-  const label = starting ? "Agent starting" : running ? "Stop agent" : failed ? "Retry starting agent" : "Start agent"
-
-  return (
-    <button
-      type="button"
-      disabled={starting || (running && !canStop)}
-      aria-label={label}
-      title={running && !canStop ? "Only the project owner can stop the agent" : label}
-      onClick={running ? onStop : onStart}
-      className={cn(
-        "flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-xs font-medium transition-colors disabled:cursor-default disabled:opacity-50",
-        starting ? "text-muted-foreground" : running || failed ? "text-destructive hover:bg-destructive/10" : "text-emerald-500 hover:bg-emerald-500/10",
-      )}
-    >
-      {starting
-        ? <Loader2 className="size-3.5 animate-spin" />
-        : running
-          ? <Square className="size-3 fill-current" />
-          : <Play className="size-3.5 fill-current" />}
-      {starting ? "Starting" : running ? "Stop" : "Start"}
-    </button>
   )
 }
 

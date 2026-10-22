@@ -10,8 +10,6 @@ import {
   getSession,
   listProjects,
   listSessions,
-  startSandbox as apiStartSandbox,
-  stopSandbox as apiStopSandbox,
   updateProject,
   updateSession,
   type Project,
@@ -64,8 +62,6 @@ interface WorkspaceStore {
   deleteSession: (sessionId: string) => Promise<void>
   refreshSession: (sessionId: string) => Promise<Session>
   refreshProject: (projectId: string) => Promise<void>
-  startSandbox: (projectId: string) => Promise<void>
-  stopSandbox: (projectId: string) => Promise<void>
   setSessionBusy: (sessionId: string, busy: boolean) => void
   markSessionActivity: (sessionId: string) => void
 }
@@ -254,21 +250,6 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
           ? { ...p, sandbox_status: project.sandbox_status }
           : p
       ),
-    }))
-  },
-
-  startSandbox: async (projectId: string) => {
-    await apiStartSandbox(projectId)
-    // Flip to "starting" right away so the sidebar starts polling.
-    set(state => ({
-      projects: state.projects.map(p => p.project_id === projectId ? { ...p, sandbox_status: "starting" } : p),
-    }))
-  },
-
-  stopSandbox: async (projectId: string) => {
-    await apiStopSandbox(projectId)
-    set(state => ({
-      projects: state.projects.map(p => p.project_id === projectId ? { ...p, sandbox_status: "idle" } : p),
     }))
   },
 

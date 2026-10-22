@@ -86,24 +86,6 @@ export async function deleteProject(projectId: string): Promise<void> {
   await authedFetch(`${API_BASE}/api/v1/projects/${projectId}`, { method: "DELETE" })
 }
 
-// startSandbox starts the project's agent sandbox in the background; poll the
-// project's sandbox_status to follow it.
-export async function startSandbox(projectId: string): Promise<void> {
-  const res = await authedFetch(`${API_BASE}/api/v1/projects/${projectId}/sandbox`, { method: "POST" })
-  if (!res.ok) {
-    throw new Error(await readErrorMessage(res, `start sandbox failed (${res.status})`))
-  }
-}
-
-// stopSandbox stops the project's agent sandbox. Sessions are kept; the
-// sandbox restarts on the next message.
-export async function stopSandbox(projectId: string): Promise<void> {
-  const res = await authedFetch(`${API_BASE}/api/v1/projects/${projectId}/sandbox`, { method: "DELETE" })
-  if (!res.ok && res.status !== 204) {
-    throw new Error(await readErrorMessage(res, `stop sandbox failed (${res.status})`))
-  }
-}
-
 export interface ProjectMember {
   project_id: string
   user_id: string
