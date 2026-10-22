@@ -175,7 +175,14 @@ test('SDK preserves protocol, resources, tools, history, isolated gateways, titl
     const saved = SessionManager.open(path.join(dir, 'tools.jsonl'))
     saved.appendCompaction('Compacted context sentinel', null, 100000)
     await start()
-    assert.deepEqual(await (await fetch(url + '/session/tools/message')).json(), liveHistory)
+    const restoredHistory = await (await fetch(url + '/session/tools/message')).json()
+    const liveUsage = liveHistory.flatMap((m: any) => m.events).find((e: any) => e.type === 'session.usage')
+    const restoredUsage = restoredHistory.flatMap((m: any) => m.events).find((e: any) => e.type === 'session.usage')
+    assert.equal(typeof liveUsage.data.contextTokens, 'number')
+    assert.deepEqual(restoredUsage.data, { ...liveUsage.data, contextTokens: null })
+    // Compaction changes live context usage, while the full UI history is preserved.
+    const withoutUsage = (items: any[]) => items.map(m => ({ ...m, events: m.events.filter((e: any) => e.type !== 'session.usage') }))
+    assert.deepEqual(withoutUsage(restoredHistory), withoutUsage(liveHistory))
     mode = 'success'
     await register('isolated', { apiKey: 'isolated-key', model: 'alternate' })
     await register('tools', { smallModel: undefined })
