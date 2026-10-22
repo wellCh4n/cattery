@@ -60,7 +60,7 @@ export function QuestionnaireCard({ bubble, sessionId }: { bubble: Bubble; sessi
   if (!questions.length) return <p className="text-sm text-muted-foreground">{bubble.toolOutput || "Invalid questionnaire"}</p>
 
   return (
-    <section aria-label="Questionnaire" className="w-full rounded-xl border bg-card p-4 shadow-sm">
+    <section aria-label="Questionnaire" className="w-full rounded-xl border bg-card p-4">
       <div className="mb-4 flex items-center gap-2 text-sm font-medium">
         {closed ? <CheckIcon className="size-4" /> : <MessageCircleQuestionIcon className="size-4" />}
         {closed ? (result?.cancelled ? "Questionnaire cancelled" : result?.answers ? "Answers submitted" : submitted ? "Response submitted" : "Questionnaire ended") : "Waiting for your answer"}
