@@ -179,12 +179,20 @@ Deleting a user cascades to their projects and sessions, and stops their K8s san
 
 ## Resource model
 
-- **Project** — a shared workspace owned by one user with optional members at `owner` / `member` roles. Each project has its own PVC-backed file workspace, mounted by the pi and filemgr containers in one project Pod.
+- **Project** — a shared workspace owned by one user with optional members at `owner` / `member` roles. Each project has its own PVC-backed file workspace, mounted at `/home/cattery` by the pi and filemgr containers in one project Pod.
 - **Sandbox** — one Kubernetes `agents.x-k8s.io/v1beta1` Sandbox CR per Project, named `cattery-sandbox-<project_id>`, running pi and filemgr containers with `restartPolicy: Always`. It is provisioned on project creation, with lazy recovery on file/session access. `projects.sandbox_status` tracks agent activation; stopping the agent releases sessions while the Pod and file browser remain available.
-- **Session** — a conversation with the agent, with its own model. All sessions of a project share the sandbox and the workspace. Transcripts are stored on the workspace PVC (`/work/.cattery/sessions/`), so they survive sandbox restarts.
-- **Skill** — a `<slug>/SKILL.md (+assets)` directory in the global skills library. Skills are cluster-wide, independent of Projects, served by a single `skillmgr` Pod and mounted read-only into every sandbox at `~/.agents/skills`; the agent lists them in its system prompt.
+- **Session** — a conversation with the agent, with its own model. All sessions of a project share the sandbox and the workspace. Transcripts are stored on the workspace PVC (`/home/cattery/.cattery/sessions/`), so they survive sandbox restarts.
+- **Skill** — a `<slug>/SKILL.md (+assets)` directory in the global skills library. Skills are cluster-wide, independent of Projects, served by a single `skillmgr` Pod and mounted read-only into every sandbox at `/cattery/global-skills`; the agent lists them in its system prompt.
 
 Project members see all of the project's files and sessions; their access role gates which mutations they can perform. Deleting a project tears down its shared Sandbox Pod and the workspace PVC.
+
+The project workspace is the agent user's home (`~`). The pi process, SDK tools
+and new web terminals all start there; the file browser exposes the same files.
+Shell configuration, shell history, project skills in `~/.agents/skills`, and
+`.cattery` session data are persisted with the project. On startup the pi image
+copies missing shell defaults from `/etc/skel`, preserving existing configuration.
+The global skill library is mounted separately at `/cattery/global-skills` and
+loaded through `SKILLS_DIR`, so it does not hide project skills.
 
 New sessions record the authenticated creator in `created_by_user_id` and a
 `created_by_username` snapshot, displayed in the session list. Historical
@@ -249,7 +257,7 @@ once per session, including across restarts. Manual names always take precedence
 existing nonempty titles are preserved when migration 00006 is applied. Title
 requests do not enter the conversation transcript, and credentials stay in memory in isolated per-session model runtimes.
 
-Conversation history uses SDK JSONL files at `/work/.cattery/sessions/<id>.jsonl`; `<id>.json` holds only platform metadata. Legacy JSON conversations are unsupported after this migration; delete those sessions and start new ones. Project files are unaffected.
+Conversation history uses SDK JSONL files at `/home/cattery/.cattery/sessions/<id>.jsonl`; `<id>.json` holds only platform metadata. Legacy JSON conversations are unsupported after this migration; delete those sessions and start new ones. Project files are unaffected.
 The response text streams normally; the run becomes idle after the title attempt.
 
 ### LaTeX file previews
@@ -305,6 +313,18 @@ as one Pod with both containers. Legacy single-container Sandbox resources are
 rejected with an explicit migration error rather than silently reused or deleted
 by a file read. Old standalone filemgr Pods are also cleaned up when the shared
 Sandbox is successfully provisioned.
+
+Projects using the previous `/work` workspace also need their Sandbox resources
+recreated during deployment. Keep their existing `cattery-project-<id>-work`
+PVCs: mounting the same volume at `/home/cattery` preserves the project files
+without copying them. Rebuild and deploy the pi image together with the backend
+before recreating Pods, because the pi startup command now uses absolute paths.
+The new Pod sets `HOME`, `WORK_DIR` and the agent container's working directory to
+`/home/cattery`, sets `FILEMGR_ROOT` to the same path, and moves global skills out
+of home. The backend rejects legacy mount layouts during provisioning with a
+migration error. There is no `/work` alias or conversation path rewriting;
+delete obsolete conversations and start new ones after migration. Recreating the
+Pod ends running terminal shells, so finish their commands before deployment.
 
 Stop agent aborts active turns, persists transcripts and clears loaded sessions
 and credentials. The lightweight pi HTTP process remains available; a new message

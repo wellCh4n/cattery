@@ -14,7 +14,7 @@ import (
 func TestLatexPreviewLifecycle(t *testing.T) {
 	oldRoot := root
 	root = t.TempDir()
-	// macOS temp paths can have an alias; production uses /work.
+	// macOS temp paths can have an alias; production uses /home/cattery.
 	root, _ = filepath.EvalSymlinks(root)
 	t.Cleanup(func() { root = oldRoot })
 	source := filepath.Join(root, "main.tex")

@@ -47,10 +47,15 @@ const SkillsPVCName = "cattery-skills-work"
 // Image is the agent sandbox image (harnesses/pi). `make build-harness` builds it.
 const Image = "cattery-pi:dev"
 
-// SkillsMountPath is where the global skill library is mounted (read-only) in
-// the agent container. The pi harness lists <slug>/SKILL.md entries from here
-// in its system prompt (HOME=/home/cattery).
-const SkillsMountPath = "/home/cattery/.agents/skills"
+// WorkspaceMountPath is the project workspace and the agent's working
+// directory. HOME is /home/cattery in the pi image, so this makes the project
+// workspace available as `~`.
+const WorkspaceMountPath = "/home/cattery"
+
+// SkillsMountPath is where the global skill library is mounted read-only in
+// the agent container. It is outside the workspace mount so it does not
+// collide with a project's own ~/.agents/skills directory.
+const SkillsMountPath = "/cattery/global-skills"
 
 type Manager struct {
 	store         *db.ProjectStore
@@ -105,7 +110,8 @@ func (m *Manager) ensureProject(ctx context.Context, projectID uuid.UUID) error 
 		Name: NameFor(projectID), ProjectID: projectID.String(), Image: Image, ContainerPort: Port,
 		FileMgrImage: FileMgrImage, FileMgrPort: FileMgrPort,
 		Env:          map[string]string{"PORT": fmt.Sprint(Port), "PROJECT_ID": projectID.String()},
-		WorkspacePVC: pvcName, SkillsPVC: SkillsPVCName, SkillsMount: SkillsMountPath,
+		WorkspacePVC: pvcName, WorkVolumeMount: WorkspaceMountPath,
+		SkillsPVC: SkillsPVCName, SkillsMount: SkillsMountPath,
 	}); err != nil {
 		return err
 	}

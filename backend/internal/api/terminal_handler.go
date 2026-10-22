@@ -37,7 +37,7 @@ import (
 // session. Images without tmux get a plain login shell that dies with the
 // connection. id must be a validated UUID: it is spliced into the script.
 func terminalCommand(id string) string {
-	return `cd "${WORK_DIR:-/work}" 2>/dev/null; export TERM=xterm-256color; ` +
+	return `cd "${WORK_DIR:-${HOME:-/home/cattery}}" || exit 1; export TERM=xterm-256color; ` +
 		`if command -v tmux >/dev/null 2>&1; then exec tmux new-session -A -s ` + id + `; fi; ` +
 		`if command -v bash >/dev/null 2>&1; then exec bash -l; fi; exec sh -l`
 }

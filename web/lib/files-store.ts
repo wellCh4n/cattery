@@ -84,15 +84,19 @@ export const fileActions = {
   reset() { epoch++; refreshing.clear(); useFilesStore.getState().reset() },
 }
 
-// Agent paths are relative to /work; the file API uses workspace-relative paths.
+// Agent paths are relative to the project home at /home/cattery (~);
+// the file API uses workspace-relative paths.
 // Unknown or outside-workspace paths fall back to refreshing cached directories.
 export function toolChangedDirectories(input?: string): string[] {
   try {
     const value = JSON.parse(input ?? "{}") as { path?: unknown }
     if (typeof value.path !== "string") return []
     let path = value.path
-    if (path.startsWith("/work/")) path = path.slice(6)
-    else if (path.startsWith("/")) return []
+    if (path.startsWith("/home/cattery/")) path = path.slice("/home/cattery/".length)
+    else if (path === "/home/cattery") path = ""
+    else if (path.startsWith("~/")) path = path.slice(2)
+    else if (path === "~") path = ""
+    else if (path.startsWith("/") || path.startsWith("~")) return []
     const parts: string[] = []
     for (const part of path.split("/")) {
       if (!part || part === ".") continue

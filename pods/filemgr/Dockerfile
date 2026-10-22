@@ -28,7 +28,7 @@ COPY check-latex.py /usr/local/libexec/check-latex.py
 USER 1000:1000
 ENV HOME=/tmp
 ENV PORT=1115
-ENV FILEMGR_ROOT=/work
+ENV FILEMGR_ROOT=/home/cattery
 RUN python3 /usr/local/libexec/check-latex.py
 EXPOSE 1115
 ENTRYPOINT ["/filemgr"]

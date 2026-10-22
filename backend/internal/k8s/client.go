@@ -133,7 +133,8 @@ type SandboxSpec struct {
 	Env           map[string]string
 	WorkspacePVC  string
 	// WorkVolumeMount is the path the workspace volume is mounted at in the
-	// agent container. Defaults to "/work" when zero.
+	// agent and filemgr containers. Defaults to the agent user's home directory
+	// when zero, so the project workspace is also `~` inside the Pod.
 	WorkVolumeMount string
 	// SkillsPVC, when non-empty, mounts the global skills PVC read-only into the
 	// agent container at SkillsMount. Empty = no skills volume. The PVC is
@@ -146,12 +147,22 @@ type SandboxSpec struct {
 func (c *Client) RunTask(ctx context.Context, spec SandboxSpec) error {
 	workMount := spec.WorkVolumeMount
 	if workMount == "" {
-		workMount = "/work"
+		workMount = "/home/cattery"
 	}
 	const workVolumeName = "workspace"
 
-	envList := make([]interface{}, 0, len(spec.Env))
+	env := make(map[string]string, len(spec.Env)+3)
 	for k, v := range spec.Env {
+		env[k] = v
+	}
+	// Keep the shell, SDK and container process in the same persisted home.
+	env["HOME"] = workMount
+	env["WORK_DIR"] = workMount
+	if spec.SkillsPVC != "" && spec.SkillsMount != "" {
+		env["SKILLS_DIR"] = spec.SkillsMount
+	}
+	envList := make([]interface{}, 0, len(env))
+	for k, v := range env {
 		envList = append(envList, map[string]interface{}{"name": k, "value": v})
 	}
 
@@ -177,6 +188,7 @@ func (c *Client) RunTask(ctx context.Context, spec SandboxSpec) error {
 				map[string]interface{}{"containerPort": int64(spec.ContainerPort)},
 			},
 			"env":          envList,
+			"workingDir":   workMount,
 			"volumeMounts": volumeMounts,
 		},
 	}
@@ -240,8 +252,8 @@ func (c *Client) RunTask(ctx context.Context, spec SandboxSpec) error {
 						// generated Pod name; nothing resolves Pods by hostname.
 						"hostname": "sandbox",
 						// The pi image runs as the unprivileged `cattery` user (uid 1000)
-						// and needs write access to /work. fsGroup makes K8s chown the
-						// volume to gid 1000 so cattery can write.
+						// and needs write access to its persisted home. fsGroup makes
+						// K8s chown the volume to gid 1000 so cattery can write.
 						"securityContext": map[string]interface{}{
 							"fsGroup": int64(1000),
 						},
@@ -261,14 +273,48 @@ func (c *Client) RunTask(ctx context.Context, spec SandboxSpec) error {
 			return getErr
 		}
 		items, _, _ := unstructured.NestedSlice(existing.Object, "spec", "podTemplate", "spec", "containers")
-		for _, item := range items {
-			if container, ok := item.(map[string]interface{}); ok && container["name"] == "filemgr" {
-				return nil
+		// Mount changes require Pod recreation. Never silently reuse a legacy
+		// layout or destroy running shells and turns during a read request.
+		for _, desiredItem := range containers {
+			desired := desiredItem.(map[string]interface{})
+			compatible := false
+			for _, item := range items {
+				container, ok := item.(map[string]interface{})
+				if !ok || container["name"] != desired["name"] {
+					continue
+				}
+				compatible = hasWorkspaceMounts(container, desired)
+				break
+			}
+			if !compatible {
+				return fmt.Errorf("project %s uses a legacy sandbox layout; recreate its Sandbox during deployment to mount the workspace at %s (keep all workspace and skills PVCs; remove any legacy standalone filemgr Pod)", spec.ProjectID, workMount)
 			}
 		}
-		return fmt.Errorf("project %s uses the legacy single-container sandbox; recreate its Sandbox and remove the legacy filemgr Pod during deployment (keep the workspace PVC)", spec.ProjectID)
+		return nil
 	}
 	return err
+}
+
+func hasWorkspaceMounts(container, desired map[string]interface{}) bool {
+	mounts, _, _ := unstructured.NestedSlice(container, "volumeMounts")
+	wanted, _, _ := unstructured.NestedSlice(desired, "volumeMounts")
+	for _, item := range wanted {
+		want := item.(map[string]interface{})
+		found := false
+		for _, item := range mounts {
+			mount, ok := item.(map[string]interface{})
+			readOnly, _ := mount["readOnly"].(bool)
+			wantReadOnly, _ := want["readOnly"].(bool)
+			if ok && mount["name"] == want["name"] && mount["mountPath"] == want["mountPath"] && readOnly == wantReadOnly {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
 }
 
 // EnsurePVC creates the PVC if absent. Its access mode and storageClassName

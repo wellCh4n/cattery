@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { once } from 'node:events'
-import { mkdtemp, readFile, rm, mkdir, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, realpath, rm, mkdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { SessionManager } from '@earendil-works/pi-coding-agent'
@@ -31,9 +31,14 @@ test('SDK preserves protocol, resources, tools, history, isolated gateways, titl
       return
     }
     if (title && mode === 'timeout') return // Client aborts the title request after 15 seconds.
-    if (!title && (mode === 'tools' || mode === 'questionnaire') && body.messages.at(-1)?.role !== 'tool') {
+    if (!title && ['tools', 'workspace', 'questionnaire'].includes(mode) && body.messages.at(-1)?.role !== 'tool') {
+      const tool = mode === 'questionnaire' ? {
+        name: 'questionnaire', arguments: { questions: [{ id: 'scope', prompt: 'Choose scope', options: [{ label: 'Small' }] }, { id: 'note', prompt: 'Any notes?', options: [] }] },
+      } : mode === 'workspace' ? {
+        name: 'bash', arguments: { command: 'printf "%s\\n" "$PWD" "$HOME"; cat ~/example.txt; printf home-write > workspace-output.txt' },
+      } : { name: 'read', arguments: { path: 'example.txt', offset: 2, limit: 1 } }
       res.writeHead(200, { 'Content-Type': 'text/event-stream' })
-      res.write(`data: ${JSON.stringify({ id: 'test', object: 'chat.completion.chunk', choices: [{ index: 0, delta: { role: 'assistant', tool_calls: [{ index: 0, id: 'read-call', type: 'function', function: { name: mode === 'questionnaire' ? 'questionnaire' : 'read', arguments: JSON.stringify(mode === 'questionnaire' ? { questions: [{ id: 'scope', prompt: 'Choose scope', options: [{ label: 'Small' }] }, { id: 'note', prompt: 'Any notes?', options: [] }] } : { path: 'example.txt', offset: 2, limit: 1 }) } }] }, finish_reason: null }] })}\n\n`)
+      res.write(`data: ${JSON.stringify({ id: 'test', object: 'chat.completion.chunk', choices: [{ index: 0, delta: { role: 'assistant', tool_calls: [{ index: 0, id: 'read-call', type: 'function', function: { name: tool.name, arguments: JSON.stringify(tool.arguments) } }] }, finish_reason: null }] })}\n\n`)
       res.write(`data: ${JSON.stringify({ id: 'test', object: 'chat.completion.chunk', choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] })}\n\n`)
       res.end('data: [DONE]\n\n')
       return
@@ -54,17 +59,22 @@ test('SDK preserves protocol, resources, tools, history, isolated gateways, titl
   await once(portServer, 'listening')
   const port = (portServer.address() as any).port
   await new Promise<void>(resolve => portServer.close(() => resolve()))
-  const dir = await mkdtemp(path.join(tmpdir(), 'cattery-title-'))
+  const fixtureDir = await realpath(await mkdtemp(path.join(tmpdir(), 'cattery-title-')))
+  const dir = path.join(fixtureDir, 'home')
+  const skillsDir = path.join(fixtureDir, 'global-skills')
+  const sessionsDir = path.join(dir, '.cattery/sessions')
+  await mkdir(path.join(dir, '.agents/skills/project-skill'), { recursive: true })
+  await writeFile(path.join(dir, '.agents/skills/project-skill/SKILL.md'), '---\nname: project-skill\ndescription: Project skill description sentinel\n---\nProject skill body')
   await writeFile(path.join(dir, 'AGENTS.md'), 'Cattery SDK context sentinel')
   await writeFile(path.join(dir, 'example.txt'), 'one\ntwo\nthree')
-  await mkdir(path.join(dir, 'skill-fixture'))
-  await writeFile(path.join(dir, 'skill-fixture/SKILL.md'), '---\nname: skill-fixture\ndescription: >\n  Multiline skill\n  description sentinel\n---\nSkill body sentinel')
+  await mkdir(path.join(skillsDir, 'skill-fixture'), { recursive: true })
+  await writeFile(path.join(skillsDir, 'skill-fixture/SKILL.md'), '---\nname: skill-fixture\ndescription: >\n  Multiline skill\n  description sentinel\n---\nSkill body sentinel')
   const url = `http://127.0.0.1:${port}`
   let child: ChildProcess | undefined
   let logs = ''
   const start = async () => {
     child = spawn(process.execPath, ['--import', 'tsx', 'src/server.ts'], {
-      env: { ...process.env, PORT: String(port), WORK_DIR: dir, SESSIONS_DIR: dir, SKILLS_DIR: dir },
+      env: { ...process.env, PORT: String(port), HOME: dir, WORK_DIR: undefined, SESSIONS_DIR: undefined, SKILLS_DIR: skillsDir },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     child.stdout!.on('data', b => { logs += b })
@@ -130,32 +140,41 @@ test('SDK preserves protocol, resources, tools, history, isolated gateways, titl
     const system = JSON.stringify(requests[0].messages.filter((m: any) => m.role === 'system' || m.role === 'developer'))
     assert.ok(system.includes('Cattery SDK context sentinel'))
     assert.ok(system.includes('Multiline skill description sentinel'))
+    assert.ok(system.includes('Project skill description sentinel'))
+    assert.ok(system.includes(dir))
     assert.ok(!system.includes('Skill body sentinel'))
     assert.deepEqual(requests[0].tools.map((t: any) => t.function.name).sort(), ['bash', 'edit', 'find', 'grep', 'ls', 'questionnaire', 'read', 'write'])
     assert.equal(requests[1].model, 'small')
     assert.equal(requests[1].auth, 'Bearer small-key')
     assert.equal(requests[1].tools, undefined)
-    const transcript = await readFile(path.join(dir, 'success.json'), 'utf8')
+    const transcript = await readFile(path.join(sessionsDir, 'success.json'), 'utf8')
     assert.equal(JSON.parse(transcript).titleAttempted, true)
     assert.ok(!transcript.includes('small-key') && !transcript.includes('main-key'))
     assert.ok(!transcript.includes('修复登录问题'))
-    assert.equal(SessionManager.open(path.join(dir, 'success.jsonl')).getSessionName(), '修复登录问题')
+    assert.equal(SessionManager.open(path.join(sessionsDir, 'success.jsonl')).getSessionName(), '修复登录问题')
     assert.equal(await rename('success', '  手动\n名称  '), '手动 名称')
-    const namedTranscript = await readFile(path.join(dir, 'success.jsonl'), 'utf8')
+    const namedTranscript = await readFile(path.join(sessionsDir, 'success.jsonl'), 'utf8')
     await rename('success', '手动 名称')
-    assert.equal(await readFile(path.join(dir, 'success.jsonl'), 'utf8'), namedTranscript)
+    assert.equal(await readFile(path.join(sessionsDir, 'success.jsonl'), 'utf8'), namedTranscript)
     assert.equal((await fetch(`${url}/session/success/name`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 123 }) })).status, 400)
     assert.equal((await fetch(`${url}/session/missing/name`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'missing' }) })).status, 404)
     assert.equal((await fetch(url + '/stop', { method: 'POST' })).status, 204)
     assert.deepEqual(await (await fetch(url + '/session')).json(), [])
-    assert.equal(await readFile(path.join(dir, 'success.json'), 'utf8'), transcript)
+    assert.equal(await readFile(path.join(sessionsDir, 'success.json'), 'utf8'), transcript)
     await register('success')
     await stop(); await start(); await register('success')
     assert.equal((await (await fetch(url + '/session/success')).json()).name, '手动 名称')
-    assert.equal(SessionManager.open(path.join(dir, 'success.jsonl')).getSessionName(), '手动 名称')
+    assert.equal(SessionManager.open(path.join(sessionsDir, 'success.jsonl')).getSessionName(), '手动 名称')
     const count = requests.length
     assert.equal((await prompt('success')).filter(e => e.type === 'session.title').length, 0)
     assert.equal(requests.length, count + 1)
+    mode = 'workspace'
+    await register('workspace', { smallModel: undefined })
+    const workspaceEvents = await prompt('workspace')
+    const workspaceOutput = workspaceEvents.find(e => e.type === 'tool.done').data.output
+    assert.equal(workspaceOutput, `${dir}\n${dir}\none\ntwo\nthree`)
+    assert.equal(await readFile(path.join(dir, 'workspace-output.txt'), 'utf8'), 'home-write')
+    assert.equal(SessionManager.open(path.join(sessionsDir, 'workspace.jsonl')).getCwd(), dir)
     for (const failure of ['title-error', 'empty', 'clarification', 'timeout']) {
       mode = failure
       await register(failure)
@@ -172,7 +191,7 @@ test('SDK preserves protocol, resources, tools, history, isolated gateways, titl
     const liveHistory = await (await fetch(url + '/session/tools/message')).json()
     assert.deepEqual(liveHistory.flatMap((m: any) => m.events).find((e: any) => e.type === 'tool.done').data, liveResult.data)
     await stop()
-    const saved = SessionManager.open(path.join(dir, 'tools.jsonl'))
+    const saved = SessionManager.open(path.join(sessionsDir, 'tools.jsonl'))
     saved.appendCompaction('Compacted context sentinel', null, 100000)
     await start()
     const restoredHistory = await (await fetch(url + '/session/tools/message')).json()
@@ -191,7 +210,7 @@ test('SDK preserves protocol, resources, tools, history, isolated gateways, titl
     await prompt('tools')
     const mainRequests = requests.slice(isolatedStart).filter(r => r.model !== 'small')
     assert.deepEqual(mainRequests.map(r => [r.model, r.auth]), [['alternate', 'Bearer isolated-key'], ['main', 'Bearer main-key']])
-    const disk = (await readFile(path.join(dir, 'isolated.jsonl'), 'utf8')) + (await readFile(path.join(dir, 'isolated.json'), 'utf8'))
+    const disk = (await readFile(path.join(sessionsDir, 'isolated.jsonl'), 'utf8')) + (await readFile(path.join(sessionsDir, 'isolated.json'), 'utf8'))
     assert.ok(!disk.includes('isolated-key'))
     await register('tools', { apiKey: 'rotated-key', model: 'switched', smallModel: undefined })
     const switchedAt = requests.length
@@ -199,7 +218,7 @@ test('SDK preserves protocol, resources, tools, history, isolated gateways, titl
     assert.equal(requests[switchedAt].model, 'switched')
     assert.equal(requests[switchedAt].auth, 'Bearer rotated-key')
     assert.ok(JSON.stringify(requests[switchedAt].messages).includes('Compacted context sentinel'))
-    await writeFile(path.join(dir, 'legacy.json'), JSON.stringify({ model: { provider: 'custom', id: 'main' }, messages: [] }))
+    await writeFile(path.join(sessionsDir, 'legacy.json'), JSON.stringify({ model: { provider: 'custom', id: 'main' }, messages: [] }))
     assert.equal((await fetch(url + '/session/legacy')).status, 409)
     assert.equal((await fetch(url + '/session/legacy', { method: 'DELETE' })).status, 204)
     await register('legacy')
@@ -261,7 +280,7 @@ test('SDK preserves protocol, resources, tools, history, isolated gateways, titl
     assert.equal((await fetch(url + '/stop', { method: 'POST' })).status, 204)
     assert.ok((await pending).some(e => e.type === 'session.idle'))
     assert.deepEqual(await (await fetch(url + '/session')).json(), [])
-    assert.ok((await readFile(path.join(dir, 'stop-running.jsonl'), 'utf8')).includes('Please fix login'))
+    assert.ok((await readFile(path.join(sessionsDir, 'stop-running.jsonl'), 'utf8')).includes('Please fix login'))
     mode = 'success'
     await register('stop-running')
     assert.ok((await prompt('stop-running')).some(e => e.type === 'session.idle'))
@@ -270,6 +289,6 @@ test('SDK preserves protocol, resources, tools, history, isolated gateways, titl
     await stop()
     provider.closeAllConnections()
     await new Promise<void>(resolve => provider.close(() => resolve()))
-    await rm(dir, { recursive: true, force: true })
+    await rm(fixtureDir, { recursive: true, force: true })
   }
 })

@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -17,6 +20,40 @@ import (
 	"github.com/wellch4n/cattery/internal/k8s"
 	"github.com/wellch4n/cattery/internal/model"
 )
+
+func TestTerminalStartsInHome(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "bin")
+	if err := os.Mkdir(bin, 0755); err != nil {
+		t.Fatal(err)
+	}
+	// Stand in for tmux so the real shell command reports its inherited cwd.
+	if err := os.WriteFile(filepath.Join(bin, "tmux"), []byte("#!/bin/sh\npwd -P\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	home := filepath.Join(dir, "project home")
+	if err := os.Mkdir(home, 0755); err != nil {
+		t.Fatal(err)
+	}
+	want, err := filepath.EvalSymlinks(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, workDir := range []string{"", home, filepath.Join(dir, "missing")} {
+		cmd := exec.Command("/bin/sh", "-c", terminalCommand(uuid.NewString()))
+		cmd.Env = []string{"PATH=" + bin, "HOME=" + home, "WORK_DIR=" + workDir}
+		output, err := cmd.CombinedOutput()
+		if workDir == filepath.Join(dir, "missing") {
+			if err == nil {
+				t.Fatal("missing workspace must not open a shell in another directory")
+			}
+			continue
+		}
+		if err != nil || strings.TrimSpace(string(output)) != want {
+			t.Fatalf("terminal cwd = %q, want %q: %v", output, want, err)
+		}
+	}
+}
 
 type sharedTerminalSandbox struct {
 	commands chan []string

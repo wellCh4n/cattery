@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY tmux.conf /etc/tmux.conf
+COPY docker-entrypoint.sh /usr/local/bin/cattery-entrypoint
 
 WORKDIR /app
 
@@ -21,20 +22,21 @@ COPY src/ ./src/
 # keeping uid/gid 1000 so the sandbox Pod's fsGroup (1000) still makes the
 # workspace PVC writable for it.
 #
-# Pre-create /home/cattery/.agents (owned by cattery) so the read-only skills
-# PVC, which the backend submounts at /home/cattery/.agents/skills, lands inside
-# an existing cattery-owned dir instead of a kubelet-created root:root parent.
+# The home directory is replaced by the project PVC at runtime. The entrypoint
+# seeds missing shell defaults there without overwriting user configuration.
 RUN groupmod -n cattery node \
     && usermod -l cattery -d /home/cattery -m node \
-    && mkdir -p /work /home/cattery/.agents \
-    && chown -R cattery:cattery /app /work /home/cattery
+    && mkdir -p /home/cattery/.agents /cattery/global-skills \
+    && chown -R cattery:cattery /app /home/cattery /cattery
 
 USER cattery
 
 ENV PORT=1114
-ENV WORK_DIR=/work
+ENV WORK_DIR=/home/cattery
 ENV HOME=/home/cattery
 
 EXPOSE 1114
 
-CMD ["node_modules/.bin/tsx", "src/server.ts"]
+WORKDIR /home/cattery
+ENTRYPOINT ["/bin/sh", "/usr/local/bin/cattery-entrypoint"]
+CMD ["/app/node_modules/.bin/tsx", "/app/src/server.ts"]

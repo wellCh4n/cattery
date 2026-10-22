@@ -1,5 +1,5 @@
-// filemgr: tiny HTTP file API served by a standalone per-project Pod.
-// Mounts the project's workspace PVC at /work. Internal-only —
+// filemgr: tiny HTTP file API served alongside the agent in each project Pod.
+// Mounts the project's workspace PVC at /home/cattery. Internal-only —
 // reached through the backend proxy, never exposed externally.
 package main
 
@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	defaultRoot   = "/work"
+	defaultRoot   = "/home/cattery"
 	defaultPort   = "1115"
 	maxReadBytes  = 2 * 1024 * 1024 // 2MB — keeps the frontend snappy
 	dirEntryLimit = 2000            // protect against huge dirs

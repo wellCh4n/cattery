@@ -33,6 +33,7 @@ import express, { type RequestHandler, type ErrorRequestHandler } from 'express'
 import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
+import { homedir } from 'node:os'
 import { type AgentMessage, type ThinkingLevel } from '@earendil-works/pi-agent-core'
 import { InMemoryCredentialStore, createProvider, envApiKeyAuth, type Api, type AssistantMessage, type Model } from '@earendil-works/pi-ai'
 import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy'
@@ -43,14 +44,16 @@ import { TITLE_PROMPT, titleInput, parseTitle } from './title.ts'
 // ── Config ───────────────────────────────────────────────────────────────────
 
 const PORT       = Number(process.env.PORT ?? 1114)
-const WORKDIR    = process.env.WORK_DIR ?? '/work'
+const WORKDIR    = process.env.WORK_DIR ?? homedir()
 const THINKING   = (process.env.THINKING_LEVEL ?? 'high') as ThinkingLevel
 const PROMPT     = process.env.AGENT_PROMPT ?? ''
-const SKILLS_DIR = process.env.SKILLS_DIR ?? path.join(process.env.HOME ?? '/home/cattery', '.agents/skills')
+const SKILLS_DIR = process.env.SKILLS_DIR ?? '/cattery/global-skills'
 // Dot-dir on the workspace PVC: transcripts survive sandbox restarts and stay
 // out of the way of project files.
 const SESSIONS_DIR = process.env.SESSIONS_DIR ?? path.join(WORKDIR, '.cattery/sessions')
 
+// Align the harness process with the SDK tools and the web terminal too.
+process.chdir(WORKDIR)
 console.log('[startup] SESSIONS:', SESSIONS_DIR)
 
 // ── Models ───────────────────────────────────────────────────────────────────
