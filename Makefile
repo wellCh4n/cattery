@@ -4,21 +4,21 @@ GO = $(shell which go)
 BUN = $(shell which bun)
 COMPOSE = docker compose -f docker/docker-compose.yml
 
-PORT = 8080
+PORT ?= $(shell cd backend && if [ -f .env ]; then . ./.env; fi; printf '%s' "$${PORT:-8080}")
 K8S_NS = default
 
 # 同时启动前后端
 dev:
 	@echo "→ starting backend on :$(PORT)"
 	@cd backend && set -a && [ -f .env ] && . ./.env; set +a && \
-		$(GO) run ./cmd/server/ &
+		PORT="$(PORT)" $(GO) run ./cmd/server/ &
 	@echo "→ starting frontend on :3000"
 	@cd web && $(BUN) dev
 
 dev-back:
 	@echo "→ starting backend on :$(PORT)"
 	@cd backend && set -a && [ -f .env ] && . ./.env; set +a && \
-		$(GO) run ./cmd/server/
+		PORT="$(PORT)" $(GO) run ./cmd/server/
 
 dev-front:
 	@echo "→ starting frontend on :3000"
@@ -29,8 +29,8 @@ build:
 	@cd backend && $(GO) build -o bin/server ./cmd/server/
 
 stop:
-	@lsof -ti :$(PORT) | xargs kill -9 2>/dev/null && echo "killed :$(PORT)" || echo "nothing on :$(PORT)"
-	@lsof -ti :3000  | xargs kill -9 2>/dev/null && echo "killed :3000"  || echo "nothing on :3000"
+	@lsof -tiTCP:$(PORT) -sTCP:LISTEN | xargs kill -TERM 2>/dev/null && echo "stopped :$(PORT)" || echo "nothing on :$(PORT)"
+	@lsof -tiTCP:3000 -sTCP:LISTEN | xargs kill -TERM 2>/dev/null && echo "stopped :3000" || echo "nothing on :3000"
 
 # Docker compose helpers
 docker-up:
