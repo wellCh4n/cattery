@@ -19,7 +19,6 @@ import {
   Shield,
   SquareTerminal,
   Trash2,
-  UserCircle2,
   Users,
 } from "lucide-react"
 import { CatteryLogo } from "@/components/cattery-logo"
@@ -39,6 +38,7 @@ import { ThemeToggle } from "@/components/theme-toggle"
 import { Tree, type TreeNode } from "@/components/tree"
 import { TreeRowAction } from "@/components/tree-row"
 import { WorkspaceItemBody } from "@/components/workspace-item-body"
+import { UserAvatar } from "@/components/user-avatar"
 import { cn } from "@/lib/utils"
 import { useResizable } from "@/lib/use-resizable"
 import { type Session } from "@/lib/api"
@@ -326,11 +326,11 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
             title={user?.username ?? "Account"}
             onClick={() => { setUserMenuOpen(o => !o); setSettingsMenuOpen(false) }}
             className={cn(
-              "flex size-8 cursor-pointer items-center justify-center rounded-full border text-xs font-semibold transition-colors hover:bg-muted",
-              userMenuOpen ? "border-primary/40 bg-muted text-foreground" : "border-border bg-background text-muted-foreground",
+              "flex cursor-pointer rounded-full ring-offset-2 ring-offset-background transition-shadow outline-none hover:ring-2 hover:ring-border focus-visible:ring-2 focus-visible:ring-ring/50",
+              userMenuOpen && "ring-2 ring-primary/40 hover:ring-primary/40",
             )}
           >
-            {user?.username?.trim().slice(0, 1).toUpperCase() || <UserCircle2 className="size-5" />}
+            <UserAvatar username={user?.username} className="size-8 text-xs" />
           </button>
         </div>
       </header>

@@ -52,7 +52,7 @@ function Row({ swatch, label, value, share }: { swatch?: string; label: string; 
   return (
     <div className="flex items-center gap-2">
       {swatch !== undefined && <span className={cn("size-2.5 shrink-0 rounded-[3px]", swatch)} />}
-      <span className="flex-1 text-muted-foreground">{label}</span>
+      <span className="flex-1 whitespace-nowrap text-muted-foreground">{label}</span>
       <span className="tabular-nums">{value}</span>
       {share !== undefined && <span className="w-12 text-right tabular-nums text-muted-foreground">{share}</span>}
     </div>
@@ -85,7 +85,7 @@ export function ContextMeter({ usage, className }: { usage: SessionUsageData; cl
         </TooltipTrigger>
         <TooltipContent>{summary}</TooltipContent>
       </Tooltip>
-      <PopoverContent side="top" align="start" className="w-72 gap-3 p-3">
+      <PopoverContent side="top" align="start" className="w-84 gap-3 p-3">
         <div className="flex flex-col gap-2">
           <div className="font-medium">Context</div>
           <div className="flex items-baseline justify-between">
