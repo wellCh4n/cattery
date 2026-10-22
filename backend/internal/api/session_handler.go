@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,11 +20,17 @@ import (
 	"github.com/wellch4n/cattery/internal/sandbox"
 )
 
+type sessionSandbox interface {
+	EnsureReady(context.Context, uuid.UUID) (string, error)
+	Await(context.Context, uuid.UUID) (string, error)
+	URL(context.Context, uuid.UUID) (string, bool)
+}
+
 type SessionHandler struct {
 	sessionStore  *db.SessionStore
 	projectStore  *db.ProjectStore
 	harnessClient *harness.Client
-	sandbox       *sandbox.Manager
+	sandbox       sessionSandbox
 	models        *config.Models
 }
 
@@ -83,6 +90,10 @@ type createSessionRequest struct {
 }
 
 func (h *SessionHandler) Create(c echo.Context) error {
+	userID, ok := UserIDFromContext(c)
+	if !ok {
+		return echo.ErrUnauthorized
+	}
 	access, err := requireWritableProject(c, h.projectStore)
 	if err != nil {
 		return err
@@ -103,7 +114,10 @@ func (h *SessionHandler) Create(c echo.Context) error {
 		Effort:    h.effortFor(modelID, req.Effort),
 		Status:    "creating",
 	}
-	if err := h.sessionStore.Create(c.Request().Context(), sess); err != nil {
+	if err := h.sessionStore.Create(c.Request().Context(), sess, userID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return echo.ErrUnauthorized
+		}
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 

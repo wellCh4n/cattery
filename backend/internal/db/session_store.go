@@ -8,19 +8,19 @@ import (
 	"github.com/wellch4n/cattery/internal/model"
 )
 
-const sessionColumns = `session_id, project_id, model, effort, status, phase, title, title_manual, created_at, last_seen_at`
+const sessionColumns = `session_id, project_id, created_by_user_id, created_by_username, model, effort, status, phase, title, title_manual, created_at, last_seen_at`
 
 type SessionStore struct{ db *sqlx.DB }
 
 func NewSessionStore(db *sqlx.DB) *SessionStore { return &SessionStore{db} }
 
-func (s *SessionStore) Create(ctx context.Context, sess *model.Session) error {
+func (s *SessionStore) Create(ctx context.Context, sess *model.Session, creatorID uuid.UUID) error {
 	return s.db.QueryRowxContext(ctx, `
-		INSERT INTO sessions (session_id, project_id, model, effort, status)
-		VALUES ($1,$2,$3,$4,$5)
-		RETURNING created_at`,
-		sess.SessionID, sess.ProjectID, sess.Model, sess.Effort, sess.Status,
-	).Scan(&sess.CreatedAt)
+		INSERT INTO sessions (session_id, project_id, model, effort, status, created_by_user_id, created_by_username)
+		SELECT $1, $2, $3, $4, $5, user_id, username FROM users WHERE user_id=$6
+		RETURNING created_at, created_by_user_id, created_by_username`,
+		sess.SessionID, sess.ProjectID, sess.Model, sess.Effort, sess.Status, creatorID,
+	).Scan(&sess.CreatedAt, &sess.CreatedByUserID, &sess.CreatedByUsername)
 }
 
 func (s *SessionStore) GetByID(ctx context.Context, id uuid.UUID) (*model.Session, error) {

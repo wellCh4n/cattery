@@ -182,7 +182,7 @@ function SkillRow({
   return (
     <div
       className={
-        "group flex items-start gap-2 border-b px-3 py-2.5 text-[13px]" +
+        "group flex items-start gap-2 border-b border-border/60 px-3 py-2.5 text-[13px]" +
         (skill.valid ? " cursor-pointer hover:bg-accent/50" : " bg-destructive/5")
       }
       onClick={skill.valid ? onOpen : undefined}

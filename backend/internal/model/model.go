@@ -49,7 +49,10 @@ type User struct {
 type Session struct {
 	SessionID uuid.UUID `db:"session_id"   json:"session_id"`
 	ProjectID uuid.UUID `db:"project_id"   json:"project_id"`
-	Model     string    `db:"model"        json:"model"`
+	// Legacy sessions have no creator. The username snapshot survives account deletion.
+	CreatedByUserID   *uuid.UUID `db:"created_by_user_id" json:"created_by_user_id"`
+	CreatedByUsername *string    `db:"created_by_username" json:"created_by_username"`
+	Model             string     `db:"model"        json:"model"`
 	// Effort is the thinking effort (a pi thinking level); empty means the
 	// model provider's default.
 	Effort      string     `db:"effort"       json:"effort"`
@@ -59,4 +62,14 @@ type Session struct {
 	TitleManual bool       `db:"title_manual" json:"title_manual"`
 	CreatedAt   time.Time  `db:"created_at"   json:"created_at"`
 	LastSeenAt  *time.Time `db:"last_seen_at" json:"last_seen_at"`
+}
+
+// Terminal is a shared tmux session in a project's agent container.
+type Terminal struct {
+	TerminalID        uuid.UUID  `db:"terminal_id" json:"terminal_id"`
+	ProjectID         uuid.UUID  `db:"project_id" json:"project_id"`
+	Title             string     `db:"title" json:"title"`
+	CreatedByUserID   *uuid.UUID `db:"created_by_user_id" json:"created_by_user_id"`
+	CreatedByUsername *string    `db:"created_by_username" json:"created_by_username"`
+	CreatedAt         time.Time  `db:"created_at" json:"created_at"`
 }

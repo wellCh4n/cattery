@@ -143,6 +143,10 @@ func NewRouter(
 	projects.POST("/:project_id/files/mkdir", filesH.Mkdir)
 	// WebSocket; browsers can't set headers on it, so it authenticates via ?token=.
 	projects.GET("/:project_id/terminal", terminalH.Connect)
+	projects.GET("/:project_id/terminals", terminalH.List)
+	projects.POST("/:project_id/terminals", terminalH.Create)
+	projects.POST("/:project_id/terminals/import", terminalH.Import)
+	projects.PATCH("/:project_id/terminals/:terminal_id", terminalH.Rename)
 	projects.DELETE("/:project_id/terminals/:terminal_id", terminalH.Delete)
 
 	protected.GET("/models", sessionH.Models)

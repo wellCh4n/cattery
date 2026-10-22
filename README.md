@@ -186,6 +186,21 @@ Deleting a user cascades to their projects and sessions, and stops their K8s san
 
 Project members see all of the project's files and sessions; their access role gates which mutations they can perform. Deleting a project tears down its shared Sandbox Pod and the workspace PVC.
 
+New sessions record the authenticated creator in `created_by_user_id` and a
+`created_by_username` snapshot, displayed in the session list. Historical
+sessions keep both fields null because their creator cannot be recovered.
+Removing a member preserves attribution. Deleting a creator's account clears
+the user reference but retains the username on sessions in other users' projects.
+
+Terminals are shared project resources stored in PostgreSQL, including their
+names, creation times and authenticated creator snapshots. Project members can
+list, rename, delete and attach to the same tmux shell across browsers. The list
+refreshes every 15 seconds for the active project and open terminals, on window
+focus, or via the refresh button. Deleting a terminal stops its shell for everyone.
+Existing browser terminal lists are imported on first load, preserving their IDs,
+names and timestamps while leaving their unknown creators unset. Browser storage
+then only retains personal tab preferences; terminal metadata comes from the API.
+
 ## Operational endpoints
 
 - `GET /healthz` — liveness; always 200 once the process is up.

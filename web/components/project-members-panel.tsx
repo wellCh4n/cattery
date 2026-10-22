@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { TreeRow, TreeRowAction } from "@/components/tree-row"
+import { UserAvatar } from "@/components/user-avatar"
 import {
   Dialog,
   DialogContent,
@@ -151,6 +152,7 @@ function MemberRow({
 }) {
   return (
     <TreeRow className="px-2">
+      <UserAvatar username={name} />
       <span className="min-w-0 flex-1 truncate">{name}</span>
       {isOwner || !canManage ? (
         <Badge variant="secondary" className="h-4 shrink-0 px-1.5 text-2xs font-normal">
@@ -408,6 +410,7 @@ function TransferList({
                 >
                   {active && <Check className="size-3" strokeWidth={3} />}
                 </span>
+                <UserAvatar username={item.label} />
                 <span className="truncate">{item.label}</span>
               </button>
             )

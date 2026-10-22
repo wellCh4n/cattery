@@ -1,6 +1,6 @@
 // Interactive shells in a project's agent container, bridged over WebSocket.
 //
-// Each terminal is a tmux session named after its client-chosen id, so the
+// Each terminal is a tmux session named after its database id, so the
 // shell and its commands outlive the WebSocket: reconnecting reattaches, and
 // DELETE kills the session.
 //
@@ -11,6 +11,7 @@ package api
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"io"
@@ -26,6 +27,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/wellch4n/cattery/internal/db"
 	"github.com/wellch4n/cattery/internal/k8s"
+	"github.com/wellch4n/cattery/internal/model"
 	"github.com/wellch4n/cattery/internal/sandbox"
 	"k8s.io/client-go/tools/remotecommand"
 	utilexec "k8s.io/utils/exec"
@@ -53,13 +55,112 @@ var terminalUpgrader = websocket.Upgrader{
 	CheckOrigin: func(*http.Request) bool { return true },
 }
 
-type TerminalHandler struct {
-	projects *db.ProjectStore
-	sandbox  *sandbox.Manager
+type terminalSandbox interface {
+	TerminalPod(context.Context, uuid.UUID) (string, error)
+	Exec(context.Context, k8s.ExecTTY) error
+	RunInAgent(context.Context, uuid.UUID, []string) (string, bool, error)
 }
 
-func NewTerminalHandler(projects *db.ProjectStore, sandboxMgr *sandbox.Manager) *TerminalHandler {
-	return &TerminalHandler{projects: projects, sandbox: sandboxMgr}
+type TerminalHandler struct {
+	projects  *db.ProjectStore
+	terminals *db.TerminalStore
+	sandbox   terminalSandbox
+}
+
+func NewTerminalHandler(projects *db.ProjectStore, terminals *db.TerminalStore, sandboxMgr *sandbox.Manager) *TerminalHandler {
+	return &TerminalHandler{projects: projects, terminals: terminals, sandbox: sandboxMgr}
+}
+
+func (h *TerminalHandler) List(c echo.Context) error {
+	access, err := requireReadableProject(c, h.projects)
+	if err != nil {
+		return err
+	}
+	terminals, err := h.terminals.ListByProject(c.Request().Context(), access.Project.ProjectID)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	return c.JSON(http.StatusOK, terminals)
+}
+
+func (h *TerminalHandler) Create(c echo.Context) error {
+	access, err := requireWritableProject(c, h.projects)
+	if err != nil {
+		return err
+	}
+	userID, _ := UserIDFromContext(c)
+	terminal := &model.Terminal{TerminalID: uuid.New(), ProjectID: access.Project.ProjectID}
+	if err := h.terminals.Create(c.Request().Context(), terminal, userID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return echo.ErrUnauthorized
+		}
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	return c.JSON(http.StatusCreated, terminal)
+}
+
+func (h *TerminalHandler) Rename(c echo.Context) error {
+	access, err := requireWritableProject(c, h.projects)
+	if err != nil {
+		return err
+	}
+	id, err := uuid.Parse(c.Param("terminal_id"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusNotFound, "terminal not found")
+	}
+	var req struct {
+		Title string `json:"title"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return echo.ErrBadRequest
+	}
+	req.Title = strings.TrimSpace(req.Title)
+	if req.Title == "" || len(req.Title) > 200 {
+		return echo.NewHTTPError(http.StatusBadRequest, "title must be between 1 and 200 bytes")
+	}
+	terminal, err := h.terminals.Rename(c.Request().Context(), access.Project.ProjectID, id, req.Title)
+	if errors.Is(err, sql.ErrNoRows) {
+		return echo.NewHTTPError(http.StatusNotFound, "terminal not found")
+	}
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	return c.JSON(http.StatusOK, terminal)
+}
+
+func (h *TerminalHandler) Import(c echo.Context) error {
+	access, err := requireWritableProject(c, h.projects)
+	if err != nil {
+		return err
+	}
+	var req struct {
+		Terminals []struct {
+			ID        uuid.UUID `json:"id"`
+			Title     string    `json:"title"`
+			CreatedAt time.Time `json:"createdAt"`
+		} `json:"terminals"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(c.Response(), c.Request().Body, 1024*1024)).Decode(&req); err != nil {
+		return echo.ErrBadRequest
+	}
+	terminals := make([]model.Terminal, 0, len(req.Terminals))
+	for _, old := range req.Terminals {
+		if old.ID == uuid.Nil {
+			return echo.NewHTTPError(http.StatusBadRequest, "terminal must be a UUID")
+		}
+		title := strings.TrimSpace(old.Title)
+		if title == "" {
+			title = "New Terminal"
+		}
+		if old.CreatedAt.IsZero() {
+			old.CreatedAt = time.Now()
+		}
+		terminals = append(terminals, model.Terminal{TerminalID: old.ID, Title: title, CreatedAt: old.CreatedAt})
+	}
+	if err := h.terminals.Import(c.Request().Context(), access.Project.ProjectID, terminals); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	return c.NoContent(http.StatusNoContent)
 }
 
 // Connect upgrades GET /projects/:id/terminal?terminal=<uuid> and attaches the
@@ -73,6 +174,12 @@ func (h *TerminalHandler) Connect(c echo.Context) error {
 	terminalID, err := uuid.Parse(c.QueryParam("terminal"))
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "terminal must be a UUID")
+	}
+	if _, err := h.terminals.Get(c.Request().Context(), access.Project.ProjectID, terminalID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return echo.NewHTTPError(http.StatusNotFound, "terminal not found")
+		}
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	userID, _ := UserIDFromContext(c)
 	projectID := access.Project.ProjectID
@@ -143,6 +250,11 @@ func (h *TerminalHandler) Connect(c echo.Context) error {
 		closeTerminal(conn, websocket.CloseInternalServerErr, "sandbox unavailable: "+err.Error())
 		return nil
 	}
+	// Provisioning can take minutes; do not recreate a shell deleted meanwhile.
+	if _, err := h.terminals.Get(ctx, projectID, terminalID); err != nil {
+		closeTerminal(conn, websocket.ClosePolicyViolation, "terminal no longer available")
+		return nil
+	}
 
 	log.Printf("terminal open project=%s user=%s pod=%s", projectID, userID, pod)
 	started := time.Now()
@@ -179,6 +291,12 @@ func (h *TerminalHandler) Delete(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusNotFound, "terminal not found")
 	}
+	if _, err := h.terminals.Get(c.Request().Context(), access.Project.ProjectID, terminalID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return c.NoContent(http.StatusNoContent)
+		}
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
 	ctx, cancel := context.WithTimeout(c.Request().Context(), 30*time.Second)
 	defer cancel()
 	// "=" makes tmux match the name exactly rather than as a prefix.
@@ -191,6 +309,9 @@ func (h *TerminalHandler) Delete(c echo.Context) error {
 		log.Printf("terminal kill project=%s terminal=%s: %s", access.Project.ProjectID, terminalID, strings.TrimSpace(out))
 	case err != nil:
 		return echo.NewHTTPError(http.StatusBadGateway, "kill terminal: "+err.Error())
+	}
+	if err := h.terminals.Delete(ctx, access.Project.ProjectID, terminalID); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	return c.NoContent(http.StatusNoContent)
 }

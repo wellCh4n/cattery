@@ -12,11 +12,13 @@ import { getStoredToken, setStoredToken } from "@/lib/auth-token"
 import { fileActions } from "@/lib/files-store"
 import { useMembersStore } from "@/lib/members-store"
 import { skillActions } from "@/lib/skills-store"
+import { useTerminalStore } from "@/lib/terminal-store"
 
 function resetResourceCaches() {
   fileActions.reset()
   useMembersStore.getState().reset()
   skillActions.reset()
+  useTerminalStore.getState().reset()
 }
 
 interface AuthState {

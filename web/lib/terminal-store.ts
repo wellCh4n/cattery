@@ -1,114 +1,118 @@
 "use client"
 
-// Terminal store — the project terminals listed in the sidebar and opened as
-// main-pane tabs (/terminals/<projectId>/<id>). The list is persisted so tabs
-// survive a reload; shells are not. A terminal's shell starts the first time it
-// is opened in a page load (`started`) and lives until the terminal is removed,
-// independent of its tab — like a session, closing the tab keeps it running.
-
 import { create } from "zustand"
+import {
+  createTerminal as apiCreateTerminal, deleteTerminal, importTerminals, listTerminals,
+  renameTerminal as apiRenameTerminal, type LegacyTerminal, type Terminal,
+} from "@/lib/api"
+import { createResourceStore } from "@/lib/resource-store"
 
-export interface Terminal {
-  id: string
-  projectId: string
-  // "New Terminal" until the user renames it.
-  title: string
-  createdAt: string
-}
-
+export type { Terminal } from "@/lib/api"
 export type TerminalStatus = "connecting" | "open" | "closed"
 
-const STORAGE_KEY = "cattery:terminals"
+// Only read the old browser list to migrate it. All current metadata lives in
+// PostgreSQL; preserve IDs so the existing tmux shells remain reachable.
+const LEGACY_STORAGE_KEY = "cattery:terminals"
+function legacyTerminals(): LegacyTerminal[] {
+  if (typeof window === "undefined") return []
+  try {
+    const data = JSON.parse(localStorage.getItem(LEGACY_STORAGE_KEY) ?? "null")
+    return Array.isArray(data?.terminals) ? data.terminals.filter((t: LegacyTerminal) =>
+      t && typeof t.id === "string" && typeof t.projectId === "string" && typeof t.title === "string" &&
+      typeof t.createdAt === "string" && Number.isFinite(Date.parse(t.createdAt)),
+    ) : []
+  } catch { return [] }
+}
 
-export const DEFAULT_TERMINAL_TITLE = "New Terminal"
+export const useProjectTerminalsStore = createResourceStore<Terminal[]>(async projectId => {
+  const legacy = legacyTerminals().filter(t => t.projectId === projectId)
+  if (legacy.length) {
+    await importTerminals(projectId, legacy)
+    try {
+      const migrated = new Set(legacy.map(t => t.id))
+      const remaining = legacyTerminals().filter(t => !migrated.has(t.id))
+      if (remaining.length) localStorage.setItem(LEGACY_STORAGE_KEY, JSON.stringify({ terminals: remaining }))
+      else localStorage.removeItem(LEGACY_STORAGE_KEY)
+    } catch { /* Retrying the import is safe if storage is unavailable. */ }
+  }
+  return listTerminals(projectId)
+})
 
-interface Persisted {
+function updateMetadata(projectId: string, update: (items: Terminal[]) => Terminal[]) {
+  useProjectTerminalsStore.setState(state => ({ entries: { ...state.entries, [projectId]: {
+    ...state.entries[projectId], loading: false, stale: true, error: null,
+    data: update(state.entries[projectId]?.data ?? [])
+      .sort((a, b) => b.created_at.localeCompare(a.created_at) || a.terminal_id.localeCompare(b.terminal_id)),
+  } } }))
+  void useProjectTerminalsStore.getState().invalidate(projectId)
+}
+
+interface TerminalState {
   terminals: Terminal[]
-}
-
-function readPersisted(): Persisted {
-  const empty = { terminals: [] }
-  if (typeof window === "undefined") return empty
-  try {
-    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null")
-    if (!parsed || !Array.isArray(parsed.terminals)) return empty
-    return {
-      terminals: parsed.terminals.filter((t: Terminal) => t && typeof t.id === "string" && typeof t.projectId === "string"),
-    }
-  } catch {
-    return empty
-  }
-}
-
-function writePersisted(state: Persisted) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ terminals: state.terminals }))
-  } catch {
-    // Storage may be unavailable; the in-memory list still works.
-  }
-}
-
-interface TerminalState extends Persisted {
-  // Terminal id → true once its shell has been started this page load.
+  // Connection state belongs to this browser tab; metadata is shared.
   started: Record<string, true>
-  // Live connection state of started shells.
   status: Record<string, TerminalStatus>
-  createTerminal: (projectId: string) => Terminal
-  renameTerminal: (id: string, title: string) => void
-  removeTerminal: (id: string) => void
-  // Drop terminals of projects that no longer exist.
+  createTerminal: (projectId: string) => Promise<Terminal>
+  renameTerminal: (id: string, title: string) => Promise<void>
+  removeTerminal: (id: string) => Promise<void>
   pruneProjects: (projectIds: Set<string>) => void
+  reset: () => void
   start: (id: string) => void
   setStatus: (id: string, status: TerminalStatus) => void
 }
 
+let epoch = 0
 export const useTerminalStore = create<TerminalState>((set, get) => ({
-  ...readPersisted(),
-  started: {},
-  status: {},
-
-  createTerminal: projectId => {
-    const terminal = { id: crypto.randomUUID(), projectId, title: DEFAULT_TERMINAL_TITLE, createdAt: new Date().toISOString() }
-    const next = { terminals: [...get().terminals, terminal] }
-    writePersisted(next)
-    set(next)
+  terminals: [], started: {}, status: {},
+  createTerminal: async projectId => {
+    const startedEpoch = epoch
+    const terminal = await apiCreateTerminal(projectId)
+    if (startedEpoch !== epoch) throw new Error("Account changed while creating terminal")
+    updateMetadata(projectId, items => [terminal, ...items.filter(t => t.terminal_id !== terminal.terminal_id)])
     return terminal
   },
-
-  renameTerminal: (id, title) => {
-    const next = { terminals: get().terminals.map(t => (t.id === id ? { ...t, title } : t)) }
-    writePersisted(next)
-    set(next)
+  renameTerminal: async (id, title) => {
+    const terminal = get().terminals.find(t => t.terminal_id === id)
+    if (!terminal) throw new Error("Terminal not found")
+    const startedEpoch = epoch
+    const updated = await apiRenameTerminal(terminal.project_id, id, title)
+    if (startedEpoch !== epoch) return
+    updateMetadata(terminal.project_id, items => items.map(t => t.terminal_id === id ? updated : t))
   },
-
-  removeTerminal: id => {
-    const { terminals, started, status } = get()
-    if (!terminals.some(t => t.id === id)) return
-    const next = { terminals: terminals.filter(t => t.id !== id) }
-    writePersisted(next)
-    const restStarted = { ...started }
-    const restStatus = { ...status }
-    delete restStarted[id]
-    delete restStatus[id]
-    set({ ...next, started: restStarted, status: restStatus })
+  removeTerminal: async id => {
+    const terminal = get().terminals.find(t => t.terminal_id === id)
+    if (!terminal) return
+    const startedEpoch = epoch
+    await deleteTerminal(terminal.project_id, id)
+    if (startedEpoch !== epoch) return
+    updateMetadata(terminal.project_id, items => items.filter(t => t.terminal_id !== id))
   },
-
   pruneProjects: projectIds => {
-    const { terminals } = get()
-    const kept = terminals.filter(t => projectIds.has(t.projectId))
-    if (kept.length === terminals.length) return
-    const next = { terminals: kept }
-    writePersisted(next)
-    set(next)
+    const resources = useProjectTerminalsStore.getState()
+    for (const id of Object.keys(resources.entries)) if (!projectIds.has(id)) resources.drop(id)
   },
-
+  reset: () => {
+    epoch++
+    useProjectTerminalsStore.getState().reset()
+    set({ terminals: [], started: {}, status: {} })
+  },
   start: id => {
     if (get().started[id]) return
     set(state => ({ started: { ...state.started, [id]: true } }))
   },
-
   setStatus: (id, status) => {
     if (!get().started[id] || get().status[id] === status) return
     set(state => ({ status: { ...state.status, [id]: status } }))
   },
 }))
+
+// Successful refreshes also unmount sockets for terminals deleted by a member.
+useProjectTerminalsStore.subscribe(({ entries }) => {
+  const terminals = Object.values(entries).flatMap(entry => entry.data ?? [])
+  const ids = new Set(terminals.map(t => t.terminal_id))
+  useTerminalStore.setState(state => ({
+    terminals,
+    started: Object.fromEntries(Object.entries(state.started).filter(([id]) => ids.has(id))),
+    status: Object.fromEntries(Object.entries(state.status).filter(([id]) => ids.has(id))),
+  }))
+})

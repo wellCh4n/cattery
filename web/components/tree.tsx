@@ -37,12 +37,14 @@ export interface TreeNode {
   // still undefined.
   loadingChildren?: boolean
   selected?: boolean
+  // Optional row sizing for content with more than one line.
+  rowClassName?: string
   // Row body — usually icon + name + inline badge/size. Rendered after the
   // chevron slot.
   body: ReactNode
   // Hover-revealed actions (right-aligned). Use TreeRowAction components.
   actions?: ReactNode
-  // Optional secondary line under the row (e.g. owner · role meta). The
+  // Optional secondary line under the row (e.g. owner and role). The
   // caller controls its left padding.
   subline?: ReactNode
   // Click on the row body. Expandable rows usually pass their toggle here
@@ -155,7 +157,7 @@ function TreeItemView({ node, depth }: { node: TreeNode; depth: number }) {
     <>
       {node.editing ? (
         <div
-          className="relative flex h-8 items-center gap-1.5 bg-muted/40"
+          className="relative flex h-8 items-center gap-1.5 border-b border-border/60 bg-muted/40"
           style={{ paddingLeft: contentIndent, paddingRight: BASE_PX }}
         >
           <GuideLines depth={depth} />
@@ -167,7 +169,7 @@ function TreeItemView({ node, depth }: { node: TreeNode; depth: number }) {
           selected={node.selected}
           onClick={node.onClick}
           style={{ paddingLeft: contentIndent, paddingRight: BASE_PX }}
-          className={cn("relative", dropTarget && "bg-primary/10 ring-1 ring-inset ring-primary")}
+          className={cn("relative", node.rowClassName, dropTarget && "bg-primary/10 ring-1 ring-inset ring-primary")}
           {...dragHandlers}
           {...dropHandlers}
         >

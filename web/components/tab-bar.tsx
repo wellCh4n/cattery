@@ -13,7 +13,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { usePathname, useRouter } from "next/navigation"
 import { File as FileIcon, MessageSquare, Puzzle, Shield, SquareTerminal, X } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { type Terminal, useTerminalStore } from "@/lib/terminal-store"
+import { type Terminal, useProjectTerminalsStore, useTerminalStore } from "@/lib/terminal-store"
 import { findSession, type ProjectWithSessions, useWorkspaceStore } from "@/lib/workspace-store"
 import { type Tab, rememberProjectTab, projectTabToRestore, sameTab, tabForPath, tabHref, tabKey, useTabsStore } from "@/lib/tabs-store"
 
@@ -44,7 +44,7 @@ function resolveTab(tab: Tab, projects: ProjectWithSessions[], terminals: Termin
     }
   }
   if (tab.kind === "terminal") {
-    const terminal = terminals.find(t => t.id === tab.id)
+    const terminal = terminals.find(t => t.terminal_id === tab.id)
     return {
       title: terminal?.title ?? "Terminal",
       exists: terminal !== undefined,
@@ -87,6 +87,7 @@ export function TabBar() {
   const pruneTabs = useTabsStore(s => s.pruneTabs)
   const projects = useWorkspaceStore(s => s.projects)
   const terminals = useTerminalStore(s => s.terminals)
+  const terminalResources = useProjectTerminalsStore(s => s.entries)
   const loaded = useWorkspaceStore(s => s.loaded)
   const currentProjectId = useWorkspaceStore(s => s.currentProjectId)
   const setCurrentProject = useWorkspaceStore(s => s.setCurrentProject)
@@ -136,6 +137,16 @@ export function TabBar() {
     const routeTab = tabForPath(pathname)
     if (!routeTab) {
       openedRoute.current = null
+      const firstTab = tabs[0]
+      // Wait for shared terminals to load so a deleted saved tab is pruned
+      // before choosing the first remaining tab.
+      const available = firstTab && (firstTab.kind !== "terminal" ||
+        terminalResources[firstTab.projectId ?? ""]?.data?.some(t => t.terminal_id === firstTab.id))
+      if (available) {
+        const href = tabHref(firstTab)
+        pendingPath.current = href
+        router.replace(href)
+      }
       return
     }
     const owner = routeTab.kind === "session"
@@ -152,16 +163,20 @@ export function TabBar() {
     }
     openTab(tab)
     rememberProjectTab(owner, tab)
-  }, [loaded, currentProjectId, pathname, projects, tabs, openTab, setCurrentProject, router])
+  }, [loaded, currentProjectId, pathname, projects, tabs, terminalResources, openTab, setCurrentProject, router])
 
   const validKeys = useMemo(() => {
     const keys = new Set<string>()
     for (const project of projects) {
       for (const session of project.sessions) keys.add(tabKey({ kind: "session", id: session.session_id }))
     }
-    for (const terminal of terminals) keys.add(tabKey({ kind: "terminal", id: terminal.id, projectId: terminal.projectId }))
+    for (const terminal of terminals) keys.add(tabKey({ kind: "terminal", id: terminal.terminal_id, projectId: terminal.project_id }))
+    // Keep saved tabs until their shared terminal list has actually loaded.
+    for (const tab of allTabs) {
+      if (tab.kind === "terminal" && tab.projectId && projects.some(p => p.project_id === tab.projectId) && !terminalResources[tab.projectId]?.data) keys.add(tabKey(tab))
+    }
     return keys
-  }, [projects, terminals])
+  }, [projects, terminals, allTabs, terminalResources])
 
   // Once the workspace is loaded, drop tabs whose session or terminal is gone. Never prune the route we're currently viewing — a
   // freshly-created session can briefly lag the store mid-poll.

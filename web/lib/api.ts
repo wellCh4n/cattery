@@ -37,6 +37,9 @@ export interface Project {
 export interface Session {
   session_id: string
   project_id: string
+  created_by_user_id: string | null
+  // Username at creation time, retained even if the account is deleted.
+  created_by_username: string | null
   model: string
   // Thinking effort (a pi thinking level); empty means the provider default.
   effort: string
@@ -500,11 +503,54 @@ export function terminalURL(projectId: string, terminalId: string): string {
   return appendToken(http.replace(/^http/, "ws"))
 }
 
-// killTerminal ends a terminal's tmux session and everything running in it.
-export async function killTerminal(projectId: string, terminalId: string): Promise<void> {
+export interface Terminal {
+  terminal_id: string
+  project_id: string
+  title: string
+  created_by_user_id: string | null
+  created_by_username: string | null
+  created_at: string
+}
+
+export async function listTerminals(projectId: string): Promise<Terminal[]> {
+  const res = await authedFetch(`${API_BASE}/api/v1/projects/${projectId}/terminals`, { cache: "no-store" })
+  if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to load terminals"))
+  return res.json()
+}
+
+export async function createTerminal(projectId: string): Promise<Terminal> {
+  const res = await authedFetch(`${API_BASE}/api/v1/projects/${projectId}/terminals`, { method: "POST" })
+  if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to create terminal"))
+  return res.json()
+}
+
+export async function renameTerminal(projectId: string, terminalId: string, title: string): Promise<Terminal> {
+  const res = await authedFetch(`${API_BASE}/api/v1/projects/${projectId}/terminals/${terminalId}`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title }),
+  })
+  if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to rename terminal"))
+  return res.json()
+}
+
+export interface LegacyTerminal {
+  id: string
+  projectId: string
+  title: string
+  createdAt: string
+}
+
+export async function importTerminals(projectId: string, terminals: LegacyTerminal[]): Promise<void> {
+  const res = await authedFetch(`${API_BASE}/api/v1/projects/${projectId}/terminals/import`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ terminals }),
+  })
+  if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to migrate terminals"))
+}
+
+// Deletion removes the shared record and stops its tmux shell for everyone.
+export async function deleteTerminal(projectId: string, terminalId: string): Promise<void> {
   const res = await authedFetch(`${API_BASE}/api/v1/projects/${projectId}/terminals/${terminalId}`, { method: "DELETE" })
   if (!res.ok && res.status !== 204) {
-    throw new Error(await readErrorMessage(res, `kill terminal failed (${res.status})`))
+    throw new Error(await readErrorMessage(res, `delete terminal failed (${res.status})`))
   }
 }
 

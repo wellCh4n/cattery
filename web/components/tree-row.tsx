@@ -24,7 +24,7 @@ export const TreeRow = forwardRef<HTMLDivElement, TreeRowProps>(
       <div
         ref={ref}
         className={cn(
-          "group/treerow flex h-8 cursor-pointer items-center gap-1.5 text-[13px] transition-colors select-none",
+          "group/treerow flex h-8 cursor-pointer items-center gap-1.5 border-b border-border/60 text-[13px] transition-colors select-none",
           selected ? "bg-muted font-medium text-foreground" : "hover:bg-muted",
           className,
         )}

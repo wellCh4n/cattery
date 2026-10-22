@@ -5,6 +5,7 @@ import type { Session } from "./api"
 
 const session = (id: string, created: string, seen: string | null = null): Session => ({
   session_id: id, project_id: "p", model: "test", effort: "high", status: "ready",
+  created_by_user_id: null, created_by_username: null,
   phase: null, title: null, created_at: created, last_seen_at: seen,
 })
 

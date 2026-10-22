@@ -38,6 +38,7 @@ import { TerminalListPanel } from "@/components/terminal-list-panel"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { Tree, type TreeNode } from "@/components/tree"
 import { TreeRowAction } from "@/components/tree-row"
+import { WorkspaceItemBody } from "@/components/workspace-item-body"
 import { cn } from "@/lib/utils"
 import { useResizable } from "@/lib/use-resizable"
 import { type Session } from "@/lib/api"
@@ -596,14 +597,6 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
   )
 }
 
-function formatSessionTime(timestamp: string): string {
-  const date = new Date(timestamp)
-  if (date.toDateString() === new Date().toDateString()) {
-    return date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
-  }
-  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" })
-}
-
 function buildSessionNode({
   session,
   selected,
@@ -623,48 +616,34 @@ function buildSessionNode({
     id: `s-${session.session_id}`,
     expandable: false,
     selected,
+    rowClassName: "h-14 items-start py-1.5",
     onClick: () => onRoute(session.session_id),
     body: (
-      <>
-        {busy || session.status === "creating" ? (
-          <Loader2 className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
+      <WorkspaceItemBody
+        icon={busy || session.status === "creating" ? (
+          <Loader2 className="size-3.5 animate-spin text-muted-foreground" />
         ) : (
-          <MessageSquare
-            className={cn("size-4 shrink-0", session.status === "failed" ? "text-destructive" : "text-muted-foreground")}
-          />
+          <MessageSquare className={cn("size-4", session.status === "failed" ? "text-destructive" : "text-muted-foreground")} />
         )}
-        <span className="flex-1 truncate">{session.title ?? "New Session"}</span>
-        <span className="flex shrink-0 items-center gap-1.5 text-muted-foreground/70 group-hover/treerow:hidden">
-          <span className="flex items-center" title={session.model}>
+        title={session.title ?? "New Session"}
+        creator={session.created_by_username}
+        timestamp={sessionActivityTime(session)}
+        accessory={
+          <span className="flex shrink-0 items-center text-muted-foreground/70" title={session.model}>
             <ModelIcon id={session.model} className="size-3.5" />
           </span>
-          <span
-            className="font-mono text-xs font-normal tabular-nums"
-            title={new Date(sessionActivityTime(session)).toLocaleString()}
-          >
-            {formatSessionTime(sessionActivityTime(session))}
-          </span>
-        </span>
-      </>
-    ),
-    actions: (
-      <>
-        <TreeRowAction
-          title="Rename session"
-          aria-label="Rename session"
-          onClick={e => { e.stopPropagation(); onRequestRename(session) }}
-        >
-          <Pencil className="size-4" />
-        </TreeRowAction>
-        <TreeRowAction
-          destructive
-          title="Delete session"
-          aria-label="Delete session"
-          onClick={e => { e.stopPropagation(); onRequestDelete(session) }}
-        >
-          <Trash2 className="size-4" />
-        </TreeRowAction>
-      </>
+        }
+        actions={
+          <>
+            <TreeRowAction title="Rename session" aria-label="Rename session" onClick={e => { e.stopPropagation(); onRequestRename(session) }}>
+              <Pencil className="size-4" />
+            </TreeRowAction>
+            <TreeRowAction destructive title="Delete session" aria-label="Delete session" onClick={e => { e.stopPropagation(); onRequestDelete(session) }}>
+              <Trash2 className="size-4" />
+            </TreeRowAction>
+          </>
+        }
+      />
     ),
   }
 }

@@ -78,6 +78,7 @@ test("live write completion refreshes its owning project while read tools do not
     project_id: "tool-project", owner_user_id: "u", project_name: "Test", access_role: "owner",
     owner_username: "admin", sandbox_status: "ready", created_at: "",
     sessions: [{ session_id: "s", project_id: "tool-project", model: "test", effort: "high",
+      created_by_user_id: null, created_by_username: null,
       status: "ready", phase: null, title: null, created_at: "", last_seen_at: null }],
   }] })
   const paths: string[] = []
