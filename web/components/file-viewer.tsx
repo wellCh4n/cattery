@@ -29,7 +29,7 @@ const extLang: Record<string, string> = {
   cs: "csharp",
   php: "php",
   sh: "bash", bash: "bash", zsh: "bash",
-  json: "json",
+  json: "json", jsonl: "json", ndjson: "json",
   yaml: "yaml", yml: "yaml",
   toml: "toml",
   md: "markdown", markdown: "markdown",

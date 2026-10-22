@@ -5,7 +5,6 @@ import { ChevronRight } from "lucide-react"
 import { TextPreview } from "./text-preview"
 import { cn } from "@/lib/utils"
 
-type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
 const PAGE_SIZE = 100
 
 export function JsonPreview({ content, path, truncated }: {
@@ -16,7 +15,7 @@ export function JsonPreview({ content, path, truncated }: {
   const parsed = useMemo(() => {
     if (truncated) return { error: "This file was truncated. Download the full file to preview its JSON." }
     try {
-      return { value: JSON.parse(content.replace(/^\uFEFF/, "")) as JsonValue }
+      return { value: JSON.parse(content.replace(/^\uFEFF/, "")) as unknown }
     } catch {
       return { error: "Invalid JSON. Showing the original source below." }
     }
@@ -38,7 +37,7 @@ export function JsonPreview({ content, path, truncated }: {
   )
 }
 
-function JsonNode({ value, label, depth }: { value: JsonValue; label?: string; depth: number }) {
+export function JsonNode({ value, label, depth }: { value: unknown; label?: string; depth: number }) {
   const [expanded, setExpanded] = useState(depth < 2)
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
   const prefix = label === undefined ? null : <span className="text-foreground">{label}: </span>
@@ -83,7 +82,7 @@ function JsonNode({ value, label, depth }: { value: JsonValue; label?: string; d
             return <JsonNode
               key={key}
               label={array ? String(index) : JSON.stringify(key)}
-              value={array ? value[index] : (value as Record<string, JsonValue>)[key]}
+              value={array ? value[index] : (value as Record<string, unknown>)[key]}
               depth={depth + 1}
             />
           })}

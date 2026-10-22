@@ -3,6 +3,7 @@ import { HtmlPreview } from "./html-preview"
 import { CsvPreview } from "./csv-preview"
 import { ImagePreview } from "./image-preview"
 import { JsonPreview } from "./json-preview"
+import { JsonlPreview } from "./jsonl-preview"
 import { MarkdownPreview } from "./markdown-preview"
 import { PdfPreview } from "./pdf-preview"
 import { TextPreview } from "./text-preview"
@@ -37,6 +38,7 @@ export const filePreviews: readonly FilePreviewDefinition[] = [
     component: MarkdownPreview,
   },
   { id: "json", extensions: ["json"], input: "content", supportsSource: true, component: JsonPreview },
+  { id: "jsonl", extensions: ["jsonl", "ndjson"], input: "content", supportsSource: true, component: JsonlPreview },
   { id: "csv", extensions: ["csv"], input: "content", supportsSource: true, component: CsvPreview },
 ]
 
