@@ -124,7 +124,6 @@ function ChatPanelContent({ session }: Props) {
   const [input, setInput] = useState("")
   const formRef = useRef<HTMLFormElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
-  const focusedSessionRef = useRef<string | null>(null)
   const chat = useChatStreamStore(state => state.sessions[session.session_id])
   const bubbles = chat?.bubbles ?? EMPTY_BUBBLES
   const usage = chat?.usage ?? null
@@ -138,11 +137,8 @@ function ChatPanelContent({ session }: Props) {
   const canSend = ready && !sending && input.trim().length > 0
 
   useEffect(() => {
-    if (!ready || sending || focusedSessionRef.current === session.session_id) return
-    const input = inputRef.current
-    if (!input) return
-    input.focus({ preventScroll: true })
-    focusedSessionRef.current = session.session_id
+    if (!ready || sending) return
+    inputRef.current?.focus({ preventScroll: true })
   }, [ready, sending, session.session_id])
 
   useEffect(() => {
