@@ -63,6 +63,27 @@ function useCatalog() {
 // hovered or open, so they don't pull attention from the message being written.
 const pill = "h-7 rounded-full bg-transparent px-2.5 text-xs font-normal text-muted-foreground hover:border-foreground/30 hover:text-foreground aria-expanded:border-foreground/30 aria-expanded:text-foreground dark:bg-transparent dark:hover:border-foreground/30 dark:aria-expanded:border-foreground/30 [&_svg:not([class*='size-'])]:size-3.5"
 
+// Read-only viewers see the creator's settings as the same pills, without a
+// menu: no chevron, and not dimmed like a disabled control.
+const staticPill = "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-border px-2.5 text-xs text-muted-foreground dark:border-input"
+
+export function ModelBadge({ model }: { model: string }) {
+  return (
+    <span className={cn(staticPill, "max-w-56")} aria-label={`Model: ${model}`}>
+      <ModelIcon id={model} className="size-3.5 shrink-0" />
+      <span className="truncate">{model}</span>
+    </span>
+  )
+}
+
+export function EffortBadge({ model, effort }: { model: string; effort: string }) {
+  const catalog = useCatalog()
+  const provider = catalog ? providerOf(catalog, model) : undefined
+  const current = effort || provider?.default_effort || ""
+  if (!current) return null
+  return <span className={staticPill}>Effort {effortLabel(current)}</span>
+}
+
 export function ModelPicker({ sessionId, model, disabled, className }: Omit<Props, "effort">) {
   const catalog = useCatalog()
   const setSessionModel = useWorkspaceStore(state => state.setSessionModel)

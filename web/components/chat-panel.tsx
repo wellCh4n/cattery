@@ -49,7 +49,7 @@ import {
 import { QuestionnaireCard } from "@/components/questionnaire-card"
 import { useAuthStore } from "@/lib/auth-store"
 import { Markdown } from "@/components/markdown"
-import { EffortPicker, ModelPicker } from "@/components/model-picker"
+import { EffortBadge, EffortPicker, ModelBadge, ModelPicker } from "@/components/model-picker"
 import { ContextMeter } from "@/components/context-meter"
 import { type Session } from "@/lib/api"
 import {
@@ -331,6 +331,9 @@ function ChatPanelContent({ session }: Props) {
               Read-only · {session.created_by_username ? `${session.created_by_username}'s session` : "only the project owner can send messages"}
             </span>
             {usage && <ContextMeter usage={usage} />}
+            {/* The creator's settings, shown but not changeable. */}
+            <ModelBadge model={session.model} />
+            <EffortBadge model={session.model} effort={session.effort} />
           </div>
         ) : (
         /* The AI Elements Model Selector input: field, context, model and effort pills, send. */
