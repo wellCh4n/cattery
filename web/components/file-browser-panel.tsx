@@ -20,7 +20,6 @@ import {
   FolderPlus,
   Loader2,
   Pencil,
-  RefreshCw,
   Trash2,
   Upload,
 } from "lucide-react"
@@ -44,6 +43,7 @@ import {
 } from "@/lib/api"
 
 import { fileActions, fileKey, refreshFiles, useFilesStore } from "@/lib/files-store"
+import { RefreshButton } from "@/components/refresh-button"
 
 interface Props {
   projectId: string
@@ -377,15 +377,7 @@ export function FileBrowserPanel({ projectId, active }: Props) {
           >
             {showHidden ? <Eye /> : <EyeOff />}
           </Button>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={() => void refresh()}
-            disabled={refreshing}
-            aria-label="Refresh files"
-          >
-            <RefreshCw className={refreshing ? "animate-spin" : undefined} />
-          </Button>
+          <RefreshButton onClick={() => void refresh()} refreshing={refreshing} aria-label="Refresh files" />
           <Button
             variant="ghost"
             size="icon-sm"

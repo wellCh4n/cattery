@@ -156,6 +156,49 @@ func (c *Client) Abort(ctx context.Context, sandboxURL, sessionID string) error 
 	return nil
 }
 
+// ErrForkPoint means the fork point is not in the source transcript.
+var ErrForkPoint = errors.New("message not found in the session")
+
+// ErrForkBusy means the whole session cannot be forked while it runs.
+var ErrForkBusy = errors.New("the session is running; fork from an earlier message or wait for it to finish")
+
+// ForkSession copies sourceID's transcript into a new session newID: all of
+// it, or only what precedes the user message before (a history messageId).
+func (c *Client) ForkSession(ctx context.Context, sandboxURL, sourceID, newID, before string) error {
+	body, _ := json.Marshal(struct {
+		ID     string `json:"id"`
+		Before string `json:"before,omitempty"`
+	}{newID, before})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		fmt.Sprintf("%s/session/%s/fork", sandboxURL, sourceID), bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("agent fork session: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusOK {
+		return nil
+	}
+	if resp.StatusCode == http.StatusNotFound && before != "" {
+		return ErrForkPoint
+	}
+	if resp.StatusCode == http.StatusConflict && before == "" {
+		return ErrForkBusy
+	}
+	var result struct {
+		Error string `json:"error"`
+	}
+	b, _ := io.ReadAll(resp.Body)
+	if json.Unmarshal(b, &result) != nil || result.Error == "" {
+		result.Error = string(b)
+	}
+	return fmt.Errorf("agent fork session status %d: %s", resp.StatusCode, result.Error)
+}
+
 // DeleteSession 中止并删除 agent 侧的 session transcript。
 func (c *Client) DeleteSession(ctx context.Context, sandboxURL, sessionID string) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete,

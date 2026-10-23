@@ -10,6 +10,7 @@ import {
   FilePenIcon,
   FileTextIcon,
   FolderIcon,
+  GitForkIcon,
   LoaderCircleIcon,
   MessageCircleDashedIcon,
   MessageCircleQuestionIcon,
@@ -57,6 +58,8 @@ import {
   type Bubble,
 } from "@/lib/chat-stream-store"
 import { canWriteSession, useWorkspaceStore } from "@/lib/workspace-store"
+import { useForkSession } from "@/lib/use-fork-session"
+import { cn } from "@/lib/utils"
 
 interface Props {
   session: Session
@@ -149,6 +152,7 @@ function ChatPanelContent({ session }: Props) {
   // Other members follow the session read-only.
   const writable = !!project && canWriteSession(session, project, userId)
   const turns = useMemo(() => toTurns(bubbles), [bubbles])
+  const { fork, forking } = useForkSession()
   // An unanswered questionnaire docks above the composer; it joins the message
   // list once answered. The agent is blocked on it, so a steer could not land.
   const question = useMemo(() => bubbles.find(isOpenQuestionnaire), [bubbles])
@@ -266,6 +270,13 @@ function ChatPanelContent({ session }: Props) {
                         readOnly={!writable}
                         bubbles={turn.bubbles}
                         streaming={sending && i === turns.length - 1}
+                        latest={i === turns.length - 1}
+                        // The fork keeps this reply and drops the messages after it.
+                        // Not while running (later turns may not be saved yet), nor
+                        // before a sent message still under its local id.
+                        onFork={sending || forking || turns[i + 1]?.id.startsWith("user-")
+                          ? undefined
+                          : () => void fork(session.session_id, turns[i + 1]?.id)}
                       />
                     </MessageScrollerItem>
                   ),
@@ -334,6 +345,24 @@ function ChatPanelContent({ session }: Props) {
             {/* The creator's settings, shown but not changeable. */}
             <ModelBadge model={session.model} />
             <EffortBadge model={session.model} effort={session.effort} />
+            {ready && (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      variant="outline"
+                      size="xs"
+                      disabled={sending || forking}
+                      onClick={() => void fork(session.session_id)}
+                    />
+                  }
+                >
+                  <GitForkIcon />
+                  Fork
+                </TooltipTrigger>
+                <TooltipContent>Continue in your own copy of this session</TooltipContent>
+              </Tooltip>
+            )}
           </div>
         ) : (
         /* The AI Elements Model Selector input: field, context, model and effort pills, send. */
@@ -413,12 +442,20 @@ function phaseLabel(phase: string | null): string {
   }
 }
 
-function AgentTurn({ bubbles, streaming, sessionId, readOnly }: { bubbles: Bubble[]; streaming: boolean; sessionId: string; readOnly: boolean }) {
+function AgentTurn({ bubbles, streaming, latest, sessionId, readOnly, onFork }: {
+  bubbles: Bubble[]
+  streaming: boolean
+  latest: boolean
+  sessionId: string
+  readOnly: boolean
+  onFork?: () => void
+}) {
   const segments = toSegments(bubbles)
   const reply = segments
     .filter(s => s.kind === "text")
     .map(s => (s.kind === "text" ? s.bubble.content : ""))
     .join("\n\n")
+  const at = bubbles.reduce<number | undefined>((t, b) => b.at && (!t || b.at > t) ? b.at : t, undefined)
 
   return (
     <Message>
@@ -458,9 +495,17 @@ function AgentTurn({ bubbles, streaming, sessionId, readOnly }: { bubbles: Bubbl
           }
           return <Markdown key={segment.id}>{segment.bubble.content}</Markdown>
         })}
-        {!streaming && reply && (
-          <MessageFooter className="px-0">
-            <CopyAction text={reply} />
+        {!streaming && (reply || onFork || at) && (
+          // Only the latest reply shows its actions; earlier ones on hover. They
+          // keep their space, so revealing them doesn't shift the transcript.
+          <MessageFooter className={cn("px-0", !latest && "opacity-0 transition-opacity group-hover/message:opacity-100 focus-within:opacity-100")}>
+            {reply && <CopyAction text={reply} />}
+            {onFork && <ForkAction onFork={onFork} />}
+            {at && (
+              <time className="ml-1.5 font-normal tabular-nums" dateTime={new Date(at).toISOString()} title={new Date(at).toLocaleString()}>
+                {formatMessageTime(at)}
+              </time>
+            )}
           </MessageFooter>
         )}
       </MessageContent>
@@ -598,6 +643,27 @@ function CopyAction({ text }: { text: string }) {
       </TooltipTrigger>
       <TooltipContent>
         <p>{copied ? "Copied" : "Copy"}</p>
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
+// Today's replies show the time alone; older ones add the date.
+function formatMessageTime(at: number): string {
+  const date = new Date(at)
+  const time = date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
+  if (date.toDateString() === new Date().toDateString()) return time
+  return `${date.toLocaleDateString(undefined, { month: "short", day: "numeric" })} ${time}`
+}
+
+function ForkAction({ onFork }: { onFork: () => void }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger render={<Button variant="ghost" size="icon-sm" aria-label="Fork from here" onClick={onFork} />}>
+        <GitForkIcon />
+      </TooltipTrigger>
+      <TooltipContent>
+        <p>Fork from here</p>
       </TooltipContent>
     </Tooltip>
   )

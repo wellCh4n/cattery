@@ -9,9 +9,10 @@
 // renames and session title updates reflect immediately. Session and terminal
 // tabs whose target has been deleted are pruned once the workspace has loaded.
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef } from "react"
 import { usePathname, useRouter } from "next/navigation"
 import { File as FileIcon, MessageSquare, Puzzle, Shield, SquareTerminal, X } from "lucide-react"
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu"
 import { Hint } from "@/components/ui/hint"
 import { cn } from "@/lib/utils"
 import { type Terminal, useProjectTerminalsStore, useTerminalStore } from "@/lib/terminal-store"
@@ -100,7 +101,6 @@ export function TabBar() {
     return (tab.projectId ?? null) === currentProjectId
   }), [allTabs, projects, currentProjectId])
   const busySessions = useWorkspaceStore(s => s.busySessions)
-  const [menu, setMenu] = useState<{ tab: Tab; x: number; y: number } | null>(null)
   const activeTabRef = useRef<HTMLDivElement | null>(null)
 
   const active = tabForPath(pathname ?? "")
@@ -211,17 +211,21 @@ export function TabBar() {
         const isActive = activeKey === key
         const busy = tab.kind === "session" && busySessions.has(tab.id)
         return (
-          <Hint key={key} label={r.title} side="top">
-          <div
-            ref={isActive ? activeTabRef : undefined}
-            role="button"
-            tabIndex={0}
-            onClick={() => go(tab)}
-            onAuxClick={e => { if (e.button === 1) { e.preventDefault(); handleClose(tab) } }}
-            onContextMenu={e => { e.preventDefault(); setMenu({ tab, x: e.clientX, y: e.clientY }) }}
-            onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(tab) } }}
+          <ContextMenu key={key}>
+          <Hint label={r.title} side="top">
+          <ContextMenuTrigger
+            render={
+              <div
+                ref={isActive ? activeTabRef : undefined}
+                role="button"
+                tabIndex={0}
+                onClick={() => go(tab)}
+                onAuxClick={e => { if (e.button === 1) { e.preventDefault(); handleClose(tab) } }}
+                onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(tab) } }}
+              />
+            }
             className={cn(
-              "group/tab relative flex w-48 shrink-0 cursor-pointer items-center gap-1.5 border-r px-3 text-xs select-none",
+              "group/tab relative flex w-48 shrink-0 cursor-pointer items-center gap-1.5 border-r px-3 text-xs",
               isActive
                 ? "bg-background text-foreground"
                 : "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
@@ -252,92 +256,19 @@ export function TabBar() {
                 <X className="size-3" />
               </button>
             </span>
-          </div>
+          </ContextMenuTrigger>
           </Hint>
+          {/* Same menu components and item styling as the session list's more menu. */}
+          <ContextMenuContent className="w-40">
+            <ContextMenuItem className="cursor-pointer" onClick={() => handleClose(tab)}>Close</ContextMenuItem>
+            <ContextMenuItem className="cursor-pointer" disabled={tabs.length < 2} onClick={() => { closeOthers(tab, tabs); go(tab) }}>
+              Close others
+            </ContextMenuItem>
+            <ContextMenuItem className="cursor-pointer" onClick={() => { closeAll(tabs); router.push("/") }}>Close all</ContextMenuItem>
+          </ContextMenuContent>
+          </ContextMenu>
         )
       })}
-
-      {menu && tabs.some(tab => sameTab(tab, menu.tab)) && (
-        <TabContextMenu
-          x={menu.x}
-          y={menu.y}
-          multiple={tabs.length > 1}
-          onClose={() => setMenu(null)}
-          onCloseTab={() => { handleClose(menu.tab); setMenu(null) }}
-          onCloseOthers={() => { closeOthers(menu.tab, tabs); go(menu.tab); setMenu(null) }}
-          onCloseAll={() => { closeAll(tabs); router.push("/"); setMenu(null) }}
-        />
-      )}
     </div>
-  )
-}
-
-function TabContextMenu({
-  x,
-  y,
-  multiple,
-  onClose,
-  onCloseTab,
-  onCloseOthers,
-  onCloseAll,
-}: {
-  x: number
-  y: number
-  multiple: boolean
-  onClose: () => void
-  onCloseTab: () => void
-  onCloseOthers: () => void
-  onCloseAll: () => void
-}) {
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    function onDown(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose()
-    }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose()
-    }
-    window.addEventListener("mousedown", onDown)
-    window.addEventListener("keydown", onKey)
-    return () => {
-      window.removeEventListener("mousedown", onDown)
-      window.removeEventListener("keydown", onKey)
-    }
-  }, [onClose])
-
-  return (
-    <div
-      ref={ref}
-      role="menu"
-      className="fixed z-50 min-w-36 overflow-hidden rounded-lg border bg-popover py-1 text-xs text-popover-foreground shadow-md"
-      style={{ top: y, left: x }}
-    >
-      <MenuItem onClick={onCloseTab}>Close</MenuItem>
-      <MenuItem onClick={onCloseOthers} disabled={!multiple}>Close others</MenuItem>
-      <MenuItem onClick={onCloseAll}>Close all</MenuItem>
-    </div>
-  )
-}
-
-function MenuItem({
-  onClick,
-  disabled,
-  children,
-}: {
-  onClick: () => void
-  disabled?: boolean
-  children: React.ReactNode
-}) {
-  return (
-    <button
-      type="button"
-      role="menuitem"
-      disabled={disabled}
-      onClick={onClick}
-      className="flex w-full cursor-pointer items-center px-3 py-1.5 text-left hover:bg-accent hover:text-accent-foreground disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent"
-    >
-      {children}
-    </button>
   )
 }

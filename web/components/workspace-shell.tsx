@@ -6,15 +6,16 @@ import {
   Check,
   ChevronDown,
   FolderOpen,
+  GitFork,
   KeyRound,
   Loader2,
   LogOut,
   MessageSquare,
+  MoreHorizontal,
   MessagesSquare,
   Pencil,
   Plus,
   Puzzle,
-  RefreshCw,
   Settings,
   Shield,
   SquareTerminal,
@@ -40,16 +41,24 @@ import { TreeRowAction } from "@/components/tree-row"
 import { WorkspaceItemBody } from "@/components/workspace-item-body"
 import { UserAvatar } from "@/components/user-avatar"
 import { Hint } from "@/components/ui/hint"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
 import { useResizable } from "@/lib/use-resizable"
 import { type Session } from "@/lib/api"
 import { canWriteSession, type ProjectWithSessions, useWorkspaceStore } from "@/lib/workspace-store"
 import { useAuthStore } from "@/lib/auth-store"
+import { useForkSession } from "@/lib/use-fork-session"
 import { compareSessionActivity, sessionActivityTime } from "@/lib/session-activity"
+import { RefreshButton } from "@/components/refresh-button"
 
 type SidebarView = "sessions" | "terminals" | "files" | "members" | "skills"
 const VIEW_STORAGE_KEY = "cattery:sidebar:view"
-const MIN_REFRESH_SPIN_MS = 1000
 
 function readSidebarView(): SidebarView {
   if (typeof window === "undefined") return "sessions"
@@ -68,6 +77,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
   const busySessions = useWorkspaceStore(state => state.busySessions)
   const loadProjects = useWorkspaceStore(state => state.loadProjects)
   const createSession = useWorkspaceStore(state => state.createSession)
+  const { fork: forkSession } = useForkSession()
   const deleteSession = useWorkspaceStore(state => state.deleteSession)
   const deleteProject = useWorkspaceStore(state => state.deleteProject)
 
@@ -97,6 +107,9 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
   }, [view])
 
   function switchView(next: SidebarView) {
+    // Like the other views, which reload when shown. The first load happens
+    // with the workspace, so only switching back refreshes.
+    if (next === "sessions" && view !== "sessions") void refreshSessions()
     setView(next)
     setVisitedViews(prev => prev.has(next) ? prev : new Set(prev).add(next))
   }
@@ -182,12 +195,9 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
 
   async function refreshSessions() {
     setRefreshingSessions(true)
-    const startedAt = Date.now()
     try {
       await loadProjects()
     } finally {
-      const remaining = MIN_REFRESH_SPIN_MS - (Date.now() - startedAt)
-      if (remaining > 0) await new Promise(resolve => setTimeout(resolve, remaining))
       setRefreshingSessions(false)
     }
   }
@@ -416,15 +426,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                 Sessions
               </span>
               <div className="flex items-center gap-1">
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={refreshSessions}
-                  disabled={refreshingSessions}
-                  aria-label="Refresh sessions"
-                >
-                  <RefreshCw className={refreshingSessions ? "animate-spin" : undefined} />
-                </Button>
+                <RefreshButton onClick={refreshSessions} refreshing={refreshingSessions} aria-label="Refresh sessions" />
                 <Button
                   variant="ghost"
                   size="icon-sm"
@@ -486,6 +488,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                   setRenameTarget(s)
                   setRenameOpen(true)
                 },
+                onRequestFork: s => void forkSession(s.session_id),
               }))}
             />
           </div>
@@ -493,7 +496,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
           <div className={cn("min-h-0 flex-1 overflow-hidden", view === "terminals" ? "block" : "hidden")}>
             {visitedViews.has("terminals") && (
               currentProject ? (
-                <TerminalListPanel projectId={currentProject.project_id} />
+                <TerminalListPanel projectId={currentProject.project_id} active={view === "terminals"} />
               ) : (
                 <NoProjectPlaceholder onCreate={() => setNewProjectOpen(true)} />
               )
@@ -606,6 +609,7 @@ function buildSessionNode({
   onRoute,
   onRequestDelete,
   onRequestRename,
+  onRequestFork,
 }: {
   session: Session
   selected: boolean
@@ -614,6 +618,7 @@ function buildSessionNode({
   onRoute: (sessionId: string) => void
   onRequestDelete: (sess: Session) => void
   onRequestRename: (sess: Session) => void
+  onRequestFork: (sess: Session) => void
 }): TreeNode {
   return {
     id: `s-${session.session_id}`,
@@ -636,14 +641,39 @@ function buildSessionNode({
             <ModelIcon id={session.model} className="size-3.5" />
           </span>
         }
-        actions={writable &&
+        actions={
           <>
-            <TreeRowAction aria-label="Rename session" onClick={e => { e.stopPropagation(); onRequestRename(session) }}>
-              <Pencil className="size-4" />
-            </TreeRowAction>
-            <TreeRowAction destructive aria-label="Delete session" onClick={e => { e.stopPropagation(); onRequestDelete(session) }}>
-              <Trash2 className="size-4" />
-            </TreeRowAction>
+            {writable && (
+              <TreeRowAction aria-label="Rename session" onClick={e => { e.stopPropagation(); onRequestRename(session) }}>
+                <Pencil className="size-4" />
+              </TreeRowAction>
+            )}
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                // Stays visible while its menu is open, after the pointer leaves the row.
+                render={<TreeRowAction aria-label="More actions" className="data-popup-open:inline-flex data-popup-open:bg-foreground/10" onClick={e => e.stopPropagation()} />}
+              >
+                <MoreHorizontal className="size-4" />
+              </DropdownMenuTrigger>
+              {/* Portaled, but React events still bubble to the row and would open the session. */}
+              {/* Drops below the button and extends right, over the main pane. */}
+              <DropdownMenuContent side="bottom" align="start" className="w-40" onClick={e => e.stopPropagation()}>
+                {/* Any member can fork; the copy is theirs. */}
+                <DropdownMenuItem className="cursor-pointer" disabled={session.status !== "ready" || busy} onClick={() => onRequestFork(session)}>
+                  <GitFork />
+                  Fork
+                </DropdownMenuItem>
+                {writable && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem className="cursor-pointer" variant="destructive" onClick={() => onRequestDelete(session)}>
+                      <Trash2 />
+                      Delete
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </>
         }
       />

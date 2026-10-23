@@ -38,6 +38,8 @@ export interface Bubble {
   toolStatus?: "pending" | "running" | "completed"
   toolOutput?: string
   toolParsed?: unknown
+  // When it was written (ms): the history item's time, or arrival when live.
+  at?: number
   // Thinking: local start time while streaming; agent-measured length once done.
   startedAt?: number
   durationMs?: number
@@ -124,6 +126,7 @@ function restoreHistory(items: Awaited<ReturnType<typeof getHistory>>): Bubble[]
         restored.push({
           id: item.messageId,
           role: "user",
+          at: item.timestamp,
           kind: "text",
           content: text,
           done: true,
@@ -143,6 +146,7 @@ function restoreHistory(items: Awaited<ReturnType<typeof getHistory>>): Bubble[]
           restored.push({
             id: d.partId,
             role: "assistant",
+            at: item.timestamp,
             kind,
             content: d.text,
             done: true,
@@ -159,6 +163,7 @@ function restoreHistory(items: Awaited<ReturnType<typeof getHistory>>): Bubble[]
           restored.push({
             id: d.toolId,
             role: "assistant",
+            at: item.timestamp,
             kind: "tool",
             content: d.input ?? "",
             toolName: d.tool,
@@ -182,6 +187,7 @@ function restoreHistory(items: Awaited<ReturnType<typeof getHistory>>): Bubble[]
         restored.push({
           id: `${item.messageId}-err-${restored.length}`,
           role: "assistant",
+          at: item.timestamp,
           kind: "error",
           content: d.message,
           done: true,
@@ -346,6 +352,7 @@ export const useChatStreamStore = create<ChatStreamStore>((set, get) => ({
               {
                 id: `user-${ts}`,
                 role: "user",
+                at: Date.now(),
                 kind: "text",
                 content: text,
                 done: true,
@@ -353,6 +360,7 @@ export const useChatStreamStore = create<ChatStreamStore>((set, get) => ({
               {
                 id: `pending-${ts}`,
                 role: "assistant",
+                at: Date.now(),
                 kind: "text",
                 content: "",
                 done: false,
@@ -401,6 +409,7 @@ export const useChatStreamStore = create<ChatStreamStore>((set, get) => ({
                   {
                     id: `err-${Date.now()}`,
                     role: "assistant",
+                    at: Date.now(),
                     kind: "error",
                     content: e instanceof Error ? e.message : "failed to send message",
                     done: true,
@@ -534,7 +543,7 @@ export const useChatStreamStore = create<ChatStreamStore>((set, get) => ({
             ...session.bubbles
               .filter(b => !(b.kind === "text" && !b.done && b.content === ""))
               .map(b => (b.kind === "text" || b.kind === "thinking") && !b.done ? { ...b, done: true } : b),
-            { id: d.partId, role: "user", kind: "text", content: d.text, done: true },
+            { id: d.partId, role: "user", kind: "text", content: d.text, at: Date.now(), done: true },
           ]
           return { sessions: { ...state.sessions, [sessionId]: { ...session, bubbles } } }
         })
@@ -571,6 +580,7 @@ export const useChatStreamStore = create<ChatStreamStore>((set, get) => ({
               bubbles = [...session.bubbles, {
                 id: d.partId,
                 role: "assistant",
+                at: Date.now(),
                 kind: "text",
                 content: d.text,
                 done: false,
@@ -592,7 +602,7 @@ export const useChatStreamStore = create<ChatStreamStore>((set, get) => ({
             ? session.bubbles.map(b => b.id === d.partId && b.kind === "thinking" ? { ...b, content: b.content + d.text } : b)
             : [
                 ...session.bubbles.filter(b => !(b.kind === "text" && !b.done && b.content === "")),
-                { id: d.partId, role: "assistant" as const, kind: "thinking" as const, content: d.text, startedAt: Date.now(), done: false },
+                { id: d.partId, role: "assistant" as const, kind: "thinking" as const, content: d.text, at: Date.now(), startedAt: Date.now(), done: false },
               ]
           return { sessions: { ...state.sessions, [sessionId]: { ...session, bubbles } } }
         })
@@ -624,6 +634,7 @@ export const useChatStreamStore = create<ChatStreamStore>((set, get) => ({
             : [...next, {
                 id: d.toolId,
                 role: "assistant" as const,
+                at: Date.now(),
                 kind: "tool" as const,
                 content: d.input ?? "",
                 toolName: d.tool,
@@ -710,6 +721,7 @@ export const useChatStreamStore = create<ChatStreamStore>((set, get) => ({
                   {
                     id: `err-${Date.now()}`,
                     role: "assistant",
+                    at: Date.now(),
                     kind: "error",
                     content: d.message,
                     done: true,

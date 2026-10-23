@@ -174,6 +174,83 @@ func (h *SessionHandler) ensureAgentSession(ctx context.Context, sandboxURL stri
 	return err
 }
 
+type forkSessionRequest struct {
+	// Before is the history messageId of a user message; the fork keeps only
+	// what precedes it. Empty forks the whole session.
+	Before string `json:"before"`
+}
+
+// Fork copies a session's conversation into a new session owned by the caller.
+// Any member who can read the session may fork it, so a read-only viewer can
+// carry on from someone else's conversation.
+func (h *SessionHandler) Fork(c echo.Context) error {
+	userID, ok := UserIDFromContext(c)
+	if !ok {
+		return echo.ErrUnauthorized
+	}
+	src, _, err := requireReadableSession(c, h.sessionStore, h.projectStore)
+	if err != nil {
+		return err
+	}
+	if src.Status != "ready" {
+		return echo.NewHTTPError(http.StatusConflict, "session not ready")
+	}
+	var req forkSessionRequest
+	if err := c.Bind(&req); err != nil {
+		return echo.ErrBadRequest
+	}
+	ctx := c.Request().Context()
+	sandboxURL, err := h.sandbox.Await(ctx, src.ProjectID)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "sandbox unavailable: "+err.Error())
+	}
+
+	sess := &model.Session{
+		SessionID: uuid.New(),
+		ProjectID: src.ProjectID,
+		Model:     src.Model,
+		Effort:    src.Effort,
+		Status:    "ready",
+		Title:     forkTitle(src.Title),
+	}
+	if err := h.harnessClient.ForkSession(ctx, sandboxURL, src.SessionID.String(), sess.SessionID.String(), req.Before); err != nil {
+		switch {
+		case errors.Is(err, harness.ErrForkPoint):
+			return echo.NewHTTPError(http.StatusNotFound, err.Error())
+		case errors.Is(err, harness.ErrForkBusy):
+			return echo.NewHTTPError(http.StatusConflict, err.Error())
+		}
+		return echo.NewHTTPError(http.StatusBadGateway, err.Error())
+	}
+	if err := h.sessionStore.Create(ctx, sess, userID); err != nil {
+		if err := h.harnessClient.DeleteSession(context.Background(), sandboxURL, sess.SessionID.String()); err != nil {
+			log.Printf("warn: delete orphaned fork %s: %v", sess.SessionID, err)
+		}
+		if errors.Is(err, sql.ErrNoRows) {
+			return echo.ErrUnauthorized
+		}
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	// Names the fork natively; a failure only delays that to the first prompt,
+	// which registers the session again (and reports a model that is gone).
+	if err := h.ensureAgentSession(ctx, sandboxURL, sess); err != nil {
+		log.Printf("warn: register fork %s: %v", sess.SessionID, err)
+	}
+	return c.JSON(http.StatusCreated, sess)
+}
+
+// forkTitle names a fork after its source; forks of forks keep one suffix.
+func forkTitle(title *string) *string {
+	if title == nil || strings.TrimSpace(*title) == "" {
+		return nil
+	}
+	t := strings.TrimSpace(*title)
+	if !strings.HasSuffix(t, " (fork)") {
+		t += " (fork)"
+	}
+	return &t
+}
+
 func (h *SessionHandler) ListByProject(c echo.Context) error {
 	access, err := requireReadableProject(c, h.projectStore)
 	if err != nil {

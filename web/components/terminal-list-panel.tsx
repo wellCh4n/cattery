@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { usePathname, useRouter } from "next/navigation"
-import { Loader2, Pencil, Plus, RefreshCw, SquareTerminal, Trash2 } from "lucide-react"
+import { Loader2, Pencil, Plus, SquareTerminal, Trash2 } from "lucide-react"
 import { RenameTerminalDialog } from "@/components/rename-terminal-dialog"
 import { Button } from "@/components/ui/button"
 import { Tree, type TreeNode } from "@/components/tree"
@@ -10,8 +10,9 @@ import { TreeRowAction } from "@/components/tree-row"
 import { WorkspaceItemBody } from "@/components/workspace-item-body"
 import { tabForPath, useTabsStore } from "@/lib/tabs-store"
 import { type Terminal, useProjectTerminalsStore, useTerminalStore } from "@/lib/terminal-store"
+import { RefreshButton } from "@/components/refresh-button"
 
-export function TerminalListPanel({ projectId }: { projectId: string }) {
+export function TerminalListPanel({ projectId, active }: { projectId: string; active: boolean }) {
   const router = useRouter()
   const pathname = usePathname()
   const allTerminals = useTerminalStore(state => state.terminals)
@@ -26,7 +27,11 @@ export function TerminalListPanel({ projectId }: { projectId: string }) {
   const [error, setError] = useState<string | null>(null)
   const loading = !resource?.data && !resource?.error
 
-  useEffect(() => { void useProjectTerminalsStore.getState().load(projectId) }, [projectId])
+  // Refetched each time the view is shown, so terminals other members added or
+  // removed appear; there is no background polling.
+  useEffect(() => {
+    if (active) void useProjectTerminalsStore.getState().invalidate(projectId)
+  }, [active, projectId])
   const terminals = useMemo(() => allTerminals.filter(t => t.project_id === projectId), [allTerminals, projectId])
   const route = tabForPath(pathname ?? "")
   const selectedId = route?.kind === "terminal" ? route.id : null
@@ -94,9 +99,7 @@ export function TerminalListPanel({ projectId }: { projectId: string }) {
       <div className="flex h-9 shrink-0 items-center justify-between px-2">
         <span className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">Terminals</span>
         <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon-sm" aria-label="Refresh terminals" disabled={resource?.loading} onClick={() => { setError(null); void useProjectTerminalsStore.getState().invalidate(projectId) }}>
-            <RefreshCw className={resource?.loading ? "animate-spin" : undefined} />
-          </Button>
+          <RefreshButton aria-label="Refresh terminals" refreshing={resource?.loading ?? false} onClick={() => { setError(null); void useProjectTerminalsStore.getState().invalidate(projectId) }} />
           <Button variant="ghost" size="icon-sm" onClick={() => void create()} disabled={creating} aria-label="New terminal">
             {creating ? <Loader2 className="animate-spin" /> : <Plus />}
           </Button>

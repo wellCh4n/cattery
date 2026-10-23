@@ -22,7 +22,6 @@ export function TerminalHost() {
   const pruneProjects = useTerminalStore(state => state.pruneProjects)
   const projects = useWorkspaceStore(state => state.projects)
   const loaded = useWorkspaceStore(state => state.loaded)
-  const currentProjectId = useWorkspaceStore(state => state.currentProjectId)
 
   const route = tabForPath(pathname ?? "")
   const activeId = route?.kind === "terminal" ? route.id : null
@@ -33,27 +32,22 @@ export function TerminalHost() {
     if (activeId && activeExists) start(activeId)
   }, [activeId, activeExists, start])
 
+  // Load each project's list once, for terminal tab titles; refetch only when
+  // the set of projects changes, not on every workspace update.
+  const projectIds = projects.map(p => p.project_id).sort().join(",")
   useEffect(() => {
     if (!loaded) return
-    pruneProjects(new Set(projects.map(p => p.project_id)))
-    for (const project of projects) void useProjectTerminalsStore.getState().load(project.project_id)
-  }, [loaded, projects, pruneProjects])
+    const ids = projectIds ? projectIds.split(",") : []
+    pruneProjects(new Set(ids))
+    for (const id of ids) void useProjectTerminalsStore.getState().load(id)
+  }, [loaded, projectIds, pruneProjects])
 
-  const refreshProjects = [...new Set([
-    currentProjectId,
-    route?.kind === "terminal" ? route.projectId : null,
-    ...terminals.filter(t => started[t.terminal_id]).map(t => t.project_id),
-  ].filter((id): id is string => !!id))].sort().join(",")
+  // Switching to a terminal tab refetches its project's list, so a terminal
+  // another member deleted closes; there is no background polling.
+  const activeProjectId = route?.kind === "terminal" ? route.projectId : null
   useEffect(() => {
-    if (!loaded || !refreshProjects) return
-    const refresh = () => {
-      for (const id of refreshProjects.split(",")) void useProjectTerminalsStore.getState().invalidate(id)
-    }
-    refresh()
-    const timer = setInterval(refresh, 15000)
-    window.addEventListener("focus", refresh)
-    return () => { clearInterval(timer); window.removeEventListener("focus", refresh) }
-  }, [loaded, refreshProjects])
+    if (loaded && activeProjectId) void useProjectTerminalsStore.getState().invalidate(activeProjectId)
+  }, [loaded, activeProjectId, activeId])
 
   // Capture phase, so the shortcut works even while xterm has focus.
   useEffect(() => {

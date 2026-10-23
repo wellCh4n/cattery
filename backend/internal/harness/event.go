@@ -73,7 +73,9 @@ type SessionUsageData struct {
 
 // PlatformHistoryItem 是平台统一的历史消息条目，前端按它渲染。
 type PlatformHistoryItem struct {
-	MessageID string          `json:"messageId"`
-	Role      string          `json:"role"`   // "user" | "assistant"
+	MessageID string `json:"messageId"`
+	Role      string `json:"role"` // "user" | "assistant"
+	// Timestamp is when the item's latest message was written (Unix ms); absent on the state item.
+	Timestamp int64           `json:"timestamp,omitempty"`
 	Events    []PlatformEvent `json:"events"` // 这条消息包含的平台事件序列
 }

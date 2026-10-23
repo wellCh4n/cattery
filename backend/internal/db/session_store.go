@@ -16,10 +16,10 @@ func NewSessionStore(db *sqlx.DB) *SessionStore { return &SessionStore{db} }
 
 func (s *SessionStore) Create(ctx context.Context, sess *model.Session, creatorID uuid.UUID) error {
 	return s.db.QueryRowxContext(ctx, `
-		INSERT INTO sessions (session_id, project_id, model, effort, status, created_by_user_id, created_by_username)
-		SELECT $1, $2, $3, $4, $5, user_id, username FROM users WHERE user_id=$6
+		INSERT INTO sessions (session_id, project_id, model, effort, status, title, created_by_user_id, created_by_username)
+		SELECT $1, $2, $3, $4, $5, $6, user_id, username FROM users WHERE user_id=$7
 		RETURNING created_at, created_by_user_id, created_by_username`,
-		sess.SessionID, sess.ProjectID, sess.Model, sess.Effort, sess.Status, creatorID,
+		sess.SessionID, sess.ProjectID, sess.Model, sess.Effort, sess.Status, sess.Title, creatorID,
 	).Scan(&sess.CreatedAt, &sess.CreatedByUserID, &sess.CreatedByUsername)
 }
 

@@ -16,7 +16,6 @@ import { useRouter } from "next/navigation"
 import {
   Loader2,
   Puzzle,
-  RefreshCw,
   Trash2,
   TriangleAlert,
   Upload,
@@ -31,6 +30,7 @@ import {
 } from "@/lib/api"
 
 import { refreshSkills, skillActions, useSkillsStore } from "@/lib/skills-store"
+import { RefreshButton } from "@/components/refresh-button"
 
 export function SkillBrowserPanel({ active }: { active: boolean }) {
   const router = useRouter()
@@ -89,15 +89,7 @@ export function SkillBrowserPanel({ active }: { active: boolean }) {
           Skills
         </span>
         <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Refresh"
-            onClick={() => void refresh()}
-            disabled={refreshing}
-          >
-            <RefreshCw className={refreshing ? "animate-spin" : undefined} />
-          </Button>
+          <RefreshButton aria-label="Refresh" onClick={() => void refresh()} refreshing={refreshing} />
           <Button
             variant="ghost"
             size="icon-sm"

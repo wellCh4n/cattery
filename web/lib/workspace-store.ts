@@ -6,6 +6,7 @@ import {
   createSession as apiCreateSession,
   deleteProject as apiDeleteProject,
   deleteSession as apiDeleteSession,
+  forkSession as apiForkSession,
   getProject,
   getSession,
   listProjects,
@@ -56,6 +57,8 @@ interface WorkspaceStore {
   renameSession: (sessionId: string, title: string) => Promise<Session>
   // New sessions start on the last model the user picked.
   createSession: (projectId: string) => Promise<Session>
+  // Copies a session into a new one owned by the caller (see api.forkSession).
+  forkSession: (sessionId: string, before?: string) => Promise<Session>
   setSessionModel: (sessionId: string, model: string) => Promise<Session>
   setSessionEffort: (sessionId: string, effort: string) => Promise<Session>
   applySessionUpdate: (updated: Session) => void
@@ -213,6 +216,14 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       projects: mapSessions(state.projects, projectId, sessions => [session, ...sessions]),
     }))
     get().watchSession(session.session_id)
+    return session
+  },
+
+  forkSession: async (sessionId: string, before?: string) => {
+    const session = await apiForkSession(sessionId, before)
+    set(state => ({
+      projects: mapSessions(state.projects, session.project_id, sessions => [session, ...sessions]),
+    }))
     return session
   },
 

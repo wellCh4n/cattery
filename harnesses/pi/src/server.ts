@@ -8,6 +8,8 @@
  *                                                     switching its model if it differs)
  *   GET    /session/:id                    → { id }
  *   DELETE /session/:id                    → 204 (abort + delete transcript)
+ *   POST   /session/:id/fork {id, before?} → { id }  (copy the transcript, or the part before
+ *                                                     user message `before`, into session id)
  *   GET    /session/:id/message            → PlatformHistoryItem[]  (snapshot; session.state carries
  *                                                     the seq of the last event it reflects)
  *   POST   /session/:id/prompt_async       → 204 (run started) | 202 (busy: steered into the run)
@@ -99,7 +101,8 @@ function genericModel(ref: ModelRef): Model<Api> {
 // ── Platform events ──────────────────────────────────────────────────────────
 
 interface PlatformEvent { type: string; data: unknown }
-interface HistoryItem { messageId: string; role: 'user' | 'assistant'; events: PlatformEvent[] }
+// timestamp: when the item's latest message was written (ms), for display.
+interface HistoryItem { messageId: string; role: 'user' | 'assistant'; timestamp?: number; events: PlatformEvent[] }
 
 const sseClients = new Set<(payload: string) => void>()
 
@@ -146,7 +149,7 @@ function toHistory(messages: AgentMessage[], thinkingMs: Map<string, number>): H
     if (m.role === 'user') {
       lastUser = userPartId(m.timestamp, lastUser)
       items.push({
-        messageId: lastUser.id, role: 'user',
+        messageId: lastUser.id, role: 'user', timestamp: m.timestamp,
         events: [{ type: 'message.delta', data: { partId: lastUser.id, text: userText(m.content) } }],
       })
       current = null
@@ -157,6 +160,7 @@ function toHistory(messages: AgentMessage[], thinkingMs: Map<string, number>): H
       current = { messageId: `r${m.timestamp}`, role: 'assistant', events: [] }
       items.push(current)
     }
+    current.timestamp = m.timestamp
     if (m.role === 'assistant') {
       m.content.forEach((b, i) => {
         if (b.type === 'text' && b.text) {
@@ -342,11 +346,20 @@ function appendLive(live: LiveState, items: HistoryItem[]): void {
     items.push(item)
     return item
   }
-  if (live.toolDone.size) reply(Date.now()).events.push(...live.toolDone.values())
-  if (live.user) {
-    items.push({ messageId: live.user.partId, role: 'user', events: [{ type: 'message.delta', data: live.user }] })
+  const now = Date.now()
+  if (live.toolDone.size) {
+    const item = reply(now)
+    item.events.push(...live.toolDone.values())
+    item.timestamp = now
   }
-  if (live.assistant) reply(live.assistant.timestamp).events.push(...live.assistant.blocks.values(), ...live.assistant.thinkingDone)
+  if (live.user) {
+    items.push({ messageId: live.user.partId, role: 'user', timestamp: now, events: [{ type: 'message.delta', data: live.user }] })
+  }
+  if (live.assistant) {
+    const item = reply(live.assistant.timestamp)
+    item.events.push(...live.assistant.blocks.values(), ...live.assistant.thinkingDone)
+    item.timestamp = now
+  }
 }
 
 function liveBlock(sess: Session, msg: { timestamp: number }, id: string, type: 'message.delta' | 'message.thinking', delta: string): void {
@@ -730,6 +743,42 @@ app.delete('/session/:id', asyncRoute(async (req, res) => {
   await fs.rm(transcriptPath(sess.id), { force: true })
   await fs.rm(path.join(SESSIONS_DIR, `${sess.id}.jsonl`), { force: true })
   res.status(204).end()
+}))
+
+// Copies the source's branch into a new transcript: all of it, or only what
+// precedes the user message `before` (a history messageId). A running session
+// forks only up to a message already persisted.
+app.post('/session/:id/fork', asyncRoute(async (req, res) => {
+  const { id, before } = (req.body ?? {}) as { id?: unknown; before?: unknown }
+  if (typeof id !== 'string' || !validId(id) || (before !== undefined && typeof before !== 'string')) {
+    return void res.status(400).json({ error: 'invalid id' })
+  }
+  const src = await openSession(req.params.id)
+  if (!src) return void res.status(404).json({ error: 'not found' })
+  const exists = async (file: string) => fs.access(file).then(() => true, () => false)
+  if (sessions.has(id) || await exists(transcriptPath(id)) || await exists(path.join(SESSIONS_DIR, `${id}.jsonl`))) return void res.status(409).json({ error: 'session already exists' })
+  const branch = src.manager.getBranch()
+  let end = branch.length
+  if (before !== undefined) {
+    let lastUser: ReturnType<typeof userPartId> | undefined
+    end = branch.findIndex(e => {
+      if (e.type !== 'message' || e.message.role !== 'user') return false
+      lastUser = userPartId(e.message.timestamp, lastUser)
+      return lastUser.id === before
+    })
+    if (end < 0) return void res.status(404).json({ error: 'message not found' })
+  } else if (src.busy) {
+    return void res.status(409).json({ error: 'session is running; fork from an earlier message or wait for it to finish' })
+  }
+  const entries = branch.slice(0, end)
+  const header = { ...src.manager.getHeader(), type: 'session', id, timestamp: new Date().toISOString(), cwd: WORKDIR,
+    parentSession: path.join(SESSIONS_DIR, `${src.id}.jsonl`) }
+  // An empty fork gets its title from its first prompt, like a new session.
+  const data: SessionMetadata = { version: 2, model: src.model,
+    titleAttempted: entries.some(e => e.type === 'message' && e.message.role === 'user') }
+  await fs.writeFile(path.join(SESSIONS_DIR, `${id}.jsonl`), [header, ...entries].map(e => JSON.stringify(e) + '\n').join(''), { flag: 'wx' })
+  await fs.writeFile(transcriptPath(id), JSON.stringify(data), { flag: 'wx' })
+  res.json({ id })
 }))
 
 app.get('/session/:id/message', asyncRoute(async (req, res) => {

@@ -189,6 +189,18 @@ export async function updateSession(sessionId: string, data: { title?: string; m
   return res.json()
 }
 
+// Copies the session into a new one owned by the caller: all of it, or only
+// what precedes the user message `before` (a history messageId).
+export async function forkSession(sessionId: string, before?: string): Promise<Session> {
+  const res = await authedFetch(`${API_BASE}/api/v1/sessions/${sessionId}/fork`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ before }),
+  })
+  if (!res.ok) throw new Error(await readErrorMessage(res, "failed to fork session"))
+  return res.json()
+}
+
 export async function deleteSession(sessionId: string): Promise<void> {
   await authedFetch(`${API_BASE}/api/v1/sessions/${sessionId}`, { method: "DELETE" })
 }
@@ -242,6 +254,8 @@ export async function withdrawQueuedMessage(sessionId: string, index: number, te
 export interface PlatformHistoryItem {
   messageId: string
   role: "user" | "assistant"
+  // When the item's latest message was written (ms); absent on the state item.
+  timestamp?: number
   events: Array<{ type: string; data: Record<string, unknown> }>
 }
 

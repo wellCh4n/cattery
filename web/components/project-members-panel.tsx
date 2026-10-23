@@ -9,7 +9,7 @@
 // removes.
 
 import { useEffect, useMemo, useState } from "react"
-import { Check, ChevronLeft, ChevronRight, Loader2, Plus, RefreshCw, Trash2 } from "lucide-react"
+import { Check, ChevronLeft, ChevronRight, Loader2, Plus, Trash2 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -29,6 +29,7 @@ import {
 } from "@/lib/api"
 
 import { memberActions, useMembersStore } from "@/lib/members-store"
+import { RefreshButton } from "@/components/refresh-button"
 
 const EMPTY_MEMBERS: ProjectMember[] = []
 // The transfer box lists the whole directory on the left; ask for the store's
@@ -79,15 +80,7 @@ export function ProjectMembersPanel({ project, canManage, active }: Props) {
           Members
         </span>
         <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={() => void refreshMembers()}
-            disabled={refreshing}
-            aria-label="Refresh members"
-          >
-            <RefreshCw className={refreshing ? "animate-spin" : undefined} />
-          </Button>
+          <RefreshButton onClick={() => void refreshMembers()} refreshing={refreshing} aria-label="Refresh members" />
           {canManage && (
             <Button
               variant="ghost"
