@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -26,9 +26,12 @@ export function RenameSessionDialog({ session, open, onOpenChange }: Props) {
   const [value, setValue] = useState("")
   const [saving, setSaving] = useState(false)
 
-  useEffect(() => {
+  // Refill the field whenever the dialog opens or its target changes.
+  const [shown, setShown] = useState<{ open: boolean; session: typeof session }>({ open: false, session: null })
+  if (shown.open !== open || shown.session !== session) {
+    setShown({ open, session })
     if (open && session) setValue(session.title ?? "")
-  }, [open, session])
+  }
 
   async function commit() {
     if (!session) return

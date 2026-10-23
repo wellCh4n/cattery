@@ -67,7 +67,7 @@ export const useAuthStore = create<AuthState>(set => ({
     setStoredToken(null)
     set({ user: null, status: "anon" })
     if (typeof window !== "undefined") {
-      window.location.href = "/login"
+      window.location.replace("/login")
     }
   },
 

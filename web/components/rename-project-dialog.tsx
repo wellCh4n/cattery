@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -26,9 +26,12 @@ export function RenameProjectDialog({ project, open, onOpenChange }: Props) {
   const [value, setValue] = useState("")
   const [saving, setSaving] = useState(false)
 
-  useEffect(() => {
+  // Refill the field whenever the dialog opens or its target changes.
+  const [shown, setShown] = useState<{ open: boolean; project: typeof project }>({ open: false, project: null })
+  if (shown.open !== open || shown.project !== project) {
+    setShown({ open, project })
     if (open && project) setValue(project.project_name ?? "")
-  }, [open, project])
+  }
 
   async function commit() {
     if (!project) return

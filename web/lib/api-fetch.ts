@@ -30,7 +30,7 @@ export async function authedFetch(input: RequestInfo | URL, init?: RequestInit):
       // helper, and the workspace store / chat streams need a clean slate
       // anyway.
       if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
-        window.location.href = "/login"
+        window.location.replace("/login")
       }
     }
     throw new UnauthorizedError()
