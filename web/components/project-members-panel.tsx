@@ -84,7 +84,7 @@ export function ProjectMembersPanel({ project, canManage, active }: Props) {
             size="icon-sm"
             onClick={() => void refreshMembers()}
             disabled={refreshing}
-            title="Refresh members"
+            aria-label="Refresh members"
           >
             <RefreshCw className={refreshing ? "animate-spin" : undefined} />
           </Button>
@@ -93,7 +93,7 @@ export function ProjectMembersPanel({ project, canManage, active }: Props) {
               variant="ghost"
               size="icon-sm"
               onClick={() => setManageOpen(true)}
-              title="Manage members"
+              aria-label="Manage members"
             >
               <Plus />
             </Button>
@@ -172,7 +172,6 @@ function MemberRow({
             destructive
             disabled={busy}
             onClick={e => { e.stopPropagation(); onRemove?.() }}
-            title="Remove member"
             aria-label="Remove member"
           >
             {busy ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}

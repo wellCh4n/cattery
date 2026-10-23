@@ -22,16 +22,16 @@ export function WorkspaceItemBody({ icon, title, accessory, actions, creator, ti
     <span className="flex min-w-0 flex-1 flex-col gap-1">
       <span className="flex h-6 min-w-0 items-center gap-1.5">
         <span className="flex size-4 shrink-0 items-center justify-center">{icon}</span>
-        <span className="min-w-0 flex-1 truncate" title={title}>{title}</span>
+        <span className="min-w-0 flex-1 truncate">{title}</span>
         {accessory && <span className="flex shrink-0 items-center group-hover/treerow:hidden">{accessory}</span>}
         {actions}
       </span>
       <span className="flex h-4 min-w-0 items-center gap-1.5 text-xs font-normal text-muted-foreground">
         <UserAvatar username={creator} />
-        <span className="min-w-0 flex-1 truncate" title={creator ? `Created by ${creator}` : "Creator unknown"}>
+        <span className="min-w-0 flex-1 truncate">
           {creator || "Unknown creator"}
         </span>
-        <time className="shrink-0 font-mono tabular-nums text-muted-foreground/70" dateTime={timestamp} title={new Date(timestamp).toLocaleString()}>
+        <time className="shrink-0 font-mono tabular-nums text-muted-foreground/70" dateTime={timestamp}>
           {formatItemTime(timestamp)}
         </time>
       </span>

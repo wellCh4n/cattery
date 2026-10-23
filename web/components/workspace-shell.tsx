@@ -39,6 +39,7 @@ import { Tree, type TreeNode } from "@/components/tree"
 import { TreeRowAction } from "@/components/tree-row"
 import { WorkspaceItemBody } from "@/components/workspace-item-body"
 import { UserAvatar } from "@/components/user-avatar"
+import { Hint } from "@/components/ui/hint"
 import { cn } from "@/lib/utils"
 import { useResizable } from "@/lib/use-resizable"
 import { type Session } from "@/lib/api"
@@ -420,7 +421,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                   size="icon-sm"
                   onClick={refreshSessions}
                   disabled={refreshingSessions}
-                  title="Refresh sessions"
+                  aria-label="Refresh sessions"
                 >
                   <RefreshCw className={refreshingSessions ? "animate-spin" : undefined} />
                 </Button>
@@ -429,7 +430,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                   size="icon-sm"
                   onClick={handleCreateSession}
                   disabled={creatingSession}
-                  title="New session"
+                  aria-label="New session"
                 >
                   {creatingSession ? <Loader2 className="animate-spin" /> : <Plus />}
                 </Button>
@@ -631,16 +632,16 @@ function buildSessionNode({
         creator={session.created_by_username}
         timestamp={sessionActivityTime(session)}
         accessory={
-          <span className="flex shrink-0 items-center text-muted-foreground/70" title={session.model}>
+          <span className="flex shrink-0 items-center text-muted-foreground/70">
             <ModelIcon id={session.model} className="size-3.5" />
           </span>
         }
         actions={writable &&
           <>
-            <TreeRowAction title="Rename session" aria-label="Rename session" onClick={e => { e.stopPropagation(); onRequestRename(session) }}>
+            <TreeRowAction aria-label="Rename session" onClick={e => { e.stopPropagation(); onRequestRename(session) }}>
               <Pencil className="size-4" />
             </TreeRowAction>
-            <TreeRowAction destructive title="Delete session" aria-label="Delete session" onClick={e => { e.stopPropagation(); onRequestDelete(session) }}>
+            <TreeRowAction destructive aria-label="Delete session" onClick={e => { e.stopPropagation(); onRequestDelete(session) }}>
               <Trash2 className="size-4" />
             </TreeRowAction>
           </>
@@ -676,10 +677,10 @@ function ActivityButton({
 }) {
   return (
     <div className="flex justify-center">
+      <Hint label={label} side="right">
       <button
         type="button"
         onClick={onClick}
-        title={label}
         aria-label={label}
         aria-pressed={active}
         className={cn(
@@ -691,6 +692,7 @@ function ActivityButton({
       >
         {icon}
       </button>
+      </Hint>
     </div>
   )
 }
@@ -710,10 +712,10 @@ function RailButton({
   onClick: () => void
 }) {
   return (
+    <Hint label={label} side="right">
     <button
       type="button"
       onClick={onClick}
-      title={label}
       aria-label={label}
       aria-pressed={active}
       className={cn(
@@ -723,5 +725,6 @@ function RailButton({
     >
       {icon}
     </button>
+    </Hint>
   )
 }

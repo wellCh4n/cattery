@@ -318,7 +318,6 @@ export function FileBrowserPanel({ projectId, active }: Props) {
         <>
           <TreeRowAction
             onClick={e => { e.stopPropagation(); setRenameTarget({ entry, path }) }}
-            title="Rename"
             aria-label="Rename"
           >
             <Pencil className="size-4" />
@@ -326,7 +325,6 @@ export function FileBrowserPanel({ projectId, active }: Props) {
           {isDir && (
             <TreeRowAction
               onClick={e => { e.stopPropagation(); setNewFolderDir(path) }}
-              title="New folder"
               aria-label="New folder"
             >
               <FolderPlus className="size-4" />
@@ -336,7 +334,6 @@ export function FileBrowserPanel({ projectId, active }: Props) {
             <TreeRowAction
               onClick={e => { e.stopPropagation(); triggerUpload(path) }}
               disabled={uploading === path}
-              title="Upload here"
               aria-label="Upload here"
             >
               {uploading === path ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
@@ -345,7 +342,6 @@ export function FileBrowserPanel({ projectId, active }: Props) {
           <TreeRowAction
             destructive
             onClick={e => { e.stopPropagation(); setDeleteTarget({ entry, path }) }}
-            title="Delete"
             aria-label="Delete"
           >
             <Trash2 className="size-4" />
@@ -377,7 +373,7 @@ export function FileBrowserPanel({ projectId, active }: Props) {
               setShowHidden(!showHidden)
             }}
             aria-pressed={showHidden}
-            title={showHidden ? "Hide hidden files" : "Show hidden files"}
+            aria-label={showHidden ? "Hide hidden files" : "Show hidden files"}
           >
             {showHidden ? <Eye /> : <EyeOff />}
           </Button>
@@ -386,7 +382,7 @@ export function FileBrowserPanel({ projectId, active }: Props) {
             size="icon-sm"
             onClick={() => void refresh()}
             disabled={refreshing}
-            title="Refresh files"
+            aria-label="Refresh files"
           >
             <RefreshCw className={refreshing ? "animate-spin" : undefined} />
           </Button>
@@ -395,7 +391,7 @@ export function FileBrowserPanel({ projectId, active }: Props) {
             size="icon-sm"
             onClick={() => triggerUpload("/")}
             disabled={uploading !== null}
-            title="Upload to /"
+            aria-label="Upload to /"
           >
             {uploading === "/" ? <Loader2 className="animate-spin" /> : <Upload />}
           </Button>
@@ -403,7 +399,7 @@ export function FileBrowserPanel({ projectId, active }: Props) {
             variant="ghost"
             size="icon-sm"
             onClick={() => setNewFolderDir("/")}
-            title="New folder in /"
+            aria-label="New folder in /"
           >
             <FolderPlus />
           </Button>

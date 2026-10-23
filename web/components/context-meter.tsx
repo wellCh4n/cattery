@@ -29,17 +29,17 @@ function Ring({ used, buffer }: { used: number; buffer: number }) {
   // pathLength=100 makes dash lengths read as percentages of the circle.
   return (
     <svg viewBox="0 0 20 20" className="block size-4 -rotate-90" aria-hidden="true">
-      <circle cx="10" cy="10" r="8.75" fill="none" strokeWidth="2.5" className="stroke-muted group-hover/button:stroke-muted-foreground/25 group-aria-expanded/button:stroke-muted-foreground/25" />
+      <circle cx="10" cy="10" r="8.25" fill="none" strokeWidth="3.5" className="stroke-muted group-hover/button:stroke-muted-foreground/25 group-aria-expanded/button:stroke-muted-foreground/25" />
       {buffer > 0 && (
         <circle
-          cx="10" cy="10" r="8.75" fill="none" strokeWidth="2.5" pathLength={100}
+          cx="10" cy="10" r="8.25" fill="none" strokeWidth="3.5" pathLength={100}
           strokeDasharray={`${buffer} 100`} strokeDashoffset={buffer - 100}
           className="stroke-muted-foreground/40"
         />
       )}
       {used > 0 && (
         <circle
-          cx="10" cy="10" r="8.75" fill="none" strokeWidth="2.5" pathLength={100}
+          cx="10" cy="10" r="8.25" fill="none" strokeWidth="3.5" pathLength={100}
           strokeDasharray={`${Math.min(used, 100)} 100`} strokeLinecap="round"
           className="stroke-foreground"
         />

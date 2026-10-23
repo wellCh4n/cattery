@@ -76,10 +76,10 @@ export function TerminalListPanel({ projectId }: { projectId: string }) {
           timestamp={terminal.created_at}
           actions={
             <>
-              <TreeRowAction title="Rename terminal" aria-label="Rename terminal" onClick={e => { e.stopPropagation(); setRenameTarget(terminal) }}>
+              <TreeRowAction aria-label="Rename terminal" onClick={e => { e.stopPropagation(); setRenameTarget(terminal) }}>
                 <Pencil className="size-4" />
               </TreeRowAction>
-              <TreeRowAction destructive title="Delete terminal" aria-label="Delete terminal" disabled={deleting !== null} onClick={e => { e.stopPropagation(); void remove(terminal) }}>
+              <TreeRowAction destructive aria-label="Delete terminal" disabled={deleting !== null} onClick={e => { e.stopPropagation(); void remove(terminal) }}>
                 {deleting === terminal.terminal_id ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
               </TreeRowAction>
             </>
@@ -94,10 +94,10 @@ export function TerminalListPanel({ projectId }: { projectId: string }) {
       <div className="flex h-9 shrink-0 items-center justify-between px-2">
         <span className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">Terminals</span>
         <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon-sm" title="Refresh terminals" disabled={resource?.loading} onClick={() => { setError(null); void useProjectTerminalsStore.getState().invalidate(projectId) }}>
+          <Button variant="ghost" size="icon-sm" aria-label="Refresh terminals" disabled={resource?.loading} onClick={() => { setError(null); void useProjectTerminalsStore.getState().invalidate(projectId) }}>
             <RefreshCw className={resource?.loading ? "animate-spin" : undefined} />
           </Button>
-          <Button variant="ghost" size="icon-sm" onClick={() => void create()} disabled={creating} title="New terminal (Ctrl+`)">
+          <Button variant="ghost" size="icon-sm" onClick={() => void create()} disabled={creating} aria-label="New terminal">
             {creating ? <Loader2 className="animate-spin" /> : <Plus />}
           </Button>
         </div>

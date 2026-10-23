@@ -87,7 +87,7 @@ export function ModelPicker({ sessionId, model, disabled, className }: Omit<Prop
         <ChevronDownIcon data-icon="inline-end" />
       </DropdownMenuTrigger>
       {/* Items are blocks; space them out like the side panel rows. */}
-      <DropdownMenuContent align="start" className="flex w-56 flex-col gap-1">
+      <DropdownMenuContent align="start" className="flex w-56 flex-col gap-1 text-xs **:data-[slot=dropdown-menu-radio-item]:text-xs **:data-[slot=dropdown-menu-label]:text-2xs">
         <DropdownMenuRadioGroup
           value={model}
           onValueChange={value => {
@@ -148,7 +148,7 @@ export function EffortPicker({ sessionId, model, effort, disabled, className }: 
         </span>
         {saving ? <Loader2 data-icon="inline-end" className="size-4 animate-spin" /> : <ChevronDownIcon data-icon="inline-end" className="size-4" />}
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-36">
+      <DropdownMenuContent align="start" className="w-36 text-xs **:data-[slot=dropdown-menu-radio-item]:text-xs **:data-[slot=dropdown-menu-label]:text-2xs">
         <DropdownMenuGroup>
           <DropdownMenuLabel>Effort</DropdownMenuLabel>
           <DropdownMenuRadioGroup

@@ -12,6 +12,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { usePathname, useRouter } from "next/navigation"
 import { File as FileIcon, MessageSquare, Puzzle, Shield, SquareTerminal, X } from "lucide-react"
+import { Hint } from "@/components/ui/hint"
 import { cn } from "@/lib/utils"
 import { type Terminal, useProjectTerminalsStore, useTerminalStore } from "@/lib/terminal-store"
 import { findSession, type ProjectWithSessions, useWorkspaceStore } from "@/lib/workspace-store"
@@ -210,12 +211,11 @@ export function TabBar() {
         const isActive = activeKey === key
         const busy = tab.kind === "session" && busySessions.has(tab.id)
         return (
+          <Hint key={key} label={r.title} side="top">
           <div
-            key={key}
             ref={isActive ? activeTabRef : undefined}
             role="button"
             tabIndex={0}
-            title={r.title}
             onClick={() => go(tab)}
             onAuxClick={e => { if (e.button === 1) { e.preventDefault(); handleClose(tab) } }}
             onContextMenu={e => { e.preventDefault(); setMenu({ tab, x: e.clientX, y: e.clientY }) }}
@@ -239,7 +239,6 @@ export function TabBar() {
               <button
                 type="button"
                 aria-label="Close tab"
-                title="Close"
                 onClick={e => { e.stopPropagation(); handleClose(tab) }}
                 className={cn(
                   "absolute inset-0 flex cursor-pointer items-center justify-center rounded-sm hover:bg-foreground/10 hover:text-foreground",
@@ -254,6 +253,7 @@ export function TabBar() {
               </button>
             </span>
           </div>
+          </Hint>
         )
       })}
 
