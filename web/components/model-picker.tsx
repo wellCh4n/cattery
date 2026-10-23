@@ -98,7 +98,7 @@ export function ModelPicker({ sessionId, model, disabled, className }: Omit<Prop
               <DropdownMenuGroup>
                 <DropdownMenuLabel>{provider.name}</DropdownMenuLabel>
                 {provider.models.map(id => (
-                  <DropdownMenuRadioItem key={id} value={id} closeOnClick>
+                  <DropdownMenuRadioItem key={id} value={id} closeOnClick className="cursor-pointer">
                     <ModelIcon id={id} className="size-3.5" />
                     {id}
                   </DropdownMenuRadioItem>
@@ -156,7 +156,7 @@ export function EffortPicker({ sessionId, model, effort, disabled, className }: 
             }}
           >
             {provider?.efforts.map(e => (
-              <DropdownMenuRadioItem key={e} value={e} closeOnClick>
+              <DropdownMenuRadioItem key={e} value={e} closeOnClick className="cursor-pointer">
                 {effortLabel(e)}
               </DropdownMenuRadioItem>
             ))}
