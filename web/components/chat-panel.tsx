@@ -301,7 +301,7 @@ function ChatPanelContent({ session }: Props) {
 
       <div className="mx-auto w-full max-w-4xl px-4 pb-4 md:px-8">
         {question && (
-          <div className="mb-2 max-h-[50vh] overflow-y-auto rounded-xl">
+          <div className="mb-2 flex max-h-[50vh] flex-col">
             <QuestionnaireCard key={question.id} bubble={question} sessionId={session.session_id} readOnly={!writable} />
           </div>
         )}
