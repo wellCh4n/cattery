@@ -530,8 +530,25 @@ function ReasoningRow({ bubble }: { bubble: Bubble }) {
   const elapsed = useElapsedSeconds(bubble.startedAt, running)
   const seconds = running ? elapsed : bubble.durationMs === undefined ? undefined : Math.round(bubble.durationMs / 1000)
 
+  // At the end of the transcript the scroller follows the bottom as content
+  // grows, so opening a thought there would push its title up. A wheel event
+  // stops the follow, as a user scroll does, and the thought opens downward.
+  // Repeat it while the panel grows: the scroller resumes following whenever
+  // it still sits at the end, as it does in the first frames of the animation.
+  const [open, setOpen] = useState(false)
+  const contentRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = contentRef.current
+    if (!open || !el) return
+    const releaseFollow = () => el.dispatchEvent(new WheelEvent("wheel", { bubbles: true }))
+    releaseFollow()
+    const observer = new ResizeObserver(releaseFollow)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [open])
+
   return (
-    <TraceCollapsible>
+    <TraceCollapsible open={open} onOpenChange={setOpen}>
       <TraceCollapsibleTrigger>
         <TraceLine status={running ? "running" : undefined}>
           <TraceIcon>
@@ -542,7 +559,7 @@ function ReasoningRow({ bubble }: { bubble: Bubble }) {
           </TraceTitle>
         </TraceLine>
       </TraceCollapsibleTrigger>
-      <TraceCollapsibleContent>
+      <TraceCollapsibleContent ref={contentRef}>
         <Markdown className="text-xs text-muted-foreground [&_*]:text-inherit">
           {bubble.content}
         </Markdown>
