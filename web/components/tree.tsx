@@ -13,11 +13,12 @@
 
 import { ChevronRight, Loader2 } from "lucide-react"
 import { useRef, useState, type ReactNode } from "react"
-import { TreeRow } from "@/components/tree-row"
+import { TreeRow, itemInset, itemList } from "@/components/tree-row"
 import { cn } from "@/lib/utils"
 
 const INDENT_PX = 8
-const BASE_PX = 12
+// Rows sit inset (itemInset) from the panel edge, so this is padding inside the row.
+const BASE_PX = 8
 const CHEVRON_PX = 16
 const CHEVRON_CENTER_PX = CHEVRON_PX / 2
 
@@ -71,7 +72,8 @@ interface TreeProps {
 
 export function Tree({ items, className }: TreeProps) {
   return (
-    <div className={cn("group/tree", className)}>
+    // The list is the row container, so the gap applies between rows only.
+    <div className={cn("group/tree", itemList, className)}>
       {items.map(item => <TreeItemView key={item.id} node={item} depth={0} />)}
     </div>
   )
@@ -157,7 +159,7 @@ function TreeItemView({ node, depth }: { node: TreeNode; depth: number }) {
     <>
       {node.editing ? (
         <div
-          className="relative flex h-8 items-center gap-1.5 border-b border-border/60 bg-muted/40"
+          className={cn("relative flex h-8 items-center gap-1.5 bg-muted/40", itemInset)}
           style={{ paddingLeft: contentIndent, paddingRight: BASE_PX }}
         >
           <GuideLines depth={depth} />
@@ -189,7 +191,7 @@ function TreeItemView({ node, depth }: { node: TreeNode; depth: number }) {
       {node.subline}
       {node.expanded && node.loadingChildren && !node.children && (
         <div
-          className="relative flex h-8 items-center text-muted-foreground"
+          className={cn("relative flex h-8 items-center text-muted-foreground", itemInset)}
           style={{ paddingLeft: leafContentIndent(depth + 1) }}
         >
           <GuideLines depth={depth + 1} />

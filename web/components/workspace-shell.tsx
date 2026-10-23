@@ -228,13 +228,13 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
             </button>
           )}
           {projectPickerOpen && (
-            <div className="absolute left-0 top-full z-30 mt-1 w-72 max-w-[calc(100vw-2rem)] max-h-[60vh] overflow-y-auto rounded-lg border bg-popover text-sm shadow-md">
+            <div className="absolute left-0 top-full z-30 mt-1 flex w-72 max-w-[calc(100vw-2rem)] max-h-[60vh] flex-col gap-1 overflow-y-auto rounded-lg border bg-popover p-1 text-sm shadow-md">
               {projects.map(project => {
                 const active = project.project_id === currentProjectId
                 const ownsProject = project.access_role === "owner"
                 return (
                   <div key={project.project_id}>
-                    <div className={cn("flex items-center gap-1 px-2 py-1 transition-colors hover:bg-muted focus-within:bg-muted", active && "bg-muted/60")}>
+                    <div className={cn("flex items-center gap-1 rounded-md px-1.5 py-1 transition-colors hover:bg-accent focus-within:bg-accent", active && "bg-accent")}>
                       <button
                         type="button"
                         aria-current={active ? "true" : undefined}
@@ -277,10 +277,9 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                   </div>
                 )
               })}
-              <div className="border-t border-border/60" />
               <button
                 type="button"
-                className="flex h-9 w-full cursor-pointer items-center gap-2 px-2.5 text-left text-xs hover:bg-muted"
+                className="flex h-9 w-full cursor-pointer items-center gap-2 rounded-md px-1.5 text-left text-xs transition-colors hover:bg-accent"
                 onClick={() => {
                   setProjectPickerOpen(false)
                   setNewProjectOpen(true)
@@ -411,7 +410,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
           <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-md border bg-background">
           <div className={cn("min-h-0 min-w-0 flex-1 flex-col", view === "sessions" ? "flex" : "hidden")}>
           {currentProject && (
-            <div className="flex h-9 shrink-0 items-center justify-between border-b px-2">
+            <div className="flex h-9 shrink-0 items-center justify-between px-2">
               <span className="flex items-center gap-1.5 text-2xs font-medium uppercase tracking-wide text-muted-foreground">
                 Sessions
               </span>
@@ -676,14 +675,7 @@ function ActivityButton({
   onClick: () => void
 }) {
   return (
-    <div className="relative">
-      <span
-        aria-hidden
-        className={cn(
-          "pointer-events-none absolute left-0 inset-y-0 w-0.5 transition-colors",
-          active ? "bg-primary" : "bg-transparent",
-        )}
-      />
+    <div className="flex justify-center">
       <button
         type="button"
         onClick={onClick}
@@ -691,8 +683,10 @@ function ActivityButton({
         aria-label={label}
         aria-pressed={active}
         className={cn(
-          "flex h-10 w-full cursor-pointer items-center justify-center transition-colors",
-          active ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+          "flex size-9 cursor-pointer items-center justify-center rounded-md transition-colors",
+          active
+            ? "bg-muted-foreground/15 text-foreground dark:bg-foreground/20"
+            : "text-muted-foreground hover:bg-muted-foreground/8 hover:text-foreground dark:hover:bg-foreground/8",
         )}
       >
         {icon}
@@ -702,8 +696,8 @@ function ActivityButton({
 }
 
 // RailButton — bottom-of-rail toggle (account/settings). Same footprint as
-// ActivityButton but no view-active indicator bar; `active` just reflects
-// whether its popover is open.
+// ActivityButton but no selected background; `active` just reflects whether
+// its popover is open.
 function RailButton({
   icon,
   label,

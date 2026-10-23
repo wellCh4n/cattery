@@ -74,7 +74,7 @@ export function ProjectMembersPanel({ project, canManage, active }: Props) {
 
   return (
     <div className="flex h-full flex-col text-xs">
-      <div className="flex h-9 shrink-0 items-center justify-between border-b px-2">
+      <div className="flex h-9 shrink-0 items-center justify-between px-2">
         <span className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
           Members
         </span>
@@ -102,6 +102,7 @@ export function ProjectMembersPanel({ project, canManage, active }: Props) {
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto">
+        <div className="flex flex-col gap-1.5">
         <MemberRow
           name={project.owner_username}
           isOwner={true}
@@ -125,6 +126,7 @@ export function ProjectMembersPanel({ project, canManage, active }: Props) {
           ))
         )}
         {error && <div className="px-2 pt-1 text-xs text-destructive">{error}</div>}
+        </div>
       </div>
 
       <ManageMembersDialog

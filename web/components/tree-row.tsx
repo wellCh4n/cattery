@@ -13,8 +13,19 @@
 import { forwardRef } from "react"
 import { cn } from "@/lib/utils"
 
+// List item backgrounds shared by the side panels and the activity rail, after
+// VS Code: a light block on hover, a darker one when selected. Dark mode needs
+// a white tint to stand out from the near-black panel.
+export const itemHover = "hover:bg-muted-foreground/8 dark:hover:bg-foreground/8"
+export const itemSelected = "bg-muted-foreground/15 dark:bg-foreground/20"
+// Rows are rounded blocks inset from the panel's edges. The list lays them out
+// with `itemList` (a flex column with a matching gap), so the first row starts
+// flush under the header, like VS Code's explorer.
+export const itemInset = "mx-1.5 rounded-md"
+export const itemList = "flex flex-col gap-1.5 px-0 py-0"
+
 interface TreeRowProps extends React.HTMLAttributes<HTMLDivElement> {
-  // Currently-selected row in its tree. Adds the standard bg + bold text.
+  // Currently-selected row in its tree. Adds the standard selected background.
   selected?: boolean
 }
 
@@ -24,8 +35,9 @@ export const TreeRow = forwardRef<HTMLDivElement, TreeRowProps>(
       <div
         ref={ref}
         className={cn(
-          "group/treerow flex h-8 cursor-pointer items-center gap-1.5 border-b border-border/60 text-[13px] transition-colors select-none",
-          selected ? "bg-muted font-medium text-foreground" : "hover:bg-muted",
+          "group/treerow flex h-8 cursor-pointer items-center gap-1.5 text-[13px] transition-colors select-none",
+          itemInset,
+          selected ? cn(itemSelected, "text-foreground") : itemHover,
           className,
         )}
         {...rest}

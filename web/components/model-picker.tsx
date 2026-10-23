@@ -84,7 +84,8 @@ export function ModelPicker({ sessionId, model, disabled, className }: Omit<Prop
         <span className="truncate">{model}</span>
         <ChevronDownIcon data-icon="inline-end" />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-56">
+      {/* Items are blocks; space them out like the side panel rows. */}
+      <DropdownMenuContent align="start" className="flex w-56 flex-col gap-1">
         <DropdownMenuRadioGroup
           value={model}
           onValueChange={value => {

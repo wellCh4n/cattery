@@ -24,6 +24,8 @@ import {
 import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { tabHref } from "@/lib/tabs-store"
+import { itemHover, itemInset } from "@/components/tree-row"
+import { cn } from "@/lib/utils"
 import {
   type SkillCatalogItem,
 } from "@/lib/api"
@@ -82,7 +84,7 @@ export function SkillBrowserPanel({ active }: { active: boolean }) {
 
   return (
     <div className="flex h-full flex-col text-xs">
-      <div className="flex h-9 shrink-0 items-center justify-between border-b px-2">
+      <div className="flex h-9 shrink-0 items-center justify-between px-2">
         <span className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
           Skills
         </span>
@@ -138,6 +140,7 @@ export function SkillBrowserPanel({ active }: { active: boolean }) {
             </div>
           </div>
         )}
+        <div className="flex flex-col gap-1.5">
         {catalog?.map(skill => (
           <SkillRow
             key={skill.slug}
@@ -152,6 +155,7 @@ export function SkillBrowserPanel({ active }: { active: boolean }) {
             Extracting skill…
           </div>
         )}
+        </div>
       </div>
 
       <ConfirmDialog
@@ -181,10 +185,11 @@ function SkillRow({
 }) {
   return (
     <div
-      className={
-        "group flex items-start gap-2 border-b border-border/60 px-3 py-2.5 text-[13px]" +
-        (skill.valid ? " cursor-pointer hover:bg-accent/50" : " bg-destructive/5")
-      }
+      className={cn(
+        "group flex items-start gap-2 px-2 py-2 text-[13px] transition-colors",
+        itemInset,
+        skill.valid ? cn("cursor-pointer", itemHover) : "bg-destructive/5",
+      )}
       onClick={skill.valid ? onOpen : undefined}
     >
       {skill.valid

@@ -357,7 +357,7 @@ export function FileBrowserPanel({ projectId, active }: Props) {
 
   return (
     <div className="flex h-full flex-col text-xs">
-      <div className="flex h-9 shrink-0 items-center justify-between border-b px-2">
+      <div className="flex h-9 shrink-0 items-center justify-between px-2">
         <span className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">
           Files
         </span>

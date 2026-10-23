@@ -91,7 +91,7 @@ export function TerminalListPanel({ projectId }: { projectId: string }) {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex h-9 shrink-0 items-center justify-between border-b px-2">
+      <div className="flex h-9 shrink-0 items-center justify-between px-2">
         <span className="text-2xs font-medium uppercase tracking-wide text-muted-foreground">Terminals</span>
         <div className="flex items-center gap-1">
           <Button variant="ghost" size="icon-sm" title="Refresh terminals" disabled={resource?.loading} onClick={() => { setError(null); void useProjectTerminalsStore.getState().invalidate(projectId) }}>
