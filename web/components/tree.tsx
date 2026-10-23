@@ -17,7 +17,7 @@ import { TreeRow } from "@/components/tree-row"
 import { cn } from "@/lib/utils"
 
 const INDENT_PX = 8
-const BASE_PX = 8
+const BASE_PX = 12
 const CHEVRON_PX = 16
 const CHEVRON_CENTER_PX = CHEVRON_PX / 2
 
