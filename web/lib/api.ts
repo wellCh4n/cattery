@@ -197,21 +197,37 @@ export async function abortSession(sessionId: string): Promise<void> {
   await authedFetch(`${API_BASE}/api/v1/sessions/${sessionId}/abort`, { method: "POST" })
 }
 
+// Returns the reply stream, or null when the session was busy and the text was
+// steered into its running turn (whose stream carries the reply).
 export async function sendSessionMessageStream(
   sessionId: string,
   text: string,
   signal?: AbortSignal,
-): Promise<ReadableStreamDefaultReader<Uint8Array>> {
+): Promise<ReadableStreamDefaultReader<Uint8Array> | null> {
   const res = await authedFetch(`${API_BASE}/api/v1/sessions/${sessionId}/message`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text }),
     signal,
   })
+  if (res.status === 202) return null
   if (!res.ok || !res.body) {
     throw new Error(await readErrorMessage(res, "failed to send message"))
   }
   return res.body.getReader()
+}
+
+// Takes back a steered message before it reaches the model. Returns the
+// remaining queue, or null when the message was already delivered.
+export async function withdrawQueuedMessage(sessionId: string, index: number, text: string): Promise<string[] | null> {
+  const res = await authedFetch(`${API_BASE}/api/v1/sessions/${sessionId}/queue/${index}`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+  })
+  if (res.status === 409) return null
+  if (!res.ok) throw new Error(await readErrorMessage(res, "failed to withdraw message"))
+  return ((await res.json()) as { messages: string[] }).messages
 }
 
 export interface PlatformHistoryItem {

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -251,8 +252,13 @@ func (h *SessionHandler) SendMessage(c echo.Context) error {
 		}
 		return err == nil && updated
 	}
-	return h.harnessClient.StreamEventsUntilIdle(ctx, sandboxURL, sessionID.String(), c.Response(), onEvent, func() error {
+	// A message sent while the session runs is steered into that run, whose
+	// output keeps flowing on the stream that started it; only acknowledge it.
+	err = h.harnessClient.StreamEventsUntilIdle(ctx, sandboxURL, sessionID.String(), c.Response(), onEvent, func() error {
 		if err := h.harnessClient.PromptAsync(ctx, sandboxURL, sessionID.String(), req.Text); err != nil {
+			if errors.Is(err, harness.ErrSteered) {
+				return err
+			}
 			return echo.NewHTTPError(http.StatusBadGateway, err.Error())
 		}
 
@@ -273,6 +279,44 @@ func (h *SessionHandler) SendMessage(c echo.Context) error {
 
 		return nil
 	})
+	if errors.Is(err, harness.ErrSteered) {
+		return c.NoContent(http.StatusAccepted)
+	}
+	return err
+}
+
+// WithdrawQueued takes back a steered message before it reaches the model.
+func (h *SessionHandler) WithdrawQueued(c echo.Context) error {
+	sess, _, err := requireWritableSession(c, h.sessionStore, h.projectStore)
+	if err != nil {
+		return err
+	}
+	index, err := strconv.Atoi(c.Param("index"))
+	if err != nil || index < 0 {
+		return echo.ErrBadRequest
+	}
+	var req struct {
+		Text string `json:"text"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return echo.ErrBadRequest
+	}
+	gone := echo.NewHTTPError(http.StatusConflict, "This message has already been sent")
+	base, ok := h.sandbox.URL(c.Request().Context(), sess.ProjectID)
+	if !ok {
+		return gone
+	}
+	messages, ok, err := h.harnessClient.WithdrawQueued(c.Request().Context(), base, sess.SessionID.String(), index, req.Text)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadGateway, err.Error())
+	}
+	if !ok {
+		return gone
+	}
+	if messages == nil {
+		messages = []string{}
+	}
+	return c.JSON(http.StatusOK, map[string]any{"messages": messages})
 }
 
 type updateSessionRequest struct {

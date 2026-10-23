@@ -13,11 +13,13 @@ type PlatformEvent struct {
 // 事件类型常量
 const (
 	EventMessageDelta    = "message.delta"         // AI 输出文本片段
+	EventMessageUser     = "message.user"          // user 消息送达模型: { partId, text }，含 steer 插入的消息
 	EventMessageThinking = "message.thinking"      // AI 思考过程片段（可选）
 	EventThinkingDone    = "message.thinking.done" // 思考块结束: { partId, durationMs }
 	EventToolStart       = "tool.start"            // 工具调用开始
 	EventToolDone        = "tool.done"             // 工具调用结束
 	EventSessionState    = "session.state"         // history snapshot: { busy: boolean }
+	EventSessionQueue    = "session.queue"         // 已 steer 但尚未送达模型的消息: { messages: string[] }
 	EventSessionIdle     = "session.idle"          // session 结束/空闲
 	EventSessionError    = "session.error"         // 出错
 	EventSessionTitle    = "session.title"         // session title 已生成/更新

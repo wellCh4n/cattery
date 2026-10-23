@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import {
   ArrowUpIcon,
   CheckIcon,
+  CornerDownRightIcon,
   CircleCheckIcon,
   CopyIcon,
   FilePenIcon,
@@ -15,6 +16,7 @@ import {
   SquareIcon,
   TerminalIcon,
   TriangleAlertIcon,
+  Undo2Icon,
   WrenchIcon,
 } from "lucide-react"
 import { Bubble as BubbleUI, BubbleContent } from "@/components/ui/bubble"
@@ -57,6 +59,7 @@ interface Props {
 }
 
 const EMPTY_BUBBLES: Bubble[] = []
+const EMPTY_QUEUE: string[] = []
 
 // A turn is one person's message, or everything the agent did in reply to it
 // (thinking, tool calls and text, in stream order).
@@ -130,16 +133,35 @@ function ChatPanelContent({ session }: Props) {
   const sending = (chat?.sending || chat?.recovering) ?? false
   const ensureSession = useChatStreamStore(state => state.ensureSession)
   const loadHistory = useChatStreamStore(state => state.loadHistory)
+  const queue = chat?.queue ?? EMPTY_QUEUE
   const sendMessage = useChatStreamStore(state => state.sendMessage)
+  const withdrawQueued = useChatStreamStore(state => state.withdrawQueued)
   const stopSession = useChatStreamStore(state => state.stopSession)
   const turns = useMemo(() => toTurns(bubbles), [bubbles])
   const ready = session.status === "ready"
-  const canSend = ready && !sending && input.trim().length > 0
+  // While the agent runs, a message is steered into its turn.
+  const canSend = ready && input.trim().length > 0
 
   useEffect(() => {
     if (!ready || sending) return
     inputRef.current?.focus({ preventScroll: true })
   }, [ready, sending, session.session_id])
+
+  // Put text back into the composer ahead of whatever is being typed.
+  function restoreInput(texts: string[]) {
+    if (!texts.length) return
+    setInput(current => [...texts, current].filter(t => t.trim()).join("\n\n"))
+    inputRef.current?.focus({ preventScroll: true })
+  }
+
+  async function withdraw(index: number) {
+    const text = await withdrawQueued(session.session_id, index).catch(() => null)
+    if (text !== null) restoreInput([text])
+  }
+
+  async function stop() {
+    restoreInput(await stopSession(session.session_id))
+  }
 
   useEffect(() => {
     if (!ready) return
@@ -165,7 +187,7 @@ function ChatPanelContent({ session }: Props) {
     const text = input.trim()
     setInput("")
     setSubmission(value => value + 1)
-    void sendMessage(session.session_id, text)
+    sendMessage(session.session_id, text).catch(() => restoreInput([text]))
   }
 
   return (
@@ -250,6 +272,36 @@ function ChatPanelContent({ session }: Props) {
       </div>
 
       <div className="mx-auto w-full max-w-3xl px-4 pb-4 md:px-8">
+        {queue.length > 0 && (
+          // Steered messages wait here until the model receives them, after the
+          // current tool calls finish.
+          <div className="mx-3 rounded-t-lg border border-b-0 bg-muted/50 px-3 py-2 text-sm">
+            <div className="mb-1 text-xs text-muted-foreground">Sends after the current step</div>
+            <ul className="flex flex-col gap-1">
+              {queue.map((text, i) => (
+                <li key={`${i}-${text}`} className="flex items-start gap-2">
+                  <CornerDownRightIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+                  <span className="line-clamp-2 min-w-0 flex-1 whitespace-pre-wrap break-words">{text}</span>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          aria-label="Edit message"
+                          onClick={() => void withdraw(i)}
+                        />
+                      }
+                    >
+                      <Undo2Icon />
+                    </TooltipTrigger>
+                    <TooltipContent>Move back to the input</TooltipContent>
+                  </Tooltip>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         {/* The AI Elements Model Selector input: field, context, model and effort pills, send. */}
         <form ref={formRef} onSubmit={handleSubmit}>
           {/* InputGroup fades as a whole when anything inside is disabled — here
@@ -260,9 +312,9 @@ function ChatPanelContent({ session }: Props) {
             <InputGroupTextarea
               ref={inputRef}
               value={input}
-              disabled={!ready || sending}
+              disabled={!ready}
               onChange={e => setInput(e.target.value)}
-              placeholder={ready ? "Ask the agent to change your code…" : "Waiting for the sandbox…"}
+              placeholder={!ready ? "Waiting for the sandbox…" : sending ? "Steer the agent…" : "Ask the agent to change your code…"}
               aria-label="Message"
               rows={1}
               className="max-h-48 min-h-0 px-4 pt-4 text-base md:text-sm [field-sizing:content]"
@@ -287,13 +339,13 @@ function ChatPanelContent({ session }: Props) {
                 effort={session.effort}
                 disabled={sending}
               />
-              {sending ? (
+              {sending && !canSend ? (
                 <InputGroupButton
                   variant="destructive"
                   size="icon-sm"
                   className="rounded-full"
                   aria-label="Stop"
-                  onClick={() => void stopSession(session.session_id)}
+                  onClick={() => void stop()}
                 >
                   <SquareIcon />
                 </InputGroupButton>

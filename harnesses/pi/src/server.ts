@@ -9,7 +9,8 @@
  *   GET    /session/:id                    → { id }
  *   DELETE /session/:id                    → 204 (abort + delete transcript)
  *   GET    /session/:id/message            → PlatformHistoryItem[]
- *   POST   /session/:id/prompt_async       → 204 (fire-and-forget)
+ *   POST   /session/:id/prompt_async       → 204 (run started) | 202 (busy: steered into the run)
+ *   DELETE /session/:id/queue/:index {text} → { messages }  (withdraw a steered message)
  *   POST   /session/:id/questionnaire/:toolId → 204 (answer/cancel a pending tool)
  *   POST   /session/:id/abort              → 204
  *   GET    /event                          → SSE bus of platform events
@@ -22,6 +23,7 @@
  * Events are emitted already in platform shape (see
  * backend/internal/harness/event.go), wrapped with `sessionId` for routing:
  *   message.delta / message.thinking / message.thinking.done / tool.start / tool.done
+ *   message.user (a steered message reached the model) / session.queue (steered, not yet delivered)
  *   session.title / session.usage / session.error / session.idle
  *
  * SDK JSONL sessions are persisted on the workspace PVC,
@@ -114,6 +116,13 @@ function toolOutput(content: Array<{ type: string; text?: string }> | undefined)
   return (content ?? []).map(c => (c.type === 'text' ? c.text ?? '' : '')).join('')
 }
 
+// Re-steered messages can share a millisecond, so later ones get a suffix. The
+// live stream and replay walk user messages in the same order and agree.
+function userPartId(timestamp: number, previous: { timestamp: number; count: number } | undefined): { id: string; timestamp: number; count: number } {
+  const count = previous?.timestamp === timestamp ? previous.count + 1 : 0
+  return { id: count ? `u${timestamp}_${count}` : `u${timestamp}`, timestamp, count }
+}
+
 function userText(content: unknown): string {
   if (typeof content === 'string') return content
   if (Array.isArray(content)) return content.map(c => (c?.type === 'text' ? c.text : '')).join('')
@@ -125,11 +134,13 @@ function toHistory(messages: AgentMessage[], thinkingMs: Map<string, number>): H
   const items: HistoryItem[] = []
   let current: HistoryItem | null = null
   const toolNames = new Map<string, string>()
+  let lastUser: ReturnType<typeof userPartId> | undefined
   for (const m of messages) {
     if (m.role === 'user') {
+      lastUser = userPartId(m.timestamp, lastUser)
       items.push({
-        messageId: `u${m.timestamp}`, role: 'user',
-        events: [{ type: 'message.delta', data: { partId: `u${m.timestamp}`, text: userText(m.content) } }],
+        messageId: lastUser.id, role: 'user',
+        events: [{ type: 'message.delta', data: { partId: lastUser.id, text: userText(m.content) } }],
       })
       current = null
       continue
@@ -189,6 +200,7 @@ interface Session {
   titleAbort?: AbortController
   // Start time of each thinking block still streaming, keyed by partId.
   thinkingStarts: Map<string, number>
+  lastUser?: ReturnType<typeof userPartId>
   persistQueue?: Promise<void>
   run?: Promise<void>
 }
@@ -227,7 +239,8 @@ async function newSession(id: string, ref: ModelRef, gateway: Gateway, titleAtte
   if (gateway.baseUrl) runtime.registerProvider(ref.provider, { models: [model], baseUrl: gateway.baseUrl })
   if (gateway.apiKey) await runtime.setRuntimeApiKey(ref.provider, gateway.apiKey)
   const agentDir = path.join(WORKDIR, '.cattery/agent')
-  const settingsManager = SettingsManager.inMemory({ cacheWarming: 'off' })
+  // Deliver every steered message at the next model request, not one per request.
+  const settingsManager = SettingsManager.inMemory({ cacheWarming: 'off', steeringMode: 'all' })
   const resourceLoader = new DefaultResourceLoader({
     cwd: WORKDIR, agentDir, settingsManager,
     additionalSkillPaths: [SKILLS_DIR, path.join(WORKDIR, '.agents/skills')],
@@ -298,8 +311,21 @@ function history(sess: Session): HistoryItem[] {
   return toHistory(messages, thinkingMs)
 }
 
+const queued = (sess: Session) => [...sess.sdk.getSteeringMessages(), ...sess.sdk.getFollowUpMessages()]
+
 function forward(sess: Session, ev: AgentSessionEvent): void {
   switch (ev.type) {
+    case 'message_start':
+      if (ev.message.role !== 'user') return
+      // Every prompt is echoed: the client skips its own optimistic copy of the
+      // first and adds steered ones where they reached the model. Same id as the
+      // history item, so live and replayed turns line up.
+      sess.lastUser = userPartId(ev.message.timestamp, sess.lastUser)
+      broadcast(sess.id, { type: 'message.user', data: { partId: sess.lastUser.id, text: userText(ev.message.content) } })
+      return
+    case 'queue_update':
+      broadcast(sess.id, { type: 'session.queue', data: { messages: [...ev.steering, ...ev.followUp] } })
+      return
     case 'message_update': {
       const e = ev.assistantMessageEvent
       if (e.type === 'text_delta') {
@@ -393,29 +419,75 @@ async function generateTitle(sess: Session, text: string, reply: AssistantMessag
   }
 }
 
+// Undelivered messages are dropped first so the run cannot continue with them;
+// the client restores its own copy into the composer.
+async function abortRun(sess: Session): Promise<void> {
+  sess.sdk.clearQueue()
+  sess.titleAbort?.abort()
+  await sess.sdk.abort()
+}
+
+// Messages steered after the SDK's last delivery point, or while it was settling.
+function takeQueued(sess: Session): string | undefined {
+  const { steering, followUp } = sess.sdk.clearQueue()
+  const texts = [...steering, ...followUp]
+  return texts.length ? texts.join('\n\n') : undefined
+}
+
 async function runPrompt(sess: Session, text: string): Promise<void> {
   if (!sess.titled) {
     sess.titled = true
     const title = text.split('\n').find(l => l.trim())?.trim() ?? ''
     if (title) broadcast(sess.id, { type: 'session.title', data: { title: title.length > 60 ? title.slice(0, 57) + '…' : title } })
   }
+  let next: string | undefined = text
+  let titleSource: { text: string; reply: AssistantMessage } | undefined
   try {
-    await sess.sdk.prompt(text)
-    const last = [...sess.sdk.messages].reverse().find(m => m.role === 'assistant') as AssistantMessage | undefined
-    if (last?.stopReason === 'error') {
-      broadcast(sess.id, { type: 'session.error', data: { message: last.errorMessage ?? 'model request failed' } })
-    } else if (last?.stopReason === 'stop' && !sess.titleAttempted) {
-      await generateTitle(sess, text, last).catch(() => console.warn('[title] checkpoint failed for', sess.id))
+    // Keep the run going while steered messages remain, so the stream stays open
+    // until every message the user sent has been answered.
+    while (next !== undefined) {
+      const prompt: string = next
+      try {
+        await sess.sdk.prompt(prompt)
+        const last = [...sess.sdk.messages].reverse().find(m => m.role === 'assistant') as AssistantMessage | undefined
+        if (last?.stopReason === 'error') {
+          broadcast(sess.id, { type: 'session.error', data: { message: last.errorMessage ?? 'model request failed' } })
+        } else if (last?.stopReason === 'stop' && !sess.titleAttempted && !titleSource) {
+          titleSource = { text: prompt, reply: last }
+        }
+      } catch (err) {
+        console.error('[runPrompt]', err)
+        broadcast(sess.id, { type: 'session.error', data: { message: err instanceof Error ? err.message : String(err) } })
+      }
+      next = takeQueued(sess)
+      if (next === undefined && titleSource) {
+        const { text: t, reply } = titleSource
+        titleSource = undefined
+        await generateTitle(sess, t, reply).catch(() => console.warn('[title] checkpoint failed for', sess.id))
+        next = takeQueued(sess)
+      }
+      if (next === undefined && sessions.get(sess.id) === sess) {
+        await persist(sess).catch(err => console.error('[persist]', err))
+        next = takeQueued(sess)
+      }
     }
-  } catch (err) {
-    console.error('[runPrompt]', err)
-    broadcast(sess.id, { type: 'session.error', data: { message: err instanceof Error ? err.message : String(err) } })
   } finally {
-    if (sessions.get(sess.id) === sess) await persist(sess).catch(err => console.error('[persist]', err))
     sess.busy = false
     broadcastUsage(sess)
     broadcast(sess.id, { type: 'session.idle', data: {} })
   }
+}
+
+// Steer texts into the running session. Steering resolves asynchronously, so the
+// run may have ended meanwhile; then start a new run with what was queued.
+async function steer(sess: Session, texts: string[]): Promise<'queued' | 'started'> {
+  for (const text of texts) await sess.sdk.steer(text)
+  if (sess.busy) return 'queued'
+  const next = takeQueued(sess)
+  if (next === undefined) return 'queued'
+  sess.busy = true
+  sess.run = runPrompt(sess, next)
+  return 'started'
 }
 
 // ── HTTP routes ──────────────────────────────────────────────────────────────
@@ -456,10 +528,7 @@ app.post('/stop', asyncRoute(async (_req, res, next) => {
   stopping ??= (async () => {
     await Promise.all([...sessionRequests])
     const active = [...sessions.values()]
-    for (const sess of active) {
-      void sess.sdk.abort()
-      sess.titleAbort?.abort()
-    }
+    for (const sess of active) void abortRun(sess)
     await Promise.allSettled(active.map(sess => sess.run))
     await Promise.all(active.map(sess => persist(sess)))
     for (const sess of active) sess.sdk.dispose()
@@ -539,8 +608,7 @@ app.delete('/session/:id', asyncRoute(async (req, res) => {
     await fs.rm(path.join(SESSIONS_DIR, `${req.params.id}.jsonl`), { force: true })
     return void res.status(204).end()
   }
-  void sess.sdk.abort()
-  sess.titleAbort?.abort()
+  void abortRun(sess)
   sessions.delete(sess.id)
   await sess.run
   sess.sdk.dispose()
@@ -556,6 +624,7 @@ app.get('/session/:id/message', asyncRoute(async (req, res) => {
   const current = sess ? usage(sess) : null
   items.push({ messageId: 'session-state', role: 'assistant', events: [
     { type: 'session.state', data: { busy: sess?.busy ?? false } },
+    { type: 'session.queue', data: { messages: sess ? queued(sess) : [] } },
     ...(current ? [current] : []),
   ] })
   res.json(items)
@@ -567,11 +636,27 @@ app.post('/session/:id/prompt_async', asyncRoute(async (req, res) => {
   const parts: Array<{ type: string; text: string }> = req.body?.parts ?? []
   const text = parts.find(p => p.type === 'text')?.text?.trim() ?? ''
   if (!text) return void res.status(400).end()
-  if (sess.busy) return void res.status(409).json({ error: 'session is busy' })
   if (!sess.gateway.apiKey) return void res.status(409).json({ error: 'session requires model registration' })
+  if (sess.busy) {
+    // Delivered after the current tool calls finish, before the next model request.
+    return void res.status(await steer(sess, [text]) === 'queued' ? 202 : 204).end()
+  }
   sess.busy = true
   res.status(204).end()
   sess.run = runPrompt(sess, text)
+}))
+
+// The SDK has no per-message removal: clear the queue and steer the rest again.
+app.delete('/session/:id/queue/:index', asyncRoute(async (req, res) => {
+  const sess = sessions.get(req.params.id)
+  const index = Number(req.params.index)
+  if (!sess || queued(sess)[index] !== req.body?.text) {
+    return void res.status(409).json({ error: 'This message has already been sent' })
+  }
+  const { steering, followUp } = sess.sdk.clearQueue()
+  const rest = [...steering, ...followUp].filter((_, i) => i !== index)
+  await steer(sess, rest)
+  res.json({ messages: queued(sess) })
 }))
 
 app.post('/session/:id/questionnaire/:toolId', asyncRoute(async (req, res) => {
@@ -583,8 +668,7 @@ app.post('/session/:id/questionnaire/:toolId', asyncRoute(async (req, res) => {
 
 app.post('/session/:id/abort', asyncRoute(async (req, res) => {
   const sess = await openSession(req.params.id)
-  await sess?.sdk.abort()
-  sess?.titleAbort?.abort()
+  if (sess) await abortRun(sess)
   res.status(204).end()
 }))
 

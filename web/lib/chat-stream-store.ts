@@ -5,6 +5,7 @@ import {
   abortSession,
   getHistory,
   sendSessionMessageStream,
+  withdrawQueuedMessage,
 } from "@/lib/api"
 import { refreshFiles, toolChangedDirectories } from "@/lib/files-store"
 import { selectSession, useWorkspaceStore } from "@/lib/workspace-store"
@@ -15,6 +16,7 @@ export interface ToolStartData     { toolId: string; tool: string; input?: strin
 export interface ToolDoneData      { toolId: string; tool: string; output?: string; parsed?: unknown }
 export interface SessionErrorData  { message: string }
 export interface SessionTitleData  { title: string }
+export interface SessionQueueData  { messages: string[] }
 // Context fill and session token totals. contextTokens is null after a
 // compaction until the next response; reserveTokens is the auto-compact buffer.
 export interface SessionUsageData {
@@ -44,6 +46,7 @@ export interface Bubble {
 export interface PlatformEvent {
   type:
     | "message.delta"
+    | "message.user"
     | "message.thinking"
     | "message.thinking.done"
     | "tool.start"
@@ -52,6 +55,7 @@ export interface PlatformEvent {
     | "session.error"
     | "session.title"
     | "session.usage"
+    | "session.queue"
   data:
     | MessageDeltaData
     | ThinkingDoneData
@@ -60,12 +64,15 @@ export interface PlatformEvent {
     | SessionErrorData
     | SessionTitleData
     | SessionUsageData
+    | SessionQueueData
     | Record<string, never>
 }
 
 interface ChatSessionState {
   bubbles: Bubble[]
   usage: SessionUsageData | null
+  // Messages steered into the running turn that have not reached the model yet.
+  queue: string[]
   sending: boolean
   loaded: boolean
   recovering: boolean
@@ -77,14 +84,20 @@ interface ChatStreamStore {
   ensureSession: (sessionId: string) => void
   resetSession: (sessionId: string) => void
   loadHistory: (sessionId: string, refresh?: boolean) => Promise<void>
+  // Starts a turn, or steers text into the running one. Throws only when a
+  // steered message was rejected, so the caller can restore it.
   sendMessage: (sessionId: string, text: string) => Promise<void>
-  stopSession: (sessionId: string) => Promise<void>
+  // Takes back a queued message; returns its text, or null if it was already sent.
+  withdrawQueued: (sessionId: string, index: number) => Promise<string | null>
+  // Returns the queued messages, which the run drops undelivered.
+  stopSession: (sessionId: string) => Promise<string[]>
   handleEvent: (sessionId: string, ev: PlatformEvent) => void
 }
 
 const emptySession = (): ChatSessionState => ({
   bubbles: [],
   usage: null,
+  queue: [],
   sending: false,
   loaded: false,
   recovering: false,
@@ -215,6 +228,7 @@ export const useChatStreamStore = create<ChatStreamStore>((set, get) => ({
     const restored = restoreHistory(items)
     const recovering = items.some(item => item.events.some(e => e.type === "session.state" && e.data.busy === true))
     const usage = items.flatMap(item => item.events).find(e => e.type === "session.usage")?.data as SessionUsageData | undefined
+    const queue = items.flatMap(item => item.events).find(e => e.type === "session.queue")?.data as SessionQueueData | undefined
     if (!recovering) for (const b of restored) b.done = true
     // A send may have started while history was loading.
     if (get().sessions[sessionId] !== existing) return
@@ -226,6 +240,7 @@ export const useChatStreamStore = create<ChatStreamStore>((set, get) => ({
           ...(state.sessions[sessionId] ?? emptySession()),
           bubbles: restored,
           usage: usage ?? null,
+          queue: recovering ? queue?.messages ?? [] : [],
           recovering,
           sending: false,
           loaded: true,
@@ -236,7 +251,69 @@ export const useChatStreamStore = create<ChatStreamStore>((set, get) => ({
 
   sendMessage: async (sessionId, text) => {
     const current = get().sessions[sessionId]
-    if (current?.sending || current?.recovering) return
+    const updateQueue = (update: (queue: string[]) => string[]) => set(state => {
+      const session = state.sessions[sessionId] ?? emptySession()
+      return { sessions: { ...state.sessions, [sessionId]: { ...session, queue: update(session.queue) } } }
+    })
+    // The agent echoes every user message it delivers (message.user). A prompt
+    // that starts a turn is already shown, so its echo is skipped; steered
+    // messages wait in the queue and appear where the model received them.
+    const consume = async (reader: ReadableStreamDefaultReader<Uint8Array>, skipEcho: boolean) => {
+      const decoder = new TextDecoder()
+      let buf = ""
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buf += decoder.decode(value, { stream: true })
+        const parsed = parseSSELines(buf)
+        buf = parsed.rest
+        for (const ev of parsed.events) {
+          if (skipEcho && ev.type === "message.user") {
+            skipEcho = false
+            continue
+          }
+          get().handleEvent(sessionId, ev)
+        }
+      }
+    }
+
+    if (current?.sending || current?.recovering) {
+      updateQueue(queue => [...queue, text])
+      const ctrl = new AbortController()
+      let reader: ReadableStreamDefaultReader<Uint8Array> | null
+      try {
+        reader = await sendSessionMessageStream(sessionId, text, ctrl.signal)
+      } catch (e) {
+        updateQueue(queue => {
+          const i = queue.lastIndexOf(text)
+          return i < 0 ? queue : queue.filter((_, j) => j !== i)
+        })
+        throw e
+      }
+      useWorkspaceStore.getState().markSessionActivity(sessionId)
+      if (!reader) return
+      // The turn ended before the message was steered, so the agent started a
+      // new one with it; follow that stream instead.
+      useWorkspaceStore.getState().setSessionBusy(sessionId, true)
+      set(state => {
+        const session = state.sessions[sessionId] ?? emptySession()
+        return { sessions: { ...state.sessions, [sessionId]: { ...session, sending: true, recovering: false, abortController: ctrl } } }
+      })
+      try {
+        await consume(reader, false)
+      } catch { /* history reload below shows what happened */ } finally {
+        set(state => {
+          const session = state.sessions[sessionId] ?? emptySession()
+          if (session.abortController !== ctrl) return state
+          return { sessions: { ...state.sessions, [sessionId]: { ...session, sending: false, abortController: null } } }
+        })
+        if (!get().sessions[sessionId]?.sending) {
+          useWorkspaceStore.getState().setSessionBusy(sessionId, false)
+          if (!ctrl.signal.aborted) void get().loadHistory(sessionId, true).catch(() => {})
+        }
+      }
+      return
+    }
 
     const ts = Date.now()
     const ctrl = new AbortController()
@@ -280,19 +357,21 @@ export const useChatStreamStore = create<ChatStreamStore>((set, get) => ({
       // rejected send must not change its ordering.
       useWorkspaceStore.getState().markSessionActivity(sessionId)
       void useWorkspaceStore.getState().refreshSession(sessionId).catch(() => {})
-      const decoder = new TextDecoder()
-      let buf = ""
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buf += decoder.decode(value, { stream: true })
-        const parsed = parseSSELines(buf)
-        buf = parsed.rest
-        for (const ev of parsed.events) {
-          get().handleEvent(sessionId, ev)
-        }
+      if (!reader) {
+        // A run started elsewhere (another tab) took the message as a steer:
+        // show it as queued and follow that run through history polling.
+        set(state => {
+          const session = state.sessions[sessionId] ?? emptySession()
+          return { sessions: { ...state.sessions, [sessionId]: {
+            ...session,
+            recovering: true,
+            queue: [...session.queue, text],
+            bubbles: session.bubbles.filter(b => b.id !== `user-${ts}` && b.id !== `pending-${ts}`),
+          } } }
+        })
+        return
       }
+      await consume(reader, true)
     } catch (e: unknown) {
       if (!(e instanceof Error) || e.name !== "AbortError") {
         useWorkspaceStore.getState().setSessionBusy(sessionId, false)
@@ -349,7 +428,20 @@ export const useChatStreamStore = create<ChatStreamStore>((set, get) => ({
     }
   },
 
+  withdrawQueued: async (sessionId, index) => {
+    const text = get().sessions[sessionId]?.queue[index]
+    if (text === undefined) return null
+    const queue = await withdrawQueuedMessage(sessionId, index, text)
+    if (!queue) return null
+    set(state => {
+      const session = state.sessions[sessionId] ?? emptySession()
+      return { sessions: { ...state.sessions, [sessionId]: { ...session, queue } } }
+    })
+    return text
+  },
+
   stopSession: async (sessionId) => {
+    const queued = get().sessions[sessionId]?.queue ?? []
     get().sessions[sessionId]?.abortController?.abort()
     try {
       await abortSession(sessionId)
@@ -364,6 +456,7 @@ export const useChatStreamStore = create<ChatStreamStore>((set, get) => ({
             sending: false,
             recovering: false,
             abortController: null,
+            queue: [],
             bubbles: session.bubbles
               .filter(b => !(b.kind === "text" && !b.done && b.content === ""))
               .map(b => b.done ? b : { ...b, done: true }),
@@ -372,10 +465,39 @@ export const useChatStreamStore = create<ChatStreamStore>((set, get) => ({
       }
     })
     useWorkspaceStore.getState().setSessionBusy(sessionId, false)
+    return queued
   },
 
   handleEvent: (sessionId, ev) => {
     switch (ev.type) {
+      case "message.user": {
+        // A steered message reached the model: close the reply so far and
+        // continue in a new turn below the message.
+        const d = ev.data as MessageDeltaData
+        if (!d.partId || !d.text) break
+        set(state => {
+          const session = state.sessions[sessionId] ?? emptySession()
+          if (session.bubbles.some(b => b.id === d.partId)) return state
+          const bubbles: Bubble[] = [
+            ...session.bubbles
+              .filter(b => !(b.kind === "text" && !b.done && b.content === ""))
+              .map(b => (b.kind === "text" || b.kind === "thinking") && !b.done ? { ...b, done: true } : b),
+            { id: d.partId, role: "user", kind: "text", content: d.text, done: true },
+          ]
+          return { sessions: { ...state.sessions, [sessionId]: { ...session, bubbles } } }
+        })
+        break
+      }
+
+      case "session.queue": {
+        const d = ev.data as SessionQueueData
+        set(state => {
+          const session = state.sessions[sessionId] ?? emptySession()
+          return { sessions: { ...state.sessions, [sessionId]: { ...session, queue: d.messages ?? [] } } }
+        })
+        break
+      }
+
       case "message.delta": {
         const d = ev.data as MessageDeltaData
         if (!d.text || !d.partId) break
@@ -495,7 +617,7 @@ export const useChatStreamStore = create<ChatStreamStore>((set, get) => ({
           return {
             sessions: {
               ...state.sessions,
-              [sessionId]: { ...session, sending: false, abortController: null, bubbles },
+              [sessionId]: { ...session, sending: false, abortController: null, queue: [], bubbles },
             },
           }
         })

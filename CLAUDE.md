@@ -81,7 +81,8 @@ POST   /session {id, model, provider, baseUrl, apiKey}
 DELETE /session/:id                    → 204    (abort + delete transcript)
 PATCH  /session/:id/name {name}       → { name } (native pi session name)
 GET    /session/:id/message            → PlatformHistoryItem[]
-POST   /session/:id/prompt_async       → 204    (fire-and-forget; 409 if the session is busy)
+POST   /session/:id/prompt_async       → 204 (run started) | 202 (session busy: steered into the run)
+DELETE /session/:id/queue/:index {text} → { messages }  (withdraw a steered message; 409 once delivered)
 POST   /session/:id/abort              → 204
 GET    /event                          → SSE: {"sessionId", "type", "data"} platform events
 ```
@@ -96,12 +97,14 @@ The SDK's built-in tools are enabled directly: read, write, edit, bash, grep, fi
 
 ```
 { type: "message.delta",      data: { partId, text } }     // streaming text chunk
+{ type: "message.user",       data: { partId, text } }     // a user message reached the model (prompt or steer)
 { type: "message.thinking",   data: { partId, text } }     // streaming thinking chunk (optional)
 { type: "message.thinking.done", data: { partId, durationMs } } // thinking block ended (agent-timed)
 { type: "tool.start",         data: { toolId, tool, input } }
 { type: "tool.done",          data: { toolId, tool, output, parsed? } }
 { type: "session.title",      data: { title } }            // session title generated/updated
 { type: "session.usage",      data: { contextTokens, contextWindow, reserveTokens, tokens, userMessages, toolCalls } } // after each turn/compaction and in history
+{ type: "session.queue",      data: { messages } }         // steered messages not yet delivered; also in history
 { type: "session.idle",       data: {} }                   // closes the stream
 { type: "session.error",      data: { message } }
 ```
@@ -118,6 +121,8 @@ The SDK's built-in tools are enabled directly: read, write, edit, bash, grep, fi
 4. Stop at the session's `session.idle`.
 
 The response is itself an SSE stream; the frontend reads it directly from the `fetch` body, not via `EventSource`.
+
+**Steering.** A message sent while the session runs is not rejected: the agent `steer()`s it into the running turn and `prompt_async` returns 202, so the backend answers 202 with no stream and the reply keeps flowing on the stream that started the turn. pi delivers steered messages (all at once, `steeringMode: "all"`) after the current tool calls finish, before the next model request; it never cuts off a model response or a tool. Until then they show above the composer from `session.queue`, and can be withdrawn back into it (`DELETE /sessions/:id/queue/:index`). On delivery the agent emits `message.user` and the chat starts a new turn below it. A run that ends with messages still queued continues with them, so `session.idle` only comes once every message is answered. Abort drops the queue and the web client restores it into the composer. The stream belongs to whoever started the turn; other viewers follow it through history polling.
 
 ### Frontend event handling
 

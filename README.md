@@ -224,7 +224,8 @@ The backend talks to the agent through a small HTTP contract on port `1114` (see
 POST   /session {id, model, provider, baseUrl, apiKey}  → { id }   (idempotent; switches model if it differs)
 DELETE /session/:id                    → 204
 GET    /session/:id/message            → PlatformHistoryItem[]
-POST   /session/:id/prompt_async       → 204
+POST   /session/:id/prompt_async       → 204 (run started) | 202 (busy: steered into the run)
+DELETE /session/:id/queue/:index       → { messages }   (withdraw a steered message)
 POST   /session/:id/abort              → 204
 GET    /event                          → SSE stream of platform events, tagged with sessionId
 ```

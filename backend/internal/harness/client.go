@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -69,6 +70,11 @@ type sendMessageRequest struct {
 	Parts []messagePart `json:"parts"`
 }
 
+// ErrSteered means the session was busy: the agent queued the text into the
+// running turn instead of starting one, so there is no new stream to follow.
+var ErrSteered = errors.New("message steered into the running turn")
+
+// PromptAsync starts a run, or steers text into the one in progress (ErrSteered).
 func (c *Client) PromptAsync(ctx context.Context, sandboxURL, sessionID, text string) error {
 	body, _ := json.Marshal(sendMessageRequest{
 		Parts: []messagePart{{Type: "text", Text: text}},
@@ -86,11 +92,47 @@ func (c *Client) PromptAsync(ctx context.Context, sandboxURL, sessionID, text st
 		return fmt.Errorf("agent prompt_async: %w", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusNoContent {
-		b, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("agent prompt_async status %d: %s", resp.StatusCode, b)
+	switch resp.StatusCode {
+	case http.StatusNoContent:
+		return nil
+	case http.StatusAccepted:
+		return ErrSteered
 	}
-	return nil
+	b, _ := io.ReadAll(resp.Body)
+	return fmt.Errorf("agent prompt_async status %d: %s", resp.StatusCode, b)
+}
+
+// WithdrawQueued removes a steered message that has not reached the model yet.
+// text must match the queued message at index, so a stale request cannot drop
+// another one. It returns the remaining queue, or ok=false when it was too late.
+func (c *Client) WithdrawQueued(ctx context.Context, base, sessionID string, index int, text string) (messages []string, ok bool, err error) {
+	body, _ := json.Marshal(map[string]string{"text": text})
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete,
+		fmt.Sprintf("%s/session/%s/queue/%d", base, sessionID, index), bytes.NewReader(body))
+	if err != nil {
+		return nil, false, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, false, fmt.Errorf("agent withdraw: %w", err)
+	}
+	defer resp.Body.Close()
+	switch resp.StatusCode {
+	case http.StatusOK:
+	case http.StatusConflict, http.StatusNotFound:
+		return nil, false, nil
+	default:
+		b, _ := io.ReadAll(resp.Body)
+		return nil, false, fmt.Errorf("agent withdraw status %d: %s", resp.StatusCode, b)
+	}
+	var result struct {
+		Messages []string `json:"messages"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, false, err
+	}
+	return result.Messages, true, nil
 }
 
 func (c *Client) Abort(ctx context.Context, sandboxURL, sessionID string) error {
