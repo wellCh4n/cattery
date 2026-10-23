@@ -155,11 +155,9 @@
   background-color: var(--shiki-dark-bg) !important;
 }
 
-html:has(.file-preview-dialog) {
-  overscroll-behavior-x: none;
-}
-
-html:has(.file-preview-dialog) body {
+/* Set while the pointer is over the tab bar and viewer (lib/swipe-navigation). */
+html.no-swipe-navigation,
+html.no-swipe-navigation body {
   overscroll-behavior-x: none;
 }
 

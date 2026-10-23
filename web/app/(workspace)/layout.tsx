@@ -8,6 +8,7 @@ import { StatusBar } from "@/components/status-bar"
 import { TabBar } from "@/components/tab-bar"
 import { TerminalHost } from "@/components/terminal-host"
 import { useAuthStore } from "@/lib/auth-store"
+import { blockSwipeNavigation } from "@/lib/swipe-navigation"
 
 export default function WorkspaceLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
@@ -49,7 +50,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-canvas">
       <WorkspaceShell>
-        <main className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-md border bg-background">
+        <main ref={blockSwipeNavigation} className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-md border bg-background">
           <TabBar />
           <div className="relative min-h-0 flex-1 overflow-hidden">
             {children}
