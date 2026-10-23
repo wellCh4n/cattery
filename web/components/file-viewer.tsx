@@ -55,7 +55,7 @@ function detectLanguage(path: string): string {
 }
 
 // Shiki dual-theme: token has htmlStyle CSS vars (--shiki-light / --shiki-dark)
-function tokenStyle(t: ThemedToken): React.CSSProperties {
+export function tokenStyle(t: ThemedToken): React.CSSProperties {
   if (t.htmlStyle) {
     if (typeof t.htmlStyle === "string") {
       return { cssText: t.htmlStyle } as React.CSSProperties
@@ -65,10 +65,10 @@ function tokenStyle(t: ThemedToken): React.CSSProperties {
   return { color: t.color }
 }
 
-export function FileViewer({ path, lines }: Props) {
+// useCodeTokens highlights `code` by the language of `path`, one token list
+// per line. Null for plain text and until the highlighter is ready.
+export function useCodeTokens(path: string, code: string): ThemedToken[][] | null {
   const [tokens, setTokens] = useState<ThemedToken[][] | null>(null)
-  const safeLines = lines ?? []
-  const code = safeLines.map(l => l.text).join("\n")
   const lang = detectLanguage(path)
 
   useEffect(() => {
@@ -87,6 +87,13 @@ export function FileViewer({ path, lines }: Props) {
     })().catch(() => { /* ignore */ })
     return () => { cancelled = true }
   }, [code, lang])
+
+  return lang === "text" ? null : tokens
+}
+
+export function FileViewer({ path, lines }: Props) {
+  const safeLines = lines ?? []
+  const tokens = useCodeTokens(path, safeLines.map(l => l.text).join("\n"))
 
   return (
     <table className="shiki-dual w-full border-collapse text-xs font-mono [font-variant-ligatures:none]">

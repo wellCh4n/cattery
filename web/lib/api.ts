@@ -286,6 +286,7 @@ export interface FileReadResponse {
   truncated: boolean
   binary: boolean
   content?: string
+  mtime: string // unix nanoseconds as a string (too big for a number); passed back to saveFile
 }
 
 export async function listFiles(projectId: string, path: string): Promise<FileEntry[]> {
@@ -299,6 +300,29 @@ export async function readFile(projectId: string, path: string): Promise<FileRea
   const url = `${API_BASE}/api/v1/projects/${projectId}/files/read?path=${encodeURIComponent(path)}`
   const res = await authedFetch(url, { cache: "no-store" })
   if (!res.ok) throw new Error(`read file failed: ${res.status}`)
+  return res.json()
+}
+
+// FileConflictError means the file changed on disk after it was read.
+export class FileConflictError extends Error {}
+
+// writeFile replaces an existing file's contents. With `mtime` (from
+// readFile) the save is refused if the file changed since.
+export async function saveFile(
+  projectId: string,
+  path: string,
+  content: string,
+  mtime?: string,
+): Promise<{ size: number; mtime: string }> {
+  let url = `${API_BASE}/api/v1/projects/${projectId}/files/save?path=${encodeURIComponent(path)}`
+  if (mtime !== undefined) url += `&mtime=${encodeURIComponent(mtime)}`
+  const res = await authedFetch(url, {
+    method: "PUT",
+    body: content,
+    headers: { "Content-Type": "text/plain; charset=utf-8" },
+  })
+  if (res.status === 409) throw new FileConflictError(await readErrorMessage(res, "file changed since it was opened"))
+  if (!res.ok) throw new Error(await readErrorMessage(res, `save failed (${res.status})`))
   return res.json()
 }
 

@@ -112,6 +112,23 @@ func (h *FilesHandler) Upload(c echo.Context) error {
 	return forward(c, req)
 }
 
+// Save proxies PUT /projects/:id/files/save?path=...&mtime=... with the
+// new file contents as the raw body. filemgr answers 409 when the file
+// changed after `mtime`. Writers only.
+func (h *FilesHandler) Save(c echo.Context) error {
+	base, err := h.requireFileMgrURL(c, true)
+	if err != nil {
+		return err
+	}
+	target := base + "/save?" + c.Request().URL.RawQuery
+	req, err := http.NewRequestWithContext(c.Request().Context(), http.MethodPut, target, c.Request().Body)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	req.ContentLength = c.Request().ContentLength
+	return forward(c, req)
+}
+
 // Delete proxies DELETE /projects/:id/files/delete?path=... — hard delete,
 // no trash. Recursive for directories. Writers only.
 func (h *FilesHandler) Delete(c echo.Context) error {

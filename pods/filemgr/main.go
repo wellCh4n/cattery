@@ -37,6 +37,10 @@ type readResponse struct {
 	Truncated bool   `json:"truncated"`
 	Binary    bool   `json:"binary"`
 	Content   string `json:"content,omitempty"`
+	// Mtime (unix nanoseconds) lets /save refuse to overwrite a file that
+	// changed since it was read. Sent as a string: it exceeds the integers a
+	// JavaScript number holds exactly.
+	Mtime int64 `json:"mtime,string"`
 }
 
 var root string
@@ -58,6 +62,7 @@ func main() {
 	mux.HandleFunc("/raw", handleRaw)
 	mux.HandleFunc("/download", handleDownload)
 	mux.HandleFunc("/upload", handleUpload)
+	mux.HandleFunc("/save", handleSave)
 	mux.HandleFunc("/delete", handleDelete)
 	mux.HandleFunc("/rename", handleRename)
 	mux.HandleFunc("/move", handleMove)
@@ -202,11 +207,100 @@ func handleRead(w http.ResponseWriter, r *http.Request) {
 		Size:      info.Size(),
 		Truncated: truncated,
 		Binary:    isBinary(buf),
+		Mtime:     info.ModTime().UnixNano(),
 	}
 	if !resp.Binary {
 		resp.Content = string(buf)
 	}
 	writeJSON(w, resp)
+}
+
+// handleSave replaces an existing file's contents with the request body
+// (PUT /save?path=...&mtime=...). When `mtime` is given and the file changed
+// since, it answers 409 instead of overwriting. The body is written to a temp
+// file beside the target and renamed over it, so a failed save never leaves a
+// half-written file; the original mode is kept and symlinks stay in place.
+func handleSave(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	abs, err := resolve(r.URL.Query().Get("path"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	target, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		if os.IsNotExist(err) {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	info, err := os.Stat(target)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !info.Mode().IsRegular() {
+		http.Error(w, "not a regular file", http.StatusBadRequest)
+		return
+	}
+	if v := r.URL.Query().Get("mtime"); v != "" {
+		want, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			http.Error(w, "invalid 'mtime'", http.StatusBadRequest)
+			return
+		}
+		if info.ModTime().UnixNano() != want {
+			http.Error(w, "file changed since it was opened", http.StatusConflict)
+			return
+		}
+	}
+
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxReadBytes+1))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if len(body) > maxReadBytes {
+		http.Error(w, "file too large to save", http.StatusRequestEntityTooLarge)
+		return
+	}
+
+	tmp, err := os.CreateTemp(filepath.Dir(target), "."+filepath.Base(target)+".*.tmp")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer os.Remove(tmp.Name()) // no-op once renamed
+	_, err = tmp.Write(body)
+	if err == nil {
+		err = tmp.Chmod(info.Mode().Perm())
+	}
+	if closeErr := tmp.Close(); err == nil {
+		err = closeErr
+	}
+	if err == nil {
+		err = os.Rename(tmp.Name(), target)
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	saved, err := os.Stat(target)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]interface{}{
+		"path":  r.URL.Query().Get("path"),
+		"size":  saved.Size(),
+		"mtime": strconv.FormatInt(saved.ModTime().UnixNano(), 10),
+	})
 }
 
 // handleRaw streams raw file bytes for inline display in the browser. Unlike

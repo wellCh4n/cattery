@@ -66,7 +66,7 @@ func NewRouter(
 	e.Use(middleware.Recover())
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
 		AllowOrigins: []string{"*"},
-		AllowMethods: []string{"GET", "POST", "PATCH", "DELETE", "OPTIONS"},
+		AllowMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowHeaders: []string{"Content-Type", "Authorization"},
 	}))
 
@@ -137,6 +137,7 @@ func NewRouter(
 	projects.GET("/:project_id/files/raw-path/*", filesH.RawPath)
 	projects.GET("/:project_id/files/download", filesH.Download)
 	projects.POST("/:project_id/files/upload", filesH.Upload)
+	projects.PUT("/:project_id/files/save", filesH.Save)
 	projects.DELETE("/:project_id/files/delete", filesH.Delete)
 	projects.POST("/:project_id/files/rename", filesH.Rename)
 	projects.POST("/:project_id/files/move", filesH.Move)
