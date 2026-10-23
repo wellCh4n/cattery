@@ -158,11 +158,12 @@ function ChatPanelContent({ session }: Props) {
 
   const answering = !!question
   useEffect(() => {
-    // The composer stays usable while the agent runs (steering); it is only
-    // disabled while a questionnaire waits, so refocus once that is answered.
-    if (!writable || !ready || answering) return
+    // The composer stays usable while the sandbox starts (only sending waits for
+    // it) and while the agent runs (steering); it is only disabled while a
+    // questionnaire waits, so refocus once that is answered.
+    if (!writable || answering) return
     inputRef.current?.focus({ preventScroll: true })
-  }, [writable, ready, sending, answering, session.session_id])
+  }, [writable, sending, answering, session.session_id])
 
   // Put text back into the composer ahead of whatever is being typed.
   function restoreInput(texts: string[]) {
@@ -342,9 +343,9 @@ function ChatPanelContent({ session }: Props) {
             <InputGroupTextarea
               ref={inputRef}
               value={input}
-              disabled={!ready || !!question}
+              disabled={!!question}
               onChange={e => setInput(e.target.value)}
-              placeholder={!ready ? "Waiting for the sandbox…" : question ? "Answer the questions above first" : sending ? "Steer the agent…" : "Ask the agent to change your code…"}
+              placeholder={question ? "Answer the questions above first" : sending ? "Steer the agent…" : "Ask the agent to change your code…"}
               aria-label="Message"
               rows={1}
               className="max-h-48 min-h-0 px-4 pt-4 text-base md:text-sm [field-sizing:content]"
