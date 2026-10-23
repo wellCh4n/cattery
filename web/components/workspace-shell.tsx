@@ -42,7 +42,7 @@ import { UserAvatar } from "@/components/user-avatar"
 import { cn } from "@/lib/utils"
 import { useResizable } from "@/lib/use-resizable"
 import { type Session } from "@/lib/api"
-import { type ProjectWithSessions, useWorkspaceStore } from "@/lib/workspace-store"
+import { canWriteSession, type ProjectWithSessions, useWorkspaceStore } from "@/lib/workspace-store"
 import { useAuthStore } from "@/lib/auth-store"
 import { compareSessionActivity, sessionActivityTime } from "@/lib/session-activity"
 
@@ -475,6 +475,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
               items={sessions.map(sess => buildSessionNode({
                 session: sess,
                 selected: selectedSessionId === sess.session_id,
+                writable: !!currentProject && canWriteSession(sess, currentProject, user?.user_id),
                 busy: busySessions.has(sess.session_id),
                 onRoute: id => router.push(`/sessions/${id}`),
                 onRequestDelete: s => setDeleteSessionTarget({
@@ -600,6 +601,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
 function buildSessionNode({
   session,
   selected,
+  writable,
   busy,
   onRoute,
   onRequestDelete,
@@ -607,6 +609,7 @@ function buildSessionNode({
 }: {
   session: Session
   selected: boolean
+  writable: boolean
   busy: boolean
   onRoute: (sessionId: string) => void
   onRequestDelete: (sess: Session) => void
@@ -633,7 +636,7 @@ function buildSessionNode({
             <ModelIcon id={session.model} className="size-3.5" />
           </span>
         }
-        actions={
+        actions={writable &&
           <>
             <TreeRowAction title="Rename session" aria-label="Rename session" onClick={e => { e.stopPropagation(); onRequestRename(session) }}>
               <Pencil className="size-4" />

@@ -74,10 +74,29 @@ func requireReadableSession(
 	return sess, access, nil
 }
 
+// requireWritableSession additionally requires the caller to own the session:
+// sessions are private to their creator and read-only to other members. A
+// session without a creator (legacy, or the account was deleted) falls to the
+// project owner.
 func requireWritableSession(
 	c echo.Context,
 	sessions *db.SessionStore,
 	projects *db.ProjectStore,
 ) (*model.Session, *model.ProjectAccess, error) {
-	return requireReadableSession(c, sessions, projects)
+	sess, access, err := requireReadableSession(c, sessions, projects)
+	if err != nil {
+		return nil, nil, err
+	}
+	userID, _ := UserIDFromContext(c)
+	if !canWriteSession(sess, access, userID) {
+		return nil, nil, echo.NewHTTPError(http.StatusForbidden, "only the session's creator can change it")
+	}
+	return sess, access, nil
+}
+
+func canWriteSession(sess *model.Session, access *model.ProjectAccess, userID uuid.UUID) bool {
+	if sess.CreatedByUserID != nil {
+		return *sess.CreatedByUserID == userID
+	}
+	return access.AccessRole == model.AccessOwner
 }

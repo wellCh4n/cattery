@@ -217,6 +217,15 @@ export async function sendSessionMessageStream(
   return res.body.getReader()
 }
 
+// Follows a session's live events across runs. The response arrives once the
+// agent subscription is in place, so a history snapshot loaded afterwards plus
+// the events after its seq form a gapless view.
+export async function openSessionEvents(sessionId: string, signal: AbortSignal): Promise<ReadableStreamDefaultReader<Uint8Array>> {
+  const res = await authedFetch(`${API_BASE}/api/v1/sessions/${sessionId}/events`, { cache: "no-store", signal })
+  if (!res.ok || !res.body) throw new Error(await readErrorMessage(res, "failed to follow session"))
+  return res.body.getReader()
+}
+
 // Takes back a steered message before it reaches the model. Returns the
 // remaining queue, or null when the message was already delivered.
 export async function withdrawQueuedMessage(sessionId: string, index: number, text: string): Promise<string[] | null> {

@@ -24,7 +24,7 @@ function parseQuestions(raw: string): Question[] {
   } catch { return [] }
 }
 
-export function QuestionnaireCard({ bubble, sessionId }: { bubble: Bubble; sessionId: string }) {
+export function QuestionnaireCard({ bubble, sessionId, readOnly = false }: { bubble: Bubble; sessionId: string; readOnly?: boolean }) {
   const questions = parseQuestions(bubble.content)
   const [answers, setAnswers] = useState<Record<string, Answer>>({})
   const [page, setPage] = useState(0)
@@ -73,10 +73,14 @@ export function QuestionnaireCard({ bubble, sessionId }: { bubble: Bubble; sessi
     <section aria-label="Questionnaire" className="w-full rounded-xl border bg-card p-4">
       <div className="mb-4 flex items-center gap-2 text-sm font-medium">
         {closed ? <CheckIcon className="size-4" /> : <MessageCircleQuestionIcon className="size-4" />}
-        {closed ? (result?.cancelled ? "Questionnaire cancelled" : result?.answers ? "Answers submitted" : submitted ? "Response submitted" : "Questionnaire ended") : "Waiting for your answer"}
+        {closed ? (result?.cancelled ? "Questionnaire cancelled" : result?.answers ? "Answers submitted" : submitted ? "Response submitted" : "Questionnaire ended") : readOnly ? "Waiting for the session's creator to answer" : "Waiting for your answer"}
         {!closed && <span className="ml-auto text-xs text-muted-foreground">{Object.keys(answers).filter(id => answers[id].value.trim()).length} / {questions.length}</span>}
       </div>
-      {closed ? (
+      {!closed && readOnly ? (
+        <div className="space-y-3 text-sm">
+          {questions.map((q, i) => <p key={q.id} className="font-medium">{label(q, i)}: {q.prompt}</p>)}
+        </div>
+      ) : closed ? (
         <div className="space-y-3 text-sm">
           {questions.map((q, i) => {
             const answer = result?.answers?.find(a => a.id === q.id)

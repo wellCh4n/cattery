@@ -158,6 +158,7 @@ func NewRouter(
 	sessions.DELETE("/:session_id/queue/:index", sessionH.WithdrawQueued)
 	sessions.POST("/:session_id/questionnaire/:tool_id", sessionH.AnswerQuestionnaire)
 	sessions.GET("/:session_id/history", sessionH.History)
+	sessions.GET("/:session_id/events", sessionH.Events)
 	sessions.GET("/:session_id/export", sessionH.Export)
 	sessions.PATCH("/:session_id", sessionH.Update)
 	sessions.DELETE("/:session_id", sessionH.Delete)

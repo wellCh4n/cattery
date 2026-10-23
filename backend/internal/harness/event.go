@@ -5,7 +5,10 @@ package harness
 import "encoding/json"
 
 // PlatformEvent 是平台统一的 SSE 事件格式，前端只处理这个。
+// Seq 是 agent 给每个实时事件的递增序号（history 中的事件没有）。history 快照的
+// session.state 带上它反映到的最后一个 seq，客户端据此只应用之后的事件。
 type PlatformEvent struct {
+	Seq  int64           `json:"seq,omitempty"`
 	Type string          `json:"type"`
 	Data json.RawMessage `json:"data"`
 }
@@ -18,7 +21,7 @@ const (
 	EventThinkingDone    = "message.thinking.done" // 思考块结束: { partId, durationMs }
 	EventToolStart       = "tool.start"            // 工具调用开始
 	EventToolDone        = "tool.done"             // 工具调用结束
-	EventSessionState    = "session.state"         // history snapshot: { busy: boolean }
+	EventSessionState    = "session.state"         // history snapshot: { busy: boolean, seq: number }
 	EventSessionQueue    = "session.queue"         // 已 steer 但尚未送达模型的消息: { messages: string[] }
 	EventSessionIdle     = "session.idle"          // session 结束/空闲
 	EventSessionError    = "session.error"         // 出错

@@ -285,6 +285,43 @@ func (h *SessionHandler) SendMessage(c echo.Context) error {
 	return err
 }
 
+// Events streams the session's live events to any project member, across runs,
+// until the client disconnects. Clients subscribe first, then load a history
+// snapshot and apply only events after its seq. Titles are left out: only the
+// stream that started a run persists them, so viewers refresh the session.
+func (h *SessionHandler) Events(c echo.Context) error {
+	sess, _, err := requireReadableSession(c, h.sessionStore, h.projectStore)
+	if err != nil {
+		return err
+	}
+	if sess.Status != "ready" {
+		return echo.NewHTTPError(http.StatusConflict, "session not ready")
+	}
+	ctx := c.Request().Context()
+	sandboxURL, err := h.sandbox.Await(ctx, sess.ProjectID)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "sandbox unavailable: "+err.Error())
+	}
+	onEvent := func(ev *harness.PlatformEvent) bool { return ev.Type != harness.EventSessionTitle }
+	err = h.harnessClient.StreamEvents(ctx, sandboxURL, sess.SessionID.String(), c.Response(), onEvent, func() error {
+		c.Response().Header().Set("Content-Type", "text/event-stream")
+		c.Response().Header().Set("Cache-Control", "no-cache")
+		c.Response().Header().Set("Connection", "keep-alive")
+		c.Response().Header().Set("X-Accel-Buffering", "no")
+		c.Response().WriteHeader(http.StatusOK)
+		c.Response().Flush()
+		return nil
+	})
+	if c.Response().Committed {
+		// The stream already started; the client reconnects and resyncs.
+		return nil
+	}
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadGateway, err.Error())
+	}
+	return nil
+}
+
 // WithdrawQueued takes back a steered message before it reaches the model.
 func (h *SessionHandler) WithdrawQueued(c echo.Context) error {
 	sess, _, err := requireWritableSession(c, h.sessionStore, h.projectStore)

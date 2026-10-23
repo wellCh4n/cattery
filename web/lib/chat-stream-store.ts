@@ -4,6 +4,7 @@ import { create } from "zustand"
 import {
   abortSession,
   getHistory,
+  openSessionEvents,
   sendSessionMessageStream,
   withdrawQueuedMessage,
 } from "@/lib/api"
@@ -44,6 +45,8 @@ export interface Bubble {
 }
 
 export interface PlatformEvent {
+  // Rising id of a live event; absent in history.
+  seq?: number
   type:
     | "message.delta"
     | "message.user"
@@ -91,6 +94,11 @@ interface ChatStreamStore {
   withdrawQueued: (sessionId: string, index: number) => Promise<string | null>
   // Returns the queued messages, which the run drops undelivered.
   stopSession: (sessionId: string) => Promise<string[]>
+  // Follows the session's live events (other members' view, or this user's
+  // run started in another tab) until the returned function is called. Each
+  // follow holds a connection, and browsers allow only six per origin over
+  // HTTP/1.1, so follow only when needed.
+  follow: (sessionId: string) => () => void
   handleEvent: (sessionId: string, ev: PlatformEvent) => void
 }
 
@@ -212,6 +220,7 @@ export const useChatStreamStore = create<ChatStreamStore>((set, get) => ({
   resetSession: (sessionId) => {
     const current = get().sessions[sessionId]
     current?.abortController?.abort()
+    appliedSeq.delete(sessionId)
     set(state => ({
       sessions: {
         ...state.sessions,
@@ -229,10 +238,12 @@ export const useChatStreamStore = create<ChatStreamStore>((set, get) => ({
     const recovering = items.some(item => item.events.some(e => e.type === "session.state" && e.data.busy === true))
     const usage = items.flatMap(item => item.events).find(e => e.type === "session.usage")?.data as SessionUsageData | undefined
     const queue = items.flatMap(item => item.events).find(e => e.type === "session.queue")?.data as SessionQueueData | undefined
+    const seq = items.flatMap(item => item.events).find(e => e.type === "session.state")?.data.seq
     if (!recovering) for (const b of restored) b.done = true
     // A send may have started while history was loading.
     if (get().sessions[sessionId] !== existing) return
     useWorkspaceStore.getState().setSessionBusy(sessionId, recovering)
+    appliedSeq.set(sessionId, typeof seq === "number" ? seq : 0)
     set(state => ({
       sessions: {
         ...state.sessions,
@@ -268,6 +279,7 @@ export const useChatStreamStore = create<ChatStreamStore>((set, get) => ({
         const parsed = parseSSELines(buf)
         buf = parsed.rest
         for (const ev of parsed.events) {
+          if (!claimSeq(sessionId, ev.seq)) continue
           if (skipEcho && ev.type === "message.user") {
             skipEcho = false
             continue
@@ -359,7 +371,7 @@ export const useChatStreamStore = create<ChatStreamStore>((set, get) => ({
       void useWorkspaceStore.getState().refreshSession(sessionId).catch(() => {})
       if (!reader) {
         // A run started elsewhere (another tab) took the message as a steer:
-        // show it as queued and follow that run through history polling.
+        // show it as queued; the panel's follow stream delivers that run.
         set(state => {
           const session = state.sessions[sessionId] ?? emptySession()
           return { sessions: { ...state.sessions, [sessionId]: {
@@ -468,16 +480,56 @@ export const useChatStreamStore = create<ChatStreamStore>((set, get) => ({
     return queued
   },
 
+  follow: (sessionId) => {
+    const ctrl = new AbortController()
+    void (async () => {
+      while (!ctrl.signal.aborted) {
+        let reader: ReadableStreamDefaultReader<Uint8Array> | undefined
+        try {
+          // Subscribe, then snapshot: events buffered meanwhile are applied
+          // only past the snapshot's seq, so nothing is lost or repeated.
+          reader = await openSessionEvents(sessionId, ctrl.signal)
+          await get().loadHistory(sessionId, true)
+          const decoder = new TextDecoder()
+          let buf = ""
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+            buf += decoder.decode(value, { stream: true })
+            const parsed = parseSSELines(buf)
+            buf = parsed.rest
+            for (const ev of parsed.events) {
+              // This tab's own send stream delivers the run it started.
+              if (get().sessions[sessionId]?.sending) continue
+              if (!claimSeq(sessionId, ev.seq)) continue
+              get().handleEvent(sessionId, ev)
+              // Only the stream that started the run saves its title.
+              if (ev.type === "session.idle") void useWorkspaceStore.getState().refreshSession(sessionId).catch(() => {})
+            }
+          }
+        } catch { /* reconnect and resync below */ } finally {
+          void reader?.cancel().catch(() => {})
+        }
+        if (ctrl.signal.aborted) break
+        await new Promise(resolve => setTimeout(resolve, 2000))
+      }
+    })()
+    return () => ctrl.abort()
+  },
+
   handleEvent: (sessionId, ev) => {
     switch (ev.type) {
       case "message.user": {
         // A steered message reached the model: close the reply so far and
-        // continue in a new turn below the message.
+        // continue in a new turn below the message. Followers also learn here
+        // that a run started.
         const d = ev.data as MessageDeltaData
         if (!d.partId || !d.text) break
+        if (!get().sessions[sessionId]?.sending) useWorkspaceStore.getState().setSessionBusy(sessionId, true)
         set(state => {
-          const session = state.sessions[sessionId] ?? emptySession()
-          if (session.bubbles.some(b => b.id === d.partId)) return state
+          let session = state.sessions[sessionId] ?? emptySession()
+          if (!session.sending) session = { ...session, recovering: true }
+          if (session.bubbles.some(b => b.id === d.partId)) return { sessions: { ...state.sessions, [sessionId]: session } }
           const bubbles: Bubble[] = [
             ...session.bubbles
               .filter(b => !(b.kind === "text" && !b.done && b.content === ""))
@@ -617,7 +669,7 @@ export const useChatStreamStore = create<ChatStreamStore>((set, get) => ({
           return {
             sessions: {
               ...state.sessions,
-              [sessionId]: { ...session, sending: false, abortController: null, queue: [], bubbles },
+              [sessionId]: { ...session, sending: false, recovering: false, abortController: null, queue: [], bubbles },
             },
           }
         })
@@ -672,3 +724,17 @@ export const useChatStreamStore = create<ChatStreamStore>((set, get) => ({
     }
   },
 }))
+
+// Last live event applied per session, or the seq the loaded history snapshot
+// reflects; events at or below it are already shown. Kept outside the store:
+// it never renders, and a store write per streamed chunk would double renders.
+const appliedSeq = new Map<string, number>()
+
+// Records a live event as applied; false when it is already shown (it arrived
+// on another stream, or the loaded snapshot includes it).
+function claimSeq(sessionId: string, seq: number | undefined): boolean {
+  if (seq === undefined) return true
+  if (seq <= (appliedSeq.get(sessionId) ?? 0)) return false
+  appliedSeq.set(sessionId, seq)
+  return true
+}

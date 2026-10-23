@@ -221,6 +221,7 @@ func (c *Client) WaitHTTPReady(ctx context.Context, sandboxURL string, timeout t
 // sessionEvent 是 agent /event 总线上的一帧：平台事件外面包了一层 sessionId 用于路由。
 type sessionEvent struct {
 	SessionID string          `json:"sessionId"`
+	Seq       int64           `json:"seq"`
 	Type      string          `json:"type"`
 	Data      json.RawMessage `json:"data"`
 }
@@ -229,6 +230,16 @@ type sessionEvent struct {
 // 直到该 session 进入 idle。onEvent 在转发前调用，返回 false 会过滤该事件。
 // start 在订阅成功后执行，用于发送 prompt，避免丢失开头事件。
 func (c *Client) StreamEventsUntilIdle(ctx context.Context, sandboxURL, sessionID string, w io.Writer, onEvent func(*PlatformEvent) bool, start func() error) error {
+	return c.streamEvents(ctx, sandboxURL, sessionID, w, onEvent, start, true)
+}
+
+// StreamEvents 与 StreamEventsUntilIdle 相同，但跨越多轮运行一直转发，直到 ctx 结束
+// 或 agent 关闭连接。用于只读旁观者跟随会话。
+func (c *Client) StreamEvents(ctx context.Context, sandboxURL, sessionID string, w io.Writer, onEvent func(*PlatformEvent) bool, start func() error) error {
+	return c.streamEvents(ctx, sandboxURL, sessionID, w, onEvent, start, false)
+}
+
+func (c *Client) streamEvents(ctx context.Context, sandboxURL, sessionID string, w io.Writer, onEvent func(*PlatformEvent) bool, start func() error, untilIdle bool) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, sandboxURL+"/event", nil)
 	if err != nil {
 		return err
@@ -249,10 +260,21 @@ func (c *Client) StreamEventsUntilIdle(ctx context.Context, sandboxURL, sessionI
 		}
 	}
 
+	flush := func() {
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+	}
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 1024*1024), 4*1024*1024)
 	for scanner.Scan() {
 		line := scanner.Text()
+		if strings.HasPrefix(line, ":") {
+			// Keepalive from the agent; pass it on so idle proxies keep the stream open.
+			fmt.Fprint(w, ": ping\n\n")
+			flush()
+			continue
+		}
 		if !strings.HasPrefix(line, "data:") {
 			continue
 		}
@@ -263,16 +285,14 @@ func (c *Client) StreamEventsUntilIdle(ctx context.Context, sandboxURL, sessionI
 		if ev.SessionID != sessionID {
 			continue
 		}
-		platEv := &PlatformEvent{Type: ev.Type, Data: ev.Data}
+		platEv := &PlatformEvent{Seq: ev.Seq, Type: ev.Type, Data: ev.Data}
 		if onEvent != nil && !onEvent(platEv) {
 			continue
 		}
 		b, _ := json.Marshal(platEv)
 		fmt.Fprintf(w, "event: message\ndata: %s\n\n", b)
-		if f, ok := w.(http.Flusher); ok {
-			f.Flush()
-		}
-		if ev.Type == EventSessionIdle {
+		flush()
+		if untilIdle && ev.Type == EventSessionIdle {
 			return nil
 		}
 	}

@@ -8,12 +8,13 @@
  *                                                     switching its model if it differs)
  *   GET    /session/:id                    → { id }
  *   DELETE /session/:id                    → 204 (abort + delete transcript)
- *   GET    /session/:id/message            → PlatformHistoryItem[]
+ *   GET    /session/:id/message            → PlatformHistoryItem[]  (snapshot; session.state carries
+ *                                                     the seq of the last event it reflects)
  *   POST   /session/:id/prompt_async       → 204 (run started) | 202 (busy: steered into the run)
  *   DELETE /session/:id/queue/:index {text} → { messages }  (withdraw a steered message)
  *   POST   /session/:id/questionnaire/:toolId → 204 (answer/cancel a pending tool)
  *   POST   /session/:id/abort              → 204
- *   GET    /event                          → SSE bus of platform events
+ *   GET    /event                          → SSE bus of platform events, each with a rising seq
  *
  * One sandbox serves every session of a project; each session carries its own
  * model. The backend sends the model's endpoint and key with every POST
@@ -101,8 +102,13 @@ interface HistoryItem { messageId: string; role: 'user' | 'assistant'; events: P
 
 const sseClients = new Set<(payload: string) => void>()
 
+// Every event carries a rising seq, and a history snapshot reports the last seq
+// it reflects, so a client that joins mid-run applies only later events. Seeded
+// from the clock so it keeps rising across harness restarts.
+let eventSeq = Date.now() * 1000
+
 function broadcast(sessionId: string, ev: PlatformEvent): void {
-  const payload = JSON.stringify({ sessionId, type: ev.type, data: ev.data })
+  const payload = JSON.stringify({ sessionId, seq: ++eventSeq, type: ev.type, data: ev.data })
   for (const send of sseClients) {
     try { send(payload) } catch { /* closed connection */ }
   }
@@ -201,8 +207,17 @@ interface Session {
   // Start time of each thinking block still streaming, keyed by partId.
   thinkingStarts: Map<string, number>
   lastUser?: ReturnType<typeof userPartId>
+  // Broadcast but not yet in the transcript; history snapshots include them.
+  live: LiveState
   persistQueue?: Promise<void>
   run?: Promise<void>
+}
+interface LiveState {
+  user?: { partId: string; text: string }
+  // The assistant message still streaming: text and thinking so far, per partId.
+  assistant?: { timestamp: number; blocks: Map<string, PlatformEvent>; thinkingDone: PlatformEvent[] }
+  // Finished tools whose result message is not persisted yet, by toolCallId.
+  toolDone: Map<string, PlatformEvent>
 }
 interface SessionMetadata { version: 2; model: ModelRef; titleAttempted: boolean }
 
@@ -260,7 +275,7 @@ async function newSession(id: string, ref: ModelRef, gateway: Gateway, titleAtte
     customTools: [questionnaire.tool],
   })
   const sess: Session = { id, model: ref, gateway, sdk, manager, runtime,
-    titled: manager.getEntries().some(e => e.type === 'message' && e.message.role === 'user'), titleAttempted, busy: false, questionnaire, thinkingStarts: new Map() }
+    titled: manager.getEntries().some(e => e.type === 'message' && e.message.role === 'user'), titleAttempted, busy: false, questionnaire, thinkingStarts: new Map(), live: { toolDone: new Map() } }
   sdk.subscribe(ev => forward(sess, ev))
   sessions.set(id, sess)
   return sess
@@ -308,7 +323,33 @@ function history(sess: Session): HistoryItem[] {
       thinkingMs.set(d.partId, d.durationMs)
     }
   }
-  return toHistory(messages, thinkingMs)
+  const items = toHistory(messages, thinkingMs)
+  appendLive(sess.live, items)
+  return items
+}
+
+// Adds what was broadcast but not persisted, so the snapshot matches the event
+// stream up to eventSeq. The SDK persists each message right after emitting its
+// message_end, synchronously, so nothing falls between the two.
+function appendLive(live: LiveState, items: HistoryItem[]): void {
+  const reply = (timestamp: number) => {
+    const last = items.at(-1)
+    if (last?.role === 'assistant') return last
+    const item: HistoryItem = { messageId: `r${timestamp}`, role: 'assistant', events: [] }
+    items.push(item)
+    return item
+  }
+  if (live.toolDone.size) reply(Date.now()).events.push(...live.toolDone.values())
+  if (live.user) {
+    items.push({ messageId: live.user.partId, role: 'user', events: [{ type: 'message.delta', data: live.user }] })
+  }
+  if (live.assistant) reply(live.assistant.timestamp).events.push(...live.assistant.blocks.values(), ...live.assistant.thinkingDone)
+}
+
+function liveBlock(sess: Session, msg: { timestamp: number }, id: string, type: 'message.delta' | 'message.thinking', delta: string): void {
+  const a = sess.live.assistant ??= { timestamp: msg.timestamp, blocks: new Map(), thinkingDone: [] }
+  const prev = a.blocks.get(id)?.data as { text: string } | undefined
+  a.blocks.set(id, { type, data: { partId: id, text: (prev?.text ?? '') + delta } })
 }
 
 const queued = (sess: Session) => [...sess.sdk.getSteeringMessages(), ...sess.sdk.getFollowUpMessages()]
@@ -321,7 +362,13 @@ function forward(sess: Session, ev: AgentSessionEvent): void {
       // first and adds steered ones where they reached the model. Same id as the
       // history item, so live and replayed turns line up.
       sess.lastUser = userPartId(ev.message.timestamp, sess.lastUser)
-      broadcast(sess.id, { type: 'message.user', data: { partId: sess.lastUser.id, text: userText(ev.message.content) } })
+      sess.live.user = { partId: sess.lastUser.id, text: userText(ev.message.content) }
+      broadcast(sess.id, { type: 'message.user', data: sess.live.user })
+      return
+    case 'message_end':
+      if (ev.message.role === 'user') sess.live.user = undefined
+      else if (ev.message.role === 'assistant') sess.live.assistant = undefined
+      else if (ev.message.role === 'toolResult') sess.live.toolDone.delete(ev.message.toolCallId)
       return
     case 'queue_update':
       broadcast(sess.id, { type: 'session.queue', data: { messages: [...ev.steering, ...ev.followUp] } })
@@ -329,11 +376,15 @@ function forward(sess: Session, ev: AgentSessionEvent): void {
     case 'message_update': {
       const e = ev.assistantMessageEvent
       if (e.type === 'text_delta') {
-        broadcast(sess.id, { type: 'message.delta', data: { partId: partId(e.partial, 't', e.contentIndex), text: e.delta } })
+        const id = partId(e.partial, 't', e.contentIndex)
+        liveBlock(sess, e.partial, id, 'message.delta', e.delta)
+        broadcast(sess.id, { type: 'message.delta', data: { partId: id, text: e.delta } })
       } else if (e.type === 'thinking_start') {
         sess.thinkingStarts.set(partId(e.partial, 'k', e.contentIndex), Date.now())
       } else if (e.type === 'thinking_delta') {
-        broadcast(sess.id, { type: 'message.thinking', data: { partId: partId(e.partial, 'k', e.contentIndex), text: e.delta } })
+        const id = partId(e.partial, 'k', e.contentIndex)
+        liveBlock(sess, e.partial, id, 'message.thinking', e.delta)
+        broadcast(sess.id, { type: 'message.thinking', data: { partId: id, text: e.delta } })
       } else if (e.type === 'thinking_end') {
         const id = partId(e.partial, 'k', e.contentIndex)
         const started = sess.thinkingStarts.get(id)
@@ -341,6 +392,7 @@ function forward(sess: Session, ev: AgentSessionEvent): void {
         sess.thinkingStarts.delete(id)
         const data: ThinkingEntryData = { partId: id, durationMs: Date.now() - started }
         sess.manager.appendCustomEntry(THINKING_ENTRY, data)
+        sess.live.assistant?.thinkingDone.push({ type: 'message.thinking.done', data })
         broadcast(sess.id, { type: 'message.thinking.done', data })
       }
       return
@@ -348,15 +400,18 @@ function forward(sess: Session, ev: AgentSessionEvent): void {
     case 'tool_execution_start':
       broadcast(sess.id, { type: 'tool.start', data: { toolId: ev.toolCallId, tool: ev.toolName, input: JSON.stringify(ev.toolName === 'questionnaire' ? prepareQuestionnaireArguments(ev.args) : ev.args ?? {}) } })
       return
-    case 'tool_execution_end':
-      broadcast(sess.id, {
+    case 'tool_execution_end': {
+      const done: PlatformEvent = {
         type: 'tool.done',
         data: {
           toolId: ev.toolCallId, tool: ev.toolName,
           output: toolOutput(ev.result?.content), parsed: ev.isError ? undefined : ev.result?.details,
         },
-      })
+      }
+      sess.live.toolDone.set(ev.toolCallId, done)
+      broadcast(sess.id, done)
       return
+    }
     case 'turn_end':
     case 'compaction_end':
       broadcastUsage(sess)
@@ -473,6 +528,7 @@ async function runPrompt(sess: Session, text: string): Promise<void> {
     }
   } finally {
     sess.busy = false
+    sess.live = { toolDone: new Map() }
     broadcastUsage(sess)
     broadcast(sess.id, { type: 'session.idle', data: {} })
   }
@@ -623,7 +679,7 @@ app.get('/session/:id/message', asyncRoute(async (req, res) => {
   const items = sess ? history(sess) : []
   const current = sess ? usage(sess) : null
   items.push({ messageId: 'session-state', role: 'assistant', events: [
-    { type: 'session.state', data: { busy: sess?.busy ?? false } },
+    { type: 'session.state', data: { busy: sess?.busy ?? false, seq: eventSeq } },
     { type: 'session.queue', data: { messages: sess ? queued(sess) : [] } },
     ...(current ? [current] : []),
   ] })
@@ -679,7 +735,12 @@ app.get('/event', (req, res) => {
   res.flushHeaders()
   const send = (payload: string) => res.write(`data: ${payload}\n\n`)
   sseClients.add(send)
-  req.on('close', () => sseClients.delete(send))
+  // Viewers hold this open between runs; keep idle proxies from closing it.
+  const ping = setInterval(() => res.write(': ping\n\n'), 20_000)
+  req.on('close', () => {
+    clearInterval(ping)
+    sseClients.delete(send)
+  })
 })
 
 const errorHandler: ErrorRequestHandler = (error, _req, res, _next) => {

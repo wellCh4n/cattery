@@ -293,6 +293,14 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
 
 const watchedSessions = new Set<string>()
 
+// Sessions are private to their creator; other members follow them read-only.
+// Sessions without a creator fall to the project owner. Mirrors the backend's
+// canWriteSession.
+export function canWriteSession(session: Session, project: Project, userId: string | undefined): boolean {
+  if (!userId) return false
+  return session.created_by_user_id ? session.created_by_user_id === userId : project.access_role === "owner"
+}
+
 export function selectSession(sessionId: string) {
   for (const project of useWorkspaceStore.getState().projects) {
     const session = project.sessions.find(s => s.session_id === sessionId)

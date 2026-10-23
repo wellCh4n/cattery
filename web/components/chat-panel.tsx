@@ -18,6 +18,7 @@ import {
   TerminalIcon,
   TriangleAlertIcon,
   Undo2Icon,
+  EyeIcon,
   WrenchIcon,
 } from "lucide-react"
 import { Bubble as BubbleUI, BubbleContent } from "@/components/ui/bubble"
@@ -46,6 +47,7 @@ import {
   TraceTitle,
 } from "@/components/ui/trace"
 import { QuestionnaireCard } from "@/components/questionnaire-card"
+import { useAuthStore } from "@/lib/auth-store"
 import { Markdown } from "@/components/markdown"
 import { EffortPicker, ModelPicker } from "@/components/model-picker"
 import { ContextMeter } from "@/components/context-meter"
@@ -54,6 +56,7 @@ import {
   useChatStreamStore,
   type Bubble,
 } from "@/lib/chat-stream-store"
+import { canWriteSession, useWorkspaceStore } from "@/lib/workspace-store"
 
 interface Props {
   session: Session
@@ -140,21 +143,26 @@ function ChatPanelContent({ session }: Props) {
   const sendMessage = useChatStreamStore(state => state.sendMessage)
   const withdrawQueued = useChatStreamStore(state => state.withdrawQueued)
   const stopSession = useChatStreamStore(state => state.stopSession)
+  const follow = useChatStreamStore(state => state.follow)
+  const userId = useAuthStore(state => state.user?.user_id)
+  const project = useWorkspaceStore(state => state.projects.find(p => p.project_id === session.project_id))
+  // Other members follow the session read-only.
+  const writable = !!project && canWriteSession(session, project, userId)
   const turns = useMemo(() => toTurns(bubbles), [bubbles])
   // An unanswered questionnaire docks above the composer; it joins the message
   // list once answered. The agent is blocked on it, so a steer could not land.
   const question = useMemo(() => bubbles.find(isOpenQuestionnaire), [bubbles])
   const ready = session.status === "ready"
   // While the agent runs, a message is steered into its turn.
-  const canSend = ready && !question && input.trim().length > 0
+  const canSend = writable && ready && !question && input.trim().length > 0
 
   const answering = !!question
   useEffect(() => {
     // The composer stays usable while the agent runs (steering); it is only
     // disabled while a questionnaire waits, so refocus once that is answered.
-    if (!ready || answering) return
+    if (!writable || !ready || answering) return
     inputRef.current?.focus({ preventScroll: true })
-  }, [ready, sending, answering, session.session_id])
+  }, [writable, ready, sending, answering, session.session_id])
 
   // Put text back into the composer ahead of whatever is being typed.
   function restoreInput(texts: string[]) {
@@ -178,17 +186,15 @@ function ChatPanelContent({ session }: Props) {
     loadHistory(session.session_id).catch(() => { /* ignore */ })
   }, [ensureSession, loadHistory, ready, session.session_id])
 
+  // Live view of runs this tab did not start. Viewers always follow, since any
+  // run is the creator's. The creator follows only a run already going when the
+  // session loaded (from another tab); runs this tab starts arrive on their own
+  // stream, and holding a follow connection meanwhile would only cost one.
+  const following = ready && (!writable || (!!chat?.recovering && !chat.sending))
   useEffect(() => {
-    if (!ready || chat?.sending || !chat?.recovering) return
-    let disposed = false
-    let timer: ReturnType<typeof setTimeout>
-    const refresh = async () => {
-      try { await loadHistory(session.session_id, true) } catch { /* retry transient failures */ }
-      if (!disposed) timer = setTimeout(refresh, 1500)
-    }
-    timer = setTimeout(refresh, 1500)
-    return () => { disposed = true; clearTimeout(timer) }
-  }, [ready, chat?.sending, chat?.recovering, loadHistory, session.session_id])
+    if (!following) return
+    return follow(session.session_id)
+  }, [following, follow, session.session_id])
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -256,6 +262,7 @@ function ChatPanelContent({ session }: Props) {
                     <MessageScrollerItem key={turn.id} messageId={turn.id}>
                       <AgentTurn
                         sessionId={session.session_id}
+                        readOnly={!writable}
                         bubbles={turn.bubbles}
                         streaming={sending && i === turns.length - 1}
                       />
@@ -283,7 +290,7 @@ function ChatPanelContent({ session }: Props) {
       <div className="mx-auto w-full max-w-4xl px-4 pb-4 md:px-8">
         {question && (
           <div className="mb-2 max-h-[50vh] overflow-y-auto rounded-xl">
-            <QuestionnaireCard key={question.id} bubble={question} sessionId={session.session_id} />
+            <QuestionnaireCard key={question.id} bubble={question} sessionId={session.session_id} readOnly={!writable} />
           </div>
         )}
         {queue.length > 0 && (
@@ -296,7 +303,7 @@ function ChatPanelContent({ session }: Props) {
                 <li key={`${i}-${text}`} className="flex items-start gap-2">
                   <CornerDownRightIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
                   <span className="line-clamp-2 min-w-0 flex-1 whitespace-pre-wrap break-words">{text}</span>
-                  <Tooltip>
+                  {writable && <Tooltip>
                     <TooltipTrigger
                       render={
                         <Button
@@ -310,13 +317,22 @@ function ChatPanelContent({ session }: Props) {
                       <Undo2Icon />
                     </TooltipTrigger>
                     <TooltipContent>Move back to the input</TooltipContent>
-                  </Tooltip>
+                  </Tooltip>}
                 </li>
               ))}
             </ul>
           </div>
         )}
-        {/* The AI Elements Model Selector input: field, context, model and effort pills, send. */}
+        {!writable ? (
+          <div className="flex items-center gap-2 rounded-xl border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+            <EyeIcon className="size-4 shrink-0" />
+            <span className="min-w-0 flex-1 truncate">
+              Read-only · {session.created_by_username ? `${session.created_by_username}'s session` : "only the project owner can send messages"}
+            </span>
+            {usage && <ContextMeter usage={usage} />}
+          </div>
+        ) : (
+        /* The AI Elements Model Selector input: field, context, model and effort pills, send. */
         <form ref={formRef} onSubmit={handleSubmit}>
           {/* InputGroup fades as a whole when anything inside is disabled — here
               that's the empty-field send button or the field while the agent
@@ -378,6 +394,7 @@ function ChatPanelContent({ session }: Props) {
             </InputGroupAddon>
           </InputGroup>
         </form>
+        )}
       </div>
     </div>
   )
@@ -392,7 +409,7 @@ function phaseLabel(phase: string | null): string {
   }
 }
 
-function AgentTurn({ bubbles, streaming, sessionId }: { bubbles: Bubble[]; streaming: boolean; sessionId: string }) {
+function AgentTurn({ bubbles, streaming, sessionId, readOnly }: { bubbles: Bubble[]; streaming: boolean; sessionId: string; readOnly: boolean }) {
   const segments = toSegments(bubbles)
   const reply = segments
     .filter(s => s.kind === "text")
@@ -410,12 +427,12 @@ function AgentTurn({ bubbles, streaming, sessionId }: { bubbles: Bubble[]; strea
                 <Trace key={segment.id}>
                   <TraceLine status="running">
                     <TraceIcon><MessageCircleQuestionIcon /></TraceIcon>
-                    <TraceTitle>Waiting for your answer</TraceTitle>
+                    <TraceTitle>{readOnly ? "Waiting for an answer" : "Waiting for your answer"}</TraceTitle>
                   </TraceLine>
                 </Trace>
               )
             }
-            return <QuestionnaireCard key={segment.id} bubble={segment.bubble} sessionId={sessionId} />
+            return <QuestionnaireCard key={segment.id} bubble={segment.bubble} sessionId={sessionId} readOnly={readOnly} />
           }
           if (segment.kind === "steps") {
             return (

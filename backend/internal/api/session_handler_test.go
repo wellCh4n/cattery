@@ -179,7 +179,15 @@ func TestSessionCreator(t *testing.T) {
 	}
 	memberPath := "/sessions/" + memberSession.SessionID.String()
 	assertCreator(decode(request(owner, http.MethodGet, memberPath, "", http.StatusOK)), member)
-	assertCreator(decode(request(owner, http.MethodPatch, memberPath, `{"effort":"high","created_by_username":"owner","created_by_user_id":"`+owner.UserID.String()+`"}`, http.StatusOK)), member)
+	// Sessions are private to their creator: other members, the project owner
+	// included, can read but not change them.
+	request(owner, http.MethodPatch, memberPath, `{"effort":"high"}`, http.StatusForbidden)
+	assertCreator(decode(request(member, http.MethodPatch, memberPath, `{"effort":"high","created_by_username":"owner","created_by_user_id":"`+owner.UserID.String()+`"}`, http.StatusOK)), member)
+	request(member, http.MethodPatch, "/sessions/"+ownerSession.SessionID.String(), `{"effort":"high"}`, http.StatusForbidden)
+	// A session without a creator falls to the project owner.
+	legacyPath := "/sessions/" + legacyID.String()
+	request(member, http.MethodPatch, legacyPath, `{"effort":"high"}`, http.StatusForbidden)
+	request(owner, http.MethodPatch, legacyPath, `{"effort":"high"}`, http.StatusOK)
 	var listed []model.Session
 	if err := json.Unmarshal(request(member, http.MethodGet, listPath, "", http.StatusOK), &listed); err != nil {
 		t.Fatal(err)
