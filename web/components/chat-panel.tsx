@@ -237,7 +237,7 @@ function ChatPanelContent({ session }: Props) {
         ) : (
           <MessageScroller>
             <MessageScrollerViewport>
-              <MessageScrollerContent aria-busy={sending} className="mx-auto max-w-3xl px-4 py-6 md:px-8">
+              <MessageScrollerContent aria-busy={sending} className="mx-auto max-w-4xl px-4 py-6 md:px-8">
                 {turns.map((turn, i) =>
                   turn.role === "user" ? (
                     <MessageScrollerItem
@@ -280,7 +280,7 @@ function ChatPanelContent({ session }: Props) {
         )}
       </div>
 
-      <div className="mx-auto w-full max-w-3xl px-4 pb-4 md:px-8">
+      <div className="mx-auto w-full max-w-4xl px-4 pb-4 md:px-8">
         {question && (
           <div className="mb-2 max-h-[50vh] overflow-y-auto rounded-xl">
             <QuestionnaireCard key={question.id} bubble={question} sessionId={session.session_id} />
