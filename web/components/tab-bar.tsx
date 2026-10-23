@@ -11,7 +11,7 @@
 
 import { useEffect, useMemo, useRef } from "react"
 import { usePathname, useRouter } from "next/navigation"
-import { File as FileIcon, MessageSquare, Puzzle, Shield, SquareTerminal, X } from "lucide-react"
+import { File as FileIcon, Loader2, MessageSquare, Puzzle, Shield, SquareTerminal, X } from "lucide-react"
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu"
 import { Hint } from "@/components/ui/hint"
 import { cn } from "@/lib/utils"
@@ -237,9 +237,8 @@ export function TabBar() {
               {r.title}
             </div>
             <span className="relative flex size-4 shrink-0 items-center justify-center">
-              {busy && (
-                <span className="size-1.5 rounded-full bg-amber-500 animate-pulse group-hover/tab:hidden" />
-              )}
+              {/* A running session spins here; hovering swaps it for the close button. */}
+              {busy && <Loader2 className="size-3 animate-spin text-amber-500 group-hover/tab:hidden" />}
               <button
                 type="button"
                 aria-label="Close tab"

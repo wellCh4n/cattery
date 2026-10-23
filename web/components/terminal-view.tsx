@@ -74,12 +74,18 @@ export function TerminalView({ terminalId, projectId, visible }: { terminalId: s
       import("@xterm/addon-fit"),
       import("@xterm/addon-web-links"),
       import("@xterm/addon-clipboard"),
-    ]).then(([{ Terminal }, { FitAddon }, { WebLinksAddon }, { ClipboardAddon }]) => {
+    ]).then(async ([{ Terminal }, { FitAddon }, { WebLinksAddon }, { ClipboardAddon }]) => {
       if (disposed) return
       const mono = getComputedStyle(document.body).getPropertyValue("--font-geist-mono").trim()
+      const fontFamily = `${mono ? `${mono}, ` : ""}ui-monospace, monospace`
+      // The chat's text-sm. xterm measures its cell once, at open, so wait for
+      // Geist Mono: measuring next/font's proportional fallback skews the grid.
+      const fontSize = 14
+      await document.fonts.load(`${fontSize}px ${fontFamily}`).catch(() => {})
+      if (disposed) return
       const term = new Terminal({
-        fontFamily: `${mono ? `${mono}, ` : ""}ui-monospace, monospace`,
-        fontSize: 12,
+        fontFamily,
+        fontSize,
         lineHeight: 1.2,
         cursorBlink: true,
         scrollback: 5000,
