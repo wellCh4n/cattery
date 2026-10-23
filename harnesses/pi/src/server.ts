@@ -219,6 +219,8 @@ interface LiveState {
   assistant?: { timestamp: number; blocks: Map<string, PlatformEvent>; thinkingDone: PlatformEvent[] }
   // Finished tools whose result message is not persisted yet, by toolCallId.
   toolDone: Map<string, PlatformEvent>
+  // When each streaming tool call's preview was last sent, by toolCallId.
+  toolPreviewAt?: Map<string, number>
 }
 interface SessionMetadata { version: 2; model: ModelRef; titleAttempted: boolean }
 
@@ -382,7 +384,9 @@ function forward(sess: Session, ev: AgentSessionEvent): void {
       if (e.type === 'text_start' || e.type === 'toolcall_start') {
         for (const id of [...sess.thinkingStarts.keys()]) endThinking(sess, id)
       }
-      if (e.type === 'text_delta') {
+      if (e.type === 'toolcall_start' || e.type === 'toolcall_delta') {
+        streamingTool(sess, e.partial, e.contentIndex)
+      } else if (e.type === 'text_delta') {
         const id = partId(e.partial, 't', e.contentIndex)
         liveBlock(sess, e.partial, id, 'message.delta', e.delta)
         broadcast(sess.id, { type: 'message.delta', data: { partId: id, text: e.delta } })
@@ -417,6 +421,37 @@ function forward(sess: Session, ev: AgentSessionEvent): void {
       broadcastUsage(sess)
       return
   }
+}
+
+// Shows a tool call while the model is still writing its arguments (a write's
+// whole file content), long before tool_execution_start. Long strings are cut
+// and updates throttled; tool_execution_start then sends the full input. A
+// questionnaire waits for its complete questions.
+const PREVIEW_INTERVAL_MS = 150
+function streamingTool(sess: Session, msg: AssistantMessage, index: number): void {
+  const b = msg.content[index]
+  if (b?.type !== 'toolCall' || !b.id || !b.name || b.name === 'questionnaire') return
+  const sentAt = sess.live.toolPreviewAt ??= new Map()
+  const now = Date.now()
+  if (now - (sentAt.get(b.id) ?? 0) < PREVIEW_INTERVAL_MS) return
+  const args = previewArgs(b.arguments)
+  const input = Object.keys(args).length ? JSON.stringify(args) : ''
+  const a = sess.live.assistant ??= { timestamp: msg.timestamp, blocks: new Map(), thinkingDone: [] }
+  if ((a.blocks.get(b.id)?.data as { input?: string } | undefined)?.input === input) return
+  const ev: PlatformEvent = { type: 'tool.start', data: { toolId: b.id, tool: b.name, input } }
+  a.blocks.set(b.id, ev)
+  sentAt.set(b.id, now)
+  broadcast(sess.id, ev)
+}
+
+const PREVIEW_CHARS = 200
+function previewArgs(args: Record<string, unknown> | undefined): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(args ?? {})) {
+    if (typeof v === 'string') out[k] = v.length > PREVIEW_CHARS ? v.slice(0, PREVIEW_CHARS) : v
+    else if (typeof v === 'number' || typeof v === 'boolean') out[k] = v
+  }
+  return out
 }
 
 // Records how long a thinking block took; later ends for the same block are ignored.
