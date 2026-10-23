@@ -350,31 +350,31 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
           <div className="flex min-h-0 flex-1 flex-row">
           <div className="flex w-12 shrink-0 flex-col gap-1">
             <ActivityButton
-              icon={<MessagesSquare className="size-5" />}
+              icon={<MessagesSquare className="size-[22px]" />}
               label="Sessions"
               active={view === "sessions"}
               onClick={() => switchView("sessions")}
             />
             <ActivityButton
-              icon={<SquareTerminal className="size-5" />}
+              icon={<SquareTerminal className="size-[22px]" />}
               label="Terminals"
               active={view === "terminals"}
               onClick={() => switchView("terminals")}
             />
             <ActivityButton
-              icon={<FolderOpen className="size-5" />}
+              icon={<FolderOpen className="size-[22px]" />}
               label="Files"
               active={view === "files"}
               onClick={() => switchView("files")}
             />
             <ActivityButton
-              icon={<Users className="size-5" />}
+              icon={<Users className="size-[22px]" />}
               label="Members"
               active={view === "members"}
               onClick={() => switchView("members")}
             />
             <ActivityButton
-              icon={<Puzzle className="size-5" />}
+              icon={<Puzzle className="size-[22px]" />}
               label="Skills"
               active={view === "skills"}
               onClick={() => switchView("skills")}
@@ -400,7 +400,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                   </div>
                 )}
                 <RailButton
-                  icon={<Settings className="size-5" />}
+                  icon={<Settings className="size-[22px]" />}
                   label="Settings"
                   active={settingsMenuOpen}
                   onClick={() => { setSettingsMenuOpen(o => !o); setUserMenuOpen(false) }}
