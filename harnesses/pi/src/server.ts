@@ -42,7 +42,7 @@ import { InMemoryCredentialStore, createProvider, envApiKeyAuth, type Api, type 
 import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy'
 import { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager, type AgentSession, type AgentSessionEvent } from '@earendil-works/pi-coding-agent'
 import { Questionnaire, prepareQuestionnaireArguments } from './questionnaire.ts'
-import { TITLE_PROMPT, titleInput, parseTitle } from './title.ts'
+import { TITLE_FORMAT, TITLE_PROMPT, titleInput, parseTitle } from './title.ts'
 
 // ── Config ───────────────────────────────────────────────────────────────────
 
@@ -492,28 +492,41 @@ async function switchModel(sess: Session, ref: ModelRef, gateway: Gateway): Prom
   await persist(sess)
 }
 
-async function generateTitle(sess: Session, text: string, reply: AssistantMessage): Promise<void> {
-  // One attempt after the first successful response, persisted across restarts.
+// Like Codex: one attempt from the first request alone, run alongside the reply
+// rather than after it. Persisted across restarts; an aborted run retries on
+// its next prompt.
+async function generateTitle(sess: Session, text: string): Promise<void> {
   sess.titleAttempted = true
   await persist(sess)
   const small = sess.smallModel
   if (!small) return
   const controller = new AbortController()
   sess.titleAbort = controller
-  const timer = setTimeout(() => controller.abort(), 15_000)
+  let timedOut = false
+  const timer = setTimeout(() => { timedOut = true; controller.abort() }, 15_000)
   try {
-    const result = await models.completeSimple(resolveModel({ provider: small.provider, id: small.model, api: small.api || undefined }, small.baseUrl), {
+    const model = resolveModel({ provider: small.provider, id: small.model, api: small.api || undefined }, small.baseUrl)
+    const result = await models.completeSimple(model, {
       systemPrompt: TITLE_PROMPT,
-      messages: [{ role: 'user', content: titleInput(text, toolOutput(reply.content)), timestamp: Date.now() }],
-    }, { apiKey: small.apiKey, maxTokens: 512, signal: controller.signal })
-    if (controller.signal.aborted) return
+      messages: [{ role: 'user', content: titleInput(text), timestamp: Date.now() }],
+    }, {
+      apiKey: small.apiKey, maxTokens: 512, signal: controller.signal,
+      onPayload: model.api === 'openai-responses'
+        ? (params) => ({ ...(params as object), text: { ...(params as { text?: object }).text, format: TITLE_FORMAT } })
+        : undefined,
+    })
+    if (controller.signal.aborted) {
+      if (!timedOut) sess.titleAttempted = false
+      return
+    }
     const title = parseTitle(result)
     if (title && sessions.get(sess.id) === sess) {
       broadcast(sess.id, { type: 'session.title', data: { title } })
     }
   } catch {
     // Title failure must never fail the user's run or replace its fallback title.
-    console.warn('[title] generation failed for', sess.id)
+    if (controller.signal.aborted && !timedOut) sess.titleAttempted = false
+    else console.warn('[title] generation failed for', sess.id)
   } finally {
     clearTimeout(timer)
     sess.titleAbort = undefined
@@ -542,7 +555,10 @@ async function runPrompt(sess: Session, text: string): Promise<void> {
     if (title) broadcast(sess.id, { type: 'session.title', data: { title: title.length > 60 ? title.slice(0, 57) + '…' : title } })
   }
   let next: string | undefined = text
-  let titleSource: { text: string; reply: AssistantMessage } | undefined
+  // The backend persists titles only from the stream that started the run, which
+  // ends at session.idle, so the run waits for the title before going idle.
+  const titling = sess.titleAttempted ? undefined
+    : generateTitle(sess, text).catch(() => console.warn('[title] checkpoint failed for', sess.id))
   try {
     // Keep the run going while steered messages remain, so the stream stays open
     // until every message the user sent has been answered.
@@ -553,18 +569,14 @@ async function runPrompt(sess: Session, text: string): Promise<void> {
         const last = [...sess.sdk.messages].reverse().find(m => m.role === 'assistant') as AssistantMessage | undefined
         if (last?.stopReason === 'error') {
           broadcast(sess.id, { type: 'session.error', data: { message: last.errorMessage ?? 'model request failed' } })
-        } else if (last?.stopReason === 'stop' && !sess.titleAttempted && !titleSource) {
-          titleSource = { text: prompt, reply: last }
         }
       } catch (err) {
         console.error('[runPrompt]', err)
         broadcast(sess.id, { type: 'session.error', data: { message: err instanceof Error ? err.message : String(err) } })
       }
       next = takeQueued(sess)
-      if (next === undefined && titleSource) {
-        const { text: t, reply } = titleSource
-        titleSource = undefined
-        await generateTitle(sess, t, reply).catch(() => console.warn('[title] checkpoint failed for', sess.id))
+      if (next === undefined && titling) {
+        await titling
         next = takeQueued(sess)
       }
       if (next === undefined && sessions.get(sess.id) === sess) {

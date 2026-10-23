@@ -43,7 +43,7 @@ test('SDK preserves protocol, resources, tools, history, isolated gateways, titl
       res.end('data: [DONE]\n\n')
       return
     }
-    const text = title ? (mode === 'empty' ? '' : mode === 'clarification' ? '无法确定对话主题，请提供具体任务。' : '修复登录问题') : 'Login fixed.'
+    const text = title ? (mode === 'empty' ? '' : JSON.stringify({ title: mode === 'clarification' ? '无法确定对话主题，请提供具体任务。' : '修复登录问题' })) : 'Login fixed.'
     res.writeHead(200, { 'Content-Type': 'text/event-stream' })
     for (const choice of [
       { delta: { role: 'assistant', content: text }, finish_reason: null },
@@ -135,18 +135,21 @@ test('SDK preserves protocol, resources, tools, history, isolated gateways, titl
     await register('success')
     const events = await prompt('success')
     assert.deepEqual(events.filter(e => e.type === 'session.title').map(e => e.data.title), ['Please fix login', '修复登录问题'])
-    assert.equal(requests[0].model, 'main')
-    assert.equal(requests[0].auth, 'Bearer main-key')
-    const system = JSON.stringify(requests[0].messages.filter((m: any) => m.role === 'system' || m.role === 'developer'))
+    const main = requests.find(r => r.model === 'main')
+    const small = requests.find(r => r.model === 'small')
+    assert.equal(main.auth, 'Bearer main-key')
+    const system = JSON.stringify(main.messages.filter((m: any) => m.role === 'system' || m.role === 'developer'))
     assert.ok(system.includes('Cattery SDK context sentinel'))
     assert.ok(system.includes('Multiline skill description sentinel'))
     assert.ok(system.includes('Project skill description sentinel'))
     assert.ok(system.includes(dir))
     assert.ok(!system.includes('Skill body sentinel'))
-    assert.deepEqual(requests[0].tools.map((t: any) => t.function.name).sort(), ['bash', 'edit', 'find', 'grep', 'ls', 'questionnaire', 'read', 'write'])
-    assert.equal(requests[1].model, 'small')
-    assert.equal(requests[1].auth, 'Bearer small-key')
-    assert.equal(requests[1].tools, undefined)
+    assert.deepEqual(main.tools.map((t: any) => t.function.name).sort(), ['bash', 'edit', 'find', 'grep', 'ls', 'questionnaire', 'read', 'write'])
+    assert.equal(small.auth, 'Bearer small-key')
+    assert.equal(small.tools, undefined)
+    // Named from the request alone, like Codex.
+    assert.ok(JSON.stringify(small.messages).includes('Please fix login'))
+    assert.ok(!JSON.stringify(small.messages).includes('Login fixed.'))
     const transcript = await readFile(path.join(sessionsDir, 'success.json'), 'utf8')
     assert.equal(JSON.parse(transcript).titleAttempted, true)
     assert.ok(!transcript.includes('small-key') && !transcript.includes('main-key'))
@@ -200,7 +203,7 @@ test('SDK preserves protocol, resources, tools, history, isolated gateways, titl
     assert.equal(typeof liveUsage.data.contextTokens, 'number')
     assert.deepEqual(restoredUsage.data, { ...liveUsage.data, contextTokens: null })
     // Compaction changes live context usage, while the full UI history is preserved.
-    const withoutUsage = (items: any[]) => items.map(m => ({ ...m, events: m.events.filter((e: any) => e.type !== 'session.usage') }))
+    const withoutUsage = (items: any[]) => items.map(m => ({ ...m, events: m.events.filter((e: any) => e.type !== 'session.usage' && e.type !== 'session.state') }))
     assert.deepEqual(withoutUsage(restoredHistory), withoutUsage(liveHistory))
     mode = 'success'
     await register('isolated', { apiKey: 'isolated-key', model: 'alternate' })
@@ -267,10 +270,12 @@ test('SDK preserves protocol, resources, tools, history, isolated gateways, titl
     await register('retry')
     const countBefore = requests.length
     const failed = await prompt('retry')
-    assert.equal(requests.length, countBefore + 1)
+    // One main request (no retry of a 400) and the title, which no longer waits for a reply.
+    assert.equal(requests.length, countBefore + 2)
     assert.ok(failed.some(e => e.type === 'session.error'))
+    assert.deepEqual(failed.filter(e => e.type === 'session.title').map(e => e.data.title), ['Please fix login', '修复登录问题'])
     mode = 'success'
-    assert.deepEqual((await prompt('retry')).filter(e => e.type === 'session.title').map(e => e.data.title), ['修复登录问题'])
+    assert.equal((await prompt('retry')).filter(e => e.type === 'session.title').length, 0)
     mode = 'hang'
     await register('stop-running')
     const beforeStop = requests.length
