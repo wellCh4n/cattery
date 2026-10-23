@@ -9,6 +9,11 @@
 # built-in catalog entry for each model (context window, thinking levels,
 # provider quirks); custom is any other OpenAI-compatible endpoint.
 #
+# api (optional) overrides the wire protocol pi-ai speaks to the endpoint:
+# openai-completions | openai-responses | anthropic-messages. Empty keeps the
+# protocol pi's catalog uses for the type. DeepSeek also serves
+# openai-responses, which ends thinking blocks as soon as reasoning ends.
+#
 # efforts (optional) are the thinking efforts users can pick, lowest to
 # highest, from: off, minimal, low, medium, high, xhigh, max. Default:
 # low, medium, high. Sessions start on high if offered, else the highest.
@@ -25,6 +30,7 @@ small_model = "deepseek-flash"
 name     = "DeepSeek"
 type     = "deepseek"
 endpoint = "https://api.deepseek.com"
+api      = "openai-responses"
 key      = "sk-..."
 models   = ["deepseek-flash", "deepseek-v4-pro"]
 efforts  = ["low", "high", "max"]

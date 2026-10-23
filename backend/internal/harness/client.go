@@ -29,8 +29,10 @@ func NewClient() *Client {
 type AgentModel struct {
 	ID       string `json:"model"`
 	Provider string `json:"provider"`
-	BaseURL  string `json:"baseUrl"`
-	APIKey   string `json:"apiKey"`
+	// API overrides the wire protocol (a pi-ai api id); empty keeps pi's.
+	API     string `json:"api,omitempty"`
+	BaseURL string `json:"baseUrl"`
+	APIKey  string `json:"apiKey"`
 	// ThinkingLevel is the session's effort (a pi thinking level).
 	ThinkingLevel string `json:"thinkingLevel"`
 }

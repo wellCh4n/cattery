@@ -142,3 +142,33 @@ models = ["small"]
 		t.Fatal("small_model did not resolve to its own provider")
 	}
 }
+
+func TestProviderAPI(t *testing.T) {
+	m, err := LoadModels(writeConfig(t, `
+[[providers]]
+name     = "DeepSeek"
+type     = "deepseek"
+api      = "openai-responses"
+endpoint = "https://api.deepseek.com"
+key      = "sk-test"
+models   = ["deepseek-flash"]
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := m.Get("deepseek-flash"); got.Provider.API != "openai-responses" {
+		t.Errorf("API = %q, want openai-responses", got.Provider.API)
+	}
+	_, err = LoadModels(writeConfig(t, `
+[[providers]]
+name     = "DeepSeek"
+type     = "deepseek"
+api      = "grpc"
+endpoint = "https://api.deepseek.com"
+key      = "sk-test"
+models   = ["deepseek-flash"]
+`))
+	if err == nil || !strings.Contains(err.Error(), "api must be one of") {
+		t.Fatalf("unknown api: err = %v", err)
+	}
+}

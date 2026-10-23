@@ -25,6 +25,14 @@ var allEfforts = []string{"off", "minimal", "low", "medium", "high", "xhigh", "m
 
 var defaultEfforts = []string{"low", "medium", "high"}
 
+// APIs are the pi-ai wire protocols a provider may be spoken to with, overriding
+// the protocol pi's catalog uses for its models.
+var knownAPIs = map[string]bool{
+	"openai-completions": true,
+	"openai-responses":   true,
+	"anthropic-messages": true,
+}
+
 var knownProviders = map[string]bool{
 	ProviderAnthropic: true,
 	ProviderDeepSeek:  true,
@@ -36,11 +44,14 @@ var knownProviders = map[string]bool{
 // models users may pick from it.
 type Provider struct {
 	// Name is the label shown in the UI, e.g. "DeepSeek".
-	Name     string   `toml:"name"`
-	Type     string   `toml:"type"`
-	Endpoint string   `toml:"endpoint"`
-	Key      string   `toml:"key"`
-	Models   []string `toml:"models"`
+	Name     string `toml:"name"`
+	Type     string `toml:"type"`
+	Endpoint string `toml:"endpoint"`
+	// API optionally overrides the wire protocol (a pi-ai api id), e.g.
+	// "openai-responses" for DeepSeek; empty keeps the catalog's.
+	API    string   `toml:"api"`
+	Key    string   `toml:"key"`
+	Models []string `toml:"models"`
 	// Efforts users can pick for this provider's models, lowest to highest;
 	// defaults to low, medium, high.
 	Efforts []string `toml:"efforts"`
@@ -114,6 +125,8 @@ func (m *Models) validate() error {
 			return fmt.Errorf("provider %q: key is required", label)
 		case len(p.Models) == 0:
 			return fmt.Errorf("provider %q: models is empty", label)
+		case p.API != "" && !knownAPIs[p.API]:
+			return fmt.Errorf("provider %q: api must be one of openai-completions, openai-responses, anthropic-messages", label)
 		}
 		if len(p.Efforts) == 0 {
 			p.Efforts = append([]string(nil), defaultEfforts...)

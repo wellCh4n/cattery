@@ -3,7 +3,7 @@
  * HTTP contract:
  *
  *   GET    /session                        → [id]  (readiness probe)
- *   POST   /session {id, model, provider, baseUrl, apiKey, thinkingLevel?, smallModel?}
+ *   POST   /session {id, model, provider, api?, baseUrl, apiKey, thinkingLevel?, smallModel?}
  *                                          → { id }  (idempotent: reopens an existing transcript,
  *                                                     switching its model if it differs)
  *   GET    /session/:id                    → { id }
@@ -64,7 +64,8 @@ console.log('[startup] SESSIONS:', SESSIONS_DIR)
 // Provider ids are pi-ai provider ids, set per provider in the backend's model
 // config. "custom" is any other OpenAI-compatible endpoint, spoken to as plain
 // chat completions.
-interface ModelRef { provider: string; id: string }
+// api optionally overrides the wire protocol pi's catalog uses for the model.
+interface ModelRef { provider: string; id: string; api?: string }
 interface Gateway { baseUrl: string; apiKey: string }
 const trimUrl = (u: string) => u.replace(/\/+$/, '')
 
@@ -81,12 +82,12 @@ function resolveModel(ref: ModelRef, baseUrl: string): Model<Api> {
   const catalog = ref.provider === 'custom' ? undefined : models.getModel(ref.provider, ref.id)
   if (!catalog) console.warn(`[model] ${ref.provider}/${ref.id} not in pi catalog; using generic defaults`)
   const base = catalog ?? genericModel(ref)
-  return { ...base, ...(baseUrl ? { baseUrl } : {}) } as Model<Api>
+  return { ...base, ...(ref.api ? { api: ref.api } : {}), ...(baseUrl ? { baseUrl } : {}) } as Model<Api>
 }
 
 function genericModel(ref: ModelRef): Model<Api> {
-  const api = ref.provider === 'anthropic' ? 'anthropic-messages'
-    : ref.provider === 'openai' ? 'openai-responses' : 'openai-completions'
+  const api = ref.api ?? (ref.provider === 'anthropic' ? 'anthropic-messages'
+    : ref.provider === 'openai' ? 'openai-responses' : 'openai-completions')
   return {
     id: ref.id, name: ref.id, api, provider: ref.provider, baseUrl: '',
     reasoning: true, input: ['text'],
@@ -190,7 +191,7 @@ function toHistory(messages: AgentMessage[], thinkingMs: Map<string, number>): H
 
 // gateway is never persisted: a session reopened from disk has none until the
 // backend re-registers it, which it always does before prompting.
-interface SmallModel extends Gateway { model: string; provider: string }
+interface SmallModel extends Gateway { model: string; provider: string; api?: string }
 interface Session {
   id: string
   model: ModelRef
@@ -375,6 +376,12 @@ function forward(sess: Session, ev: AgentSessionEvent): void {
       return
     case 'message_update': {
       const e = ev.assistantMessageEvent
+      // Some providers (openai-completions: DeepSeek, custom endpoints) send
+      // thinking_end only once the whole response is done. Thinking is over as
+      // soon as the answer or a tool call starts.
+      if (e.type === 'text_start' || e.type === 'toolcall_start') {
+        for (const id of [...sess.thinkingStarts.keys()]) endThinking(sess, id)
+      }
       if (e.type === 'text_delta') {
         const id = partId(e.partial, 't', e.contentIndex)
         liveBlock(sess, e.partial, id, 'message.delta', e.delta)
@@ -386,14 +393,7 @@ function forward(sess: Session, ev: AgentSessionEvent): void {
         liveBlock(sess, e.partial, id, 'message.thinking', e.delta)
         broadcast(sess.id, { type: 'message.thinking', data: { partId: id, text: e.delta } })
       } else if (e.type === 'thinking_end') {
-        const id = partId(e.partial, 'k', e.contentIndex)
-        const started = sess.thinkingStarts.get(id)
-        if (started === undefined) return
-        sess.thinkingStarts.delete(id)
-        const data: ThinkingEntryData = { partId: id, durationMs: Date.now() - started }
-        sess.manager.appendCustomEntry(THINKING_ENTRY, data)
-        sess.live.assistant?.thinkingDone.push({ type: 'message.thinking.done', data })
-        broadcast(sess.id, { type: 'message.thinking.done', data })
+        endThinking(sess, partId(e.partial, 'k', e.contentIndex))
       }
       return
     }
@@ -417,6 +417,17 @@ function forward(sess: Session, ev: AgentSessionEvent): void {
       broadcastUsage(sess)
       return
   }
+}
+
+// Records how long a thinking block took; later ends for the same block are ignored.
+function endThinking(sess: Session, id: string): void {
+  const started = sess.thinkingStarts.get(id)
+  if (started === undefined) return
+  sess.thinkingStarts.delete(id)
+  const data: ThinkingEntryData = { partId: id, durationMs: Date.now() - started }
+  sess.manager.appendCustomEntry(THINKING_ENTRY, data)
+  sess.live.assistant?.thinkingDone.push({ type: 'message.thinking.done', data })
+  broadcast(sess.id, { type: 'message.thinking.done', data })
 }
 
 async function openSession(id: string): Promise<Session | null> {
@@ -456,7 +467,7 @@ async function generateTitle(sess: Session, text: string, reply: AssistantMessag
   sess.titleAbort = controller
   const timer = setTimeout(() => controller.abort(), 15_000)
   try {
-    const result = await models.completeSimple(resolveModel({ provider: small.provider, id: small.model }, small.baseUrl), {
+    const result = await models.completeSimple(resolveModel({ provider: small.provider, id: small.model, api: small.api || undefined }, small.baseUrl), {
       systemPrompt: TITLE_PROMPT,
       messages: [{ role: 'user', content: titleInput(text, toolOutput(reply.content)), timestamp: Date.now() }],
     }, { apiKey: small.apiKey, maxTokens: 512, signal: controller.signal })
@@ -602,14 +613,14 @@ app.get('/session', (_req, res) => {
 })
 
 app.post('/session', asyncRoute(async (req, res) => {
-  const { id = randomUUID(), model, provider, baseUrl, apiKey, thinkingLevel, smallModel } = (req.body ?? {}) as {
-    id?: string; model?: string; provider?: string; baseUrl?: string; apiKey?: string; thinkingLevel?: string; smallModel?: SmallModel
+  const { id = randomUUID(), model, provider, api, baseUrl, apiKey, thinkingLevel, smallModel } = (req.body ?? {}) as {
+    id?: string; model?: string; provider?: string; api?: string; baseUrl?: string; apiKey?: string; thinkingLevel?: string; smallModel?: SmallModel
   }
   if (!validId(id)) return void res.status(400).json({ error: 'invalid id' })
   if (!model || !provider || !baseUrl || !apiKey) {
     return void res.status(400).json({ error: 'model, provider, baseUrl and apiKey are required' })
   }
-  const ref: ModelRef = { provider, id: model }
+  const ref: ModelRef = { provider, id: model, ...(api ? { api } : {}) }
   const gateway: Gateway = { baseUrl: trimUrl(baseUrl), apiKey }
   const existing = await openSession(id)
   let sess: Session
@@ -617,7 +628,7 @@ app.post('/session', asyncRoute(async (req, res) => {
     sess = await newSession(id, ref, gateway)
   } else {
     // Re-registering with a different model (or endpoint) switches it.
-    const changed = existing.model.id !== ref.id || existing.model.provider !== ref.provider ||
+    const changed = existing.model.id !== ref.id || existing.model.provider !== ref.provider || existing.model.api !== ref.api ||
       existing.gateway.baseUrl !== gateway.baseUrl
     if (changed) {
       if (existing.busy) return void res.status(409).json({ error: 'session is busy' })

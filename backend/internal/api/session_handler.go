@@ -160,10 +160,10 @@ func (h *SessionHandler) ensureAgentSession(ctx context.Context, sandboxURL stri
 	}
 	small, _ := h.models.Get(h.models.SmallModel)
 	err := h.harnessClient.CreateSession(ctx, sandboxURL, sess.SessionID.String(), harness.AgentModel{
-		ID: m.ID, Provider: m.Provider.Type, BaseURL: m.Provider.Endpoint, APIKey: m.Provider.Key,
+		ID: m.ID, Provider: m.Provider.Type, API: m.Provider.API, BaseURL: m.Provider.Endpoint, APIKey: m.Provider.Key,
 		ThinkingLevel: h.effortFor(m.ID, sess.Effort),
 	}, harness.AgentModel{
-		ID: small.ID, Provider: small.Provider.Type, BaseURL: small.Provider.Endpoint, APIKey: small.Provider.Key,
+		ID: small.ID, Provider: small.Provider.Type, API: small.Provider.API, BaseURL: small.Provider.Endpoint, APIKey: small.Provider.Key,
 	})
 	if err != nil {
 		return err
