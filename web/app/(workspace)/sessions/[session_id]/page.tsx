@@ -14,38 +14,27 @@ export default function SessionPage({ params }: { params: Promise<PageParams> })
   const { session_id } = use(params)
   const session = useWorkspaceStore(state => findSession(state.projects, session_id)?.session ?? null)
   const refreshSession = useWorkspaceStore(state => state.refreshSession)
+  const watchSession = useWorkspaceStore(state => state.watchSession)
   const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(session === null)
+  const missing = session === null
+  const status = session?.status
 
   useDocumentTitle(session ? (session.title ?? "New Session") : null)
 
+  // Load a session opened directly (not yet in the workspace store). Depends on
+  // whether it is present, not on the session object, which every refresh replaces.
   useEffect(() => {
+    if (!missing) return
     let cancelled = false
-    let timer: ReturnType<typeof setTimeout>
-    queueMicrotask(() => {
-      if (cancelled) return
-      setLoading(session === null)
-      setError(null)
+    refreshSession(session_id).catch(e => {
+      if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load session")
     })
+    return () => { cancelled = true }
+  }, [missing, refreshSession, session_id])
 
-    async function poll() {
-      if (cancelled) return
-      try {
-        const session = await refreshSession(session_id)
-        if (cancelled) return
-        setLoading(false)
-        if (session?.status === "creating") timer = setTimeout(poll, 1500)
-      } catch (e) {
-        if (!cancelled) {
-          setLoading(false)
-          setError(e instanceof Error ? e.message : "Failed to load session")
-        }
-      }
-    }
-
-    if (!session || session.status === "creating") void poll()
-    return () => { cancelled = true; clearTimeout(timer) }
-  }, [refreshSession, session, session_id])
+  useEffect(() => {
+    if (status === "creating") watchSession(session_id)
+  }, [status, watchSession, session_id])
 
   if (error) {
     return (
@@ -59,7 +48,7 @@ export default function SessionPage({ params }: { params: Promise<PageParams> })
     )
   }
 
-  if (loading || !session) {
+  if (!session) {
     return (
       <div className="flex h-full items-center justify-center text-muted-foreground">
         <Loader2 className="size-5 animate-spin" />

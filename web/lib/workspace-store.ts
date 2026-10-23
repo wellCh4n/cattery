@@ -61,6 +61,8 @@ interface WorkspaceStore {
   applySessionUpdate: (updated: Session) => void
   deleteSession: (sessionId: string) => Promise<void>
   refreshSession: (sessionId: string) => Promise<Session>
+  // Polls a creating session until it is ready or failed. One watcher per session.
+  watchSession: (sessionId: string) => void
   refreshProject: (projectId: string) => Promise<void>
   setSessionBusy: (sessionId: string, busy: boolean) => void
   markSessionActivity: (sessionId: string) => void
@@ -210,7 +212,7 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
     set(state => ({
       projects: mapSessions(state.projects, projectId, sessions => [session, ...sessions]),
     }))
-    pollSessionStatus(session.session_id, projectId)
+    get().watchSession(session.session_id)
     return session
   },
 
@@ -241,6 +243,32 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
     return session
   },
 
+  watchSession: (sessionId: string) => {
+    if (watchedSessions.has(sessionId)) return
+    watchedSessions.add(sessionId)
+    let delay = 1000
+    const poll = async () => {
+      try {
+        // Stop if the session was deleted meanwhile.
+        if (!findSession(get().projects, sessionId)) {
+          watchedSessions.delete(sessionId)
+          return
+        }
+        const session = await get().refreshSession(sessionId)
+        if (session.status !== "creating") {
+          watchedSessions.delete(sessionId)
+          // Creating the session may have started the project's sandbox.
+          void get().refreshProject(session.project_id).catch(() => {})
+          return
+        }
+      } catch { /* transient; retry below */ }
+      // A cold sandbox can take a while; back off instead of hammering it.
+      delay = Math.min(delay * 1.5, 5000)
+      setTimeout(poll, delay)
+    }
+    setTimeout(poll, delay)
+  },
+
   // refreshProject re-reads a project's sandbox status (sessions untouched).
   refreshProject: async (projectId: string) => {
     const project = await getProject(projectId)
@@ -263,6 +291,8 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   },
 }))
 
+const watchedSessions = new Set<string>()
+
 export function selectSession(sessionId: string) {
   for (const project of useWorkspaceStore.getState().projects) {
     const session = project.sessions.find(s => s.session_id === sessionId)
@@ -280,20 +310,3 @@ export function findSession(projects: ProjectWithSessions[], sessionId: string) 
   return null
 }
 
-function pollSessionStatus(sessionId: string, projectId: string) {
-  const timer = setInterval(async () => {
-    try {
-      const updated = await getSession(sessionId)
-      if (updated.status !== "creating") clearInterval(timer)
-      useWorkspaceStore.setState(state => ({
-        projects: mapSessions(state.projects, projectId, sessions =>
-          sessions.map(s => s.session_id === sessionId ? updated : s),
-        ),
-      }))
-      // Creating a session may have started the project's sandbox.
-      void useWorkspaceStore.getState().refreshProject(projectId).catch(() => {})
-    } catch {
-      clearInterval(timer)
-    }
-  }, 1500)
-}
