@@ -12,6 +12,7 @@ import {
   FolderIcon,
   LoaderCircleIcon,
   MessageCircleDashedIcon,
+  MessageCircleQuestionIcon,
   SearchIcon,
   SquareIcon,
   TerminalIcon,
@@ -74,6 +75,8 @@ interface Turn {
 type Segment =
   | { kind: "steps"; id: string; bubbles: Bubble[] }
   | { kind: "text" | "error" | "questionnaire"; id: string; bubble: Bubble }
+
+const isOpenQuestionnaire = (b: Bubble) => b.kind === "tool" && b.toolName === "questionnaire" && !b.done
 
 function toTurns(bubbles: Bubble[]): Turn[] {
   const turns: Turn[] = []
@@ -138,14 +141,20 @@ function ChatPanelContent({ session }: Props) {
   const withdrawQueued = useChatStreamStore(state => state.withdrawQueued)
   const stopSession = useChatStreamStore(state => state.stopSession)
   const turns = useMemo(() => toTurns(bubbles), [bubbles])
+  // An unanswered questionnaire docks above the composer; it joins the message
+  // list once answered. The agent is blocked on it, so a steer could not land.
+  const question = useMemo(() => bubbles.find(isOpenQuestionnaire), [bubbles])
   const ready = session.status === "ready"
   // While the agent runs, a message is steered into its turn.
-  const canSend = ready && input.trim().length > 0
+  const canSend = ready && !question && input.trim().length > 0
 
+  const answering = !!question
   useEffect(() => {
-    if (!ready || sending) return
+    // The composer stays usable while the agent runs (steering); it is only
+    // disabled while a questionnaire waits, so refocus once that is answered.
+    if (!ready || answering) return
     inputRef.current?.focus({ preventScroll: true })
-  }, [ready, sending, session.session_id])
+  }, [ready, sending, answering, session.session_id])
 
   // Put text back into the composer ahead of whatever is being typed.
   function restoreInput(texts: string[]) {
@@ -272,6 +281,11 @@ function ChatPanelContent({ session }: Props) {
       </div>
 
       <div className="mx-auto w-full max-w-3xl px-4 pb-4 md:px-8">
+        {question && (
+          <div className="mb-2 max-h-[50vh] overflow-y-auto rounded-xl">
+            <QuestionnaireCard key={question.id} bubble={question} sessionId={session.session_id} />
+          </div>
+        )}
         {queue.length > 0 && (
           // Steered messages wait here until the model receives them, after the
           // current tool calls finish.
@@ -312,9 +326,9 @@ function ChatPanelContent({ session }: Props) {
             <InputGroupTextarea
               ref={inputRef}
               value={input}
-              disabled={!ready}
+              disabled={!ready || !!question}
               onChange={e => setInput(e.target.value)}
-              placeholder={!ready ? "Waiting for the sandbox…" : sending ? "Steer the agent…" : "Ask the agent to change your code…"}
+              placeholder={!ready ? "Waiting for the sandbox…" : question ? "Answer the questions above first" : sending ? "Steer the agent…" : "Ask the agent to change your code…"}
               aria-label="Message"
               rows={1}
               className="max-h-48 min-h-0 px-4 pt-4 text-base md:text-sm [field-sizing:content]"
@@ -389,7 +403,20 @@ function AgentTurn({ bubbles, streaming, sessionId }: { bubbles: Bubble[]; strea
     <Message>
       <MessageContent className="gap-3">
         {segments.map(segment => {
-          if (segment.kind === "questionnaire") return <QuestionnaireCard key={segment.id} bubble={segment.bubble} sessionId={sessionId} />
+          if (segment.kind === "questionnaire") {
+            // The open card is docked above the composer; mark where the agent asked.
+            if (isOpenQuestionnaire(segment.bubble)) {
+              return (
+                <Trace key={segment.id}>
+                  <TraceLine status="running">
+                    <TraceIcon><MessageCircleQuestionIcon /></TraceIcon>
+                    <TraceTitle>Waiting for your answer</TraceTitle>
+                  </TraceLine>
+                </Trace>
+              )
+            }
+            return <QuestionnaireCard key={segment.id} bubble={segment.bubble} sessionId={sessionId} />
+          }
           if (segment.kind === "steps") {
             return (
               <Trace key={segment.id}>

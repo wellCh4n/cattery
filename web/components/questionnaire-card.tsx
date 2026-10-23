@@ -38,6 +38,16 @@ export function QuestionnaireCard({ bubble, sessionId }: { bubble: Bubble; sessi
   const complete = questions.length > 0 && questions.every(q => answers[q.id] && (!answers[q.id].wasCustom || answers[q.id].value.trim()))
   const label = (q: Question, i: number) => q.label || `Q${i + 1}`
   const setAnswer = (q: Question, value: string, wasCustom: boolean) => setAnswers(prev => ({ ...prev, [q.id]: { id: q.id, value, wasCustom } }))
+  // Clicking an option moves on to the next question, and after the last one to
+  // Review, where answers are submitted. A single question submits in place.
+  // Only pointer clicks advance (detail > 0): arrow keys also select radios, and
+  // keyboard users move on with Next. The short delay lets the selection show
+  // before the page changes.
+  const advance = (e: React.MouseEvent) => {
+    if (questions.length === 1 || e.detail === 0) return
+    const from = page
+    setTimeout(() => setPage(current => current === from ? from + 1 : current), 150)
+  }
 
   async function submit(cancelled: boolean) {
     if (submitting || closed) return
@@ -86,7 +96,7 @@ export function QuestionnaireCard({ bubble, sessionId }: { bubble: Bubble; sessi
             <fieldset disabled={submitting} className="space-y-2">
               <legend className="mb-3 whitespace-pre-wrap text-sm font-medium">{q.prompt}</legend>
               {q.options.map((option, i) => (
-                <label key={i} className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 text-sm has-checked:border-primary has-checked:bg-primary/5">
+                <label key={i} onClick={advance} className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 text-sm has-checked:border-primary has-checked:bg-primary/5">
                   <input type="radio" name={`${bubble.id}-${q.id}`} className="mt-1 accent-primary" checked={answers[q.id]?.wasCustom === false && answers[q.id]?.value === option.value} onChange={() => setAnswer(q, option.value, false)} />
                   <span className="min-w-0 break-words"><span className="font-medium">{option.label}</span>{option.description && <span className="mt-1 block text-xs text-muted-foreground">{option.description}</span>}</span>
                 </label>
