@@ -3,8 +3,10 @@ FROM node:22-trixie-slim
 
 # ripgrep and fd back the grep/find tools; git + curl are what the agent reaches for
 # most often from bash. tmux keeps web terminal shells alive across reconnects.
+# Python 3 (also as `python`) with pip and venv for scripts the agent runs.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git ca-certificates curl ripgrep fd-find tmux \
+    python3 python3-pip python3-venv python-is-python3 \
     && ln -s /usr/bin/fdfind /usr/local/bin/fd \
     && rm -rf /var/lib/apt/lists/*
 
@@ -34,6 +36,11 @@ USER cattery
 ENV PORT=1114
 ENV WORK_DIR=/home/cattery
 ENV HOME=/home/cattery
+# Let `pip install` work outside a venv: Debian marks the system Python as
+# externally managed, and as a non-root user pip falls back to ~/.local on the
+# workspace PVC, so installed packages persist with the project.
+ENV PIP_BREAK_SYSTEM_PACKAGES=1
+ENV PATH=/home/cattery/.local/bin:$PATH
 
 EXPOSE 1114
 
