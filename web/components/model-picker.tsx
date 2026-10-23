@@ -59,7 +59,9 @@ function useCatalog() {
   return catalog
 }
 
-const pill = "rounded-full text-foreground hover:border-foreground/30 aria-expanded:border-foreground/30 dark:hover:border-foreground/30 dark:aria-expanded:border-foreground/30"
+// Secondary controls beside the composer: small, regular weight and muted until
+// hovered or open, so they don't pull attention from the message being written.
+const pill = "h-7 rounded-full bg-transparent px-2.5 text-xs font-normal text-muted-foreground hover:border-foreground/30 hover:text-foreground aria-expanded:border-foreground/30 aria-expanded:text-foreground dark:bg-transparent dark:hover:border-foreground/30 dark:aria-expanded:border-foreground/30 [&_svg:not([class*='size-'])]:size-3.5"
 
 export function ModelPicker({ sessionId, model, disabled, className }: Omit<Props, "effort">) {
   const catalog = useCatalog()
@@ -76,7 +78,7 @@ export function ModelPicker({ sessionId, model, disabled, className }: Omit<Prop
             variant="outline"
             aria-label={`Model: ${model}`}
             title={error ?? undefined}
-            className={cn(pill, "max-w-56 pl-3", error && "text-destructive", className)}
+            className={cn(pill, "max-w-56", error && "text-destructive", className)}
           />
         }
       >
@@ -130,7 +132,7 @@ export function EffortPicker({ sessionId, model, effort, disabled, className }: 
             variant="outline"
             aria-label={`Effort: ${effortLabel(current)}`}
             title={error ?? undefined}
-            className={cn(pill, "pl-3.5", error && "text-destructive", className)}
+            className={cn(pill, error && "text-destructive", className)}
           />
         }
       >
