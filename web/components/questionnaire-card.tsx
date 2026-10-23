@@ -70,18 +70,18 @@ export function QuestionnaireCard({ bubble, sessionId, readOnly = false }: { bub
   if (!questions.length) return <p className="text-sm text-muted-foreground">{bubble.toolOutput || "Invalid questionnaire"}</p>
 
   return (
-    <section aria-label="Questionnaire" className="flex min-h-0 w-full flex-col rounded-xl border bg-card p-4">
-      <div className="mb-4 flex shrink-0 items-center gap-2 text-sm font-medium">
+    <section aria-label="Questionnaire" className="w-full rounded-xl border bg-card p-4">
+      <div className="mb-4 flex items-center gap-2 text-sm font-medium">
         {closed ? <CheckIcon className="size-4" /> : <MessageCircleQuestionIcon className="size-4" />}
         {closed ? (result?.cancelled ? "Questionnaire cancelled" : result?.answers ? "Answers submitted" : submitted ? "Response submitted" : "Questionnaire ended") : readOnly ? "Waiting for the session's creator to answer" : "Waiting for your answer"}
         {!closed && <span className="ml-auto text-xs text-muted-foreground">{Object.keys(answers).filter(id => answers[id].value.trim()).length} / {questions.length}</span>}
       </div>
       {!closed && readOnly ? (
-        <div className="min-h-0 space-y-3 overflow-y-auto text-sm">
+        <div className="space-y-3 text-sm">
           {questions.map((q, i) => <p key={q.id} className="font-medium">{label(q, i)}: {q.prompt}</p>)}
         </div>
       ) : closed ? (
-        <div className="min-h-0 space-y-3 overflow-y-auto text-sm">
+        <div className="space-y-3 text-sm">
           {questions.map((q, i) => {
             const answer = result?.answers?.find(a => a.id === q.id)
             return <div key={q.id}><p className="font-medium">{label(q, i)}: {q.prompt}</p><p className="mt-1 whitespace-pre-wrap text-muted-foreground">{answer?.label || "No answer recorded"}</p></div>
@@ -89,39 +89,34 @@ export function QuestionnaireCard({ bubble, sessionId, readOnly = false }: { bub
           {!result && bubble.toolOutput && <p className="text-muted-foreground">{bubble.toolOutput}</p>}
         </div>
       ) : (
-        // The status line, question tabs, prompt and buttons stay put; when the
-        // card is height-capped only the options (or the review) scroll. A
-        // fieldset can't be that scroller: Chrome paints its overflow unclipped.
-        <form className="flex min-h-0 flex-col" onSubmit={e => { e.preventDefault(); if (complete && (questions.length === 1 || review)) void submit(false) }}>
+        <form onSubmit={e => { e.preventDefault(); if (complete && (questions.length === 1 || review)) void submit(false) }}>
           {questions.length > 1 && (
-            <div className="mb-4 flex shrink-0 flex-wrap gap-1" aria-label="Questions">
+            <div className="mb-4 flex flex-wrap gap-1" aria-label="Questions">
               {questions.map((q, i) => <Button key={q.id} type="button" size="sm" variant={page === i ? "secondary" : "ghost"} onClick={() => setPage(i)} aria-current={page === i ? "step" : undefined}>{answers[q.id]?.value.trim() && <CheckIcon className="size-3" />}{label(q, i)}</Button>)}
               <Button type="button" size="sm" variant={review ? "secondary" : "ghost"} onClick={() => setPage(questions.length)}>Review</Button>
             </div>
           )}
           {q ? (
-            <>
-              <p id={`${bubble.id}-${q.id}-prompt`} className="mb-3 shrink-0 whitespace-pre-wrap text-sm font-medium">{q.prompt}</p>
-              <div role="radiogroup" aria-labelledby={`${bubble.id}-${q.id}-prompt`} className="min-h-0 space-y-2 overflow-y-auto">
-                {q.options.map((option, i) => (
-                  <label key={i} onClick={advance} className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 text-sm has-checked:border-primary has-checked:bg-primary/5">
-                    <input type="radio" name={`${bubble.id}-${q.id}`} className="mt-1 accent-primary" disabled={submitting} checked={answers[q.id]?.wasCustom === false && answers[q.id]?.value === option.value} onChange={() => setAnswer(q, option.value, false)} />
-                    <span className="min-w-0 break-words"><span className="font-medium">{option.label}</span>{option.description && <span className="mt-1 block text-xs text-muted-foreground">{option.description}</span>}</span>
-                  </label>
-                ))}
-                {q.allowOther !== false && (
-                  <label className="block rounded-lg border p-3 text-sm has-checked:border-primary has-checked:bg-primary/5">
-                    <span className="flex items-center gap-3"><input type="radio" name={`${bubble.id}-${q.id}`} className="accent-primary" disabled={submitting} checked={answers[q.id]?.wasCustom === true} onChange={() => setAnswer(q, "", true)} />Write your own answer</span>
-                    {answers[q.id]?.wasCustom && <textarea disabled={submitting} aria-label={`Your answer to ${q.prompt}`} className="mt-3 min-h-20 w-full rounded-lg border bg-background p-2 outline-none focus:ring-2 focus:ring-ring" value={answers[q.id].value} onChange={e => setAnswer(q, e.target.value, true)} />}
-                  </label>
-                )}
-              </div>
-            </>
+            <fieldset disabled={submitting} className="space-y-2">
+              <legend className="mb-3 whitespace-pre-wrap text-sm font-medium">{q.prompt}</legend>
+              {q.options.map((option, i) => (
+                <label key={i} onClick={advance} className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 text-sm has-checked:border-primary has-checked:bg-primary/5">
+                  <input type="radio" name={`${bubble.id}-${q.id}`} className="mt-1 accent-primary" checked={answers[q.id]?.wasCustom === false && answers[q.id]?.value === option.value} onChange={() => setAnswer(q, option.value, false)} />
+                  <span className="min-w-0 break-words"><span className="font-medium">{option.label}</span>{option.description && <span className="mt-1 block text-xs text-muted-foreground">{option.description}</span>}</span>
+                </label>
+              ))}
+              {q.allowOther !== false && (
+                <label className="block rounded-lg border p-3 text-sm has-checked:border-primary has-checked:bg-primary/5">
+                  <span className="flex items-center gap-3"><input type="radio" name={`${bubble.id}-${q.id}`} className="accent-primary" checked={answers[q.id]?.wasCustom === true} onChange={() => setAnswer(q, "", true)} />Write your own answer</span>
+                  {answers[q.id]?.wasCustom && <textarea aria-label={`Your answer to ${q.prompt}`} className="mt-3 min-h-20 w-full rounded-lg border bg-background p-2 outline-none focus:ring-2 focus:ring-ring" value={answers[q.id].value} onChange={e => setAnswer(q, e.target.value, true)} />}
+                </label>
+              )}
+            </fieldset>
           ) : (
-            <div className="min-h-0 space-y-3 overflow-y-auto text-sm">{questions.map((q, i) => <div key={q.id}><p className="font-medium">{label(q, i)}: {q.prompt}</p><p className="mt-1 whitespace-pre-wrap text-muted-foreground">{answers[q.id]?.wasCustom ? answers[q.id].value : q.options.find(o => o.value === answers[q.id]?.value)?.label || "Not answered"}</p></div>)}</div>
+            <div className="space-y-3 text-sm">{questions.map((q, i) => <div key={q.id}><p className="font-medium">{label(q, i)}: {q.prompt}</p><p className="mt-1 whitespace-pre-wrap text-muted-foreground">{answers[q.id]?.wasCustom ? answers[q.id].value : q.options.find(o => o.value === answers[q.id]?.value)?.label || "Not answered"}</p></div>)}</div>
           )}
-          {error && <p role="alert" className="mt-3 shrink-0 text-sm text-destructive">{error}</p>}
-          <div className="mt-4 flex shrink-0 flex-wrap items-center gap-2">
+          {error && <p role="alert" className="mt-3 text-sm text-destructive">{error}</p>}
+          <div className="mt-4 flex flex-wrap items-center gap-2">
             <Button type="button" variant="ghost" size="sm" disabled={submitting} onClick={() => void submit(true)}>Cancel</Button>
             <div className="ml-auto flex gap-2">
               {page > 0 && <Button type="button" variant="outline" size="sm" onClick={() => setPage(page - 1)}>Back</Button>}

@@ -13,7 +13,6 @@ import {
   GitForkIcon,
   LoaderCircleIcon,
   MessageCircleDashedIcon,
-  MessageCircleQuestionIcon,
   SearchIcon,
   SquareIcon,
   TerminalIcon,
@@ -153,8 +152,8 @@ function ChatPanelContent({ session }: Props) {
   const writable = !!project && canWriteSession(session, project, userId)
   const turns = useMemo(() => toTurns(bubbles), [bubbles])
   const { fork, forking } = useForkSession()
-  // An unanswered questionnaire docks above the composer; it joins the message
-  // list once answered. The agent is blocked on it, so a steer could not land.
+  // The agent is blocked on an unanswered questionnaire, so a steer could not
+  // land; the composer waits until it is answered in the transcript.
   const question = useMemo(() => bubbles.find(isOpenQuestionnaire), [bubbles])
   const ready = session.status === "ready"
   // While the agent runs, a message is steered into its turn.
@@ -300,11 +299,6 @@ function ChatPanelContent({ session }: Props) {
       </div>
 
       <div className="mx-auto w-full max-w-4xl px-4 pb-4 md:px-8">
-        {question && (
-          <div className="mb-2 flex max-h-[50vh] flex-col">
-            <QuestionnaireCard key={question.id} bubble={question} sessionId={session.session_id} readOnly={!writable} />
-          </div>
-        )}
         {queue.length > 0 && (
           // Steered messages wait here until the model receives them, after the
           // current tool calls finish.
@@ -462,17 +456,6 @@ function AgentTurn({ bubbles, streaming, latest, sessionId, readOnly, onFork }: 
       <MessageContent className="gap-3">
         {segments.map(segment => {
           if (segment.kind === "questionnaire") {
-            // The open card is docked above the composer; mark where the agent asked.
-            if (isOpenQuestionnaire(segment.bubble)) {
-              return (
-                <Trace key={segment.id}>
-                  <TraceLine status="running">
-                    <TraceIcon><MessageCircleQuestionIcon /></TraceIcon>
-                    <TraceTitle>{readOnly ? "Waiting for an answer" : "Waiting for your answer"}</TraceTitle>
-                  </TraceLine>
-                </Trace>
-              )
-            }
             return <QuestionnaireCard key={segment.id} bubble={segment.bubble} sessionId={sessionId} readOnly={readOnly} />
           }
           if (segment.kind === "steps") {
