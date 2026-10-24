@@ -11,7 +11,7 @@
 
 import { useEffect, useMemo, useRef } from "react"
 import { usePathname, useRouter } from "next/navigation"
-import { File as FileIcon, Loader2, MessageSquare, Puzzle, Shield, SquareTerminal, X } from "lucide-react"
+import { File as FileIcon, Globe, Loader2, MessageSquare, Puzzle, Shield, SquareTerminal, X } from "lucide-react"
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu"
 import { Hint } from "@/components/ui/hint"
 import { cn } from "@/lib/utils"
@@ -51,6 +51,13 @@ function resolveTab(tab: Tab, projects: ProjectWithSessions[], terminals: Termin
       title: terminal?.title ?? "Terminal",
       exists: terminal !== undefined,
       icon: <SquareTerminal className="size-3.5 shrink-0 text-muted-foreground" />,
+    }
+  }
+  if (tab.kind === "port") {
+    return {
+      title: `Port ${tab.id}`,
+      exists: true,
+      icon: <Globe className="size-3.5 shrink-0 text-muted-foreground" />,
     }
   }
   if (tab.kind === "skill") {
@@ -152,7 +159,7 @@ export function TabBar() {
     }
     const owner = routeTab.kind === "session"
       ? findSession(projects, routeTab.id)?.project.project_id
-      : routeTab.kind === "file" || routeTab.kind === "terminal" ? routeTab.projectId : currentProjectId
+      : routeTab.kind === "file" || routeTab.kind === "terminal" || routeTab.kind === "port" ? routeTab.projectId : currentProjectId
     if (!owner) return
     const routeKey = `${owner}:${pathname}`
     if (openedRoute.current === routeKey) return

@@ -17,6 +17,10 @@
  *   POST   /session/:id/questionnaire/:toolId → 204 (answer/cancel a pending tool)
  *   POST   /session/:id/abort              → 204
  *   GET    /event                          → SSE bus of platform events, each with a rising seq
+ *   GET    /ports                          → ListeningApp[]  (listening ports, with the process
+ *                                                     holding each when visible)
+ *   DELETE /ports/:port                    → { forced }  (SIGTERM the process holding the port,
+ *                                                     SIGKILL if it still listens after 3s)
  *
  * One sandbox serves every session of a project; each session carries its own
  * model. The backend sends the model's endpoint and key with every POST
@@ -45,6 +49,7 @@ import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completio
 import { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager, type AgentSession, type AgentSessionEvent } from '@earendil-works/pi-coding-agent'
 import { Questionnaire, prepareQuestionnaireArguments } from './questionnaire.ts'
 import { TITLE_FORMAT, TITLE_PROMPT, titleInput, parseTitle } from './title.ts'
+import { listeningApps, stopApp, StopError } from './ports.ts'
 
 // ── Config ───────────────────────────────────────────────────────────────────
 
@@ -56,6 +61,10 @@ const SKILLS_DIR = process.env.SKILLS_DIR ?? '/cattery/global-skills'
 // Dot-dir on the workspace PVC: transcripts survive sandbox restarts and stay
 // out of the way of project files.
 const SESSIONS_DIR = process.env.SESSIONS_DIR ?? path.join(WORKDIR, '.cattery/sessions')
+// Cattery lists the sandbox's listening ports and previews each one, and
+// opens the agent's http://localhost:<port> links in that preview.
+const PREVIEW_PROMPT = 'Users preview web servers you start here from Cattery, which opens http://localhost:<port> links in a preview of that port. ' +
+  'Start long-running servers in the background with output redirected (`nohup … > /tmp/server.log 2>&1 &`) so the command returns, then give the user the http://localhost:<port> link.'
 
 // Align the harness process with the SDK tools and the web terminal too.
 process.chdir(WORKDIR)
@@ -269,6 +278,7 @@ async function newSession(id: string, ref: ModelRef, gateway: Gateway, titleAtte
     noExtensions: true, noThemes: true,
     appendSystemPrompt: [
       'You are working in a shared Cattery project workspace. Be concise in replies.',
+      PREVIEW_PROMPT,
       ...(PROMPT ? [PROMPT] : []),
     ],
   })
@@ -667,6 +677,21 @@ app.post('/stop', asyncRoute(async (_req, res, next) => {
   } catch (err) { next(err) }
 }))
 
+
+app.get('/ports', asyncRoute(async (_req, res) => {
+  res.json(await listeningApps())
+}))
+
+app.delete('/ports/:port', asyncRoute(async (req, res) => {
+  const port = Number(req.params.port)
+  if (!Number.isInteger(port) || port < 1 || port > 65535 || port === PORT) return void res.status(400).json({ error: 'invalid port' })
+  try {
+    res.json(await stopApp(port))
+  } catch (err) {
+    if (err instanceof StopError) return void res.status(err.status).json({ error: err.message })
+    throw err
+  }
+}))
 
 app.get('/session', (_req, res) => {
   res.json([...sessions.keys()])

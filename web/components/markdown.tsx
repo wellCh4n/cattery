@@ -1,10 +1,27 @@
 "use client"
 
-import { memo, type ReactElement } from "react"
+import { createContext, memo, useContext, type ComponentProps, type ReactElement } from "react"
+import Link from "next/link"
 import ReactMarkdown, { type Components } from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { cn } from "@/lib/utils"
 import { CodeBlock } from "@/components/code-block"
+import { parseSandboxLink, previewHref } from "@/lib/sandbox-link"
+
+// The project whose sandbox localhost links point into, when the text comes
+// from its agent. Such links open that sandbox's port preview tab.
+const SandboxLinkContext = createContext<string | null>(null)
+export const SandboxLinkProject = SandboxLinkContext.Provider
+
+function MarkdownLink({ className, href, ...props }: ComponentProps<"a">) {
+  const projectId = useContext(SandboxLinkContext)
+  const linkClass = cn("text-primary underline underline-offset-2 hover:no-underline", className)
+  const sandbox = projectId ? parseSandboxLink(href) : null
+  if (projectId && sandbox) {
+    return <Link className={linkClass} href={previewHref(projectId, sandbox)} {...props} />
+  }
+  return <a className={linkClass} href={href} target="_blank" rel="noreferrer" {...props} />
+}
 
 function extractText(node: unknown): string {
   if (node == null || typeof node === "boolean") return ""
@@ -21,14 +38,7 @@ const components: Components = {
   p: ({ className, ...props }) => (
     <p className={cn("leading-relaxed [&:not(:last-child)]:mb-3", className)} {...props} />
   ),
-  a: ({ className, ...props }) => (
-    <a
-      className={cn("text-primary underline underline-offset-2 hover:no-underline", className)}
-      target="_blank"
-      rel="noreferrer"
-      {...props}
-    />
-  ),
+  a: props => <MarkdownLink {...props} />,
   ul: ({ className, ...props }) => (
     <ul className={cn("list-disc pl-5 space-y-1 [&:not(:last-child)]:mb-3", className)} {...props} />
   ),

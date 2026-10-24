@@ -67,6 +67,7 @@ func main() {
 	mux.HandleFunc("/rename", handleRename)
 	mux.HandleFunc("/move", handleMove)
 	mux.HandleFunc("/mkdir", handleMkdir)
+	mux.HandleFunc("/proxy/", handleProxy)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})

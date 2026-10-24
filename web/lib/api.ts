@@ -617,6 +617,41 @@ export async function deleteTerminal(projectId: string, terminalId: string): Pro
   }
 }
 
+// A web server listening in the project sandbox. The process fields are set
+// when the agent container can see the process holding the socket.
+export interface SandboxApp {
+  port: number
+  pid?: number
+  command?: string
+  started_at?: string
+}
+
+// Servers listening in the project sandbox, without the platform's own ports.
+export async function listApps(projectId: string): Promise<SandboxApp[]> {
+  const res = await authedFetch(`${API_BASE}/api/v1/projects/${projectId}/apps`, { cache: "no-store" })
+  if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to list apps"))
+  return res.json()
+}
+
+// Stops the process serving port: SIGTERM, then SIGKILL if it doesn't exit.
+export async function stopApp(projectId: string, port: number): Promise<void> {
+  const res = await authedFetch(`${API_BASE}/api/v1/projects/${projectId}/apps/${port}`, { method: "DELETE" })
+  if (!res.ok) throw new Error(await readErrorMessage(res, `Failed to stop port ${port}`))
+}
+
+// previewURL opens path on a sandbox port through the backend preview proxy.
+// The login token rides as ?cattery_token= (?token= is the previewed app's,
+// e.g. Vite's HMR socket); the backend swaps it for a preview cookie on the
+// first load and strips it from the URL.
+export function previewURL(projectId: string, port: number | string, path = "/"): string {
+  const url = `${API_BASE}/api/v1/projects/${projectId}/ports/${port}${path.startsWith("/") ? path : `/${path}`}`
+  const token = getStoredToken()
+  if (!token) return url
+  const [base, hash] = url.split("#", 2)
+  const sep = base.includes("?") ? "&" : "?"
+  return `${base}${sep}cattery_token=${encodeURIComponent(token)}${hash !== undefined ? `#${hash}` : ""}`
+}
+
 function appendToken(url: string): string {
   const token = getStoredToken()
   if (!token) return url

@@ -7,6 +7,7 @@ import {
   ChevronDown,
   FolderOpen,
   GitFork,
+  Globe,
   KeyRound,
   Loader2,
   LogOut,
@@ -30,6 +31,7 @@ import { ConfirmDialog } from "@/components/confirm-dialog"
 import { FileBrowserPanel } from "@/components/file-browser-panel"
 import { ModelIcon } from "@/components/model-icon"
 import { NewProjectDialog } from "@/components/new-project-dialog"
+import { AppListPanel } from "@/components/app-list-panel"
 import { ProjectMembersPanel } from "@/components/project-members-panel"
 import { RenameProjectDialog } from "@/components/rename-project-dialog"
 import { RenameSessionDialog } from "@/components/rename-session-dialog"
@@ -57,13 +59,13 @@ import { useForkSession } from "@/lib/use-fork-session"
 import { compareSessionActivity, sessionActivityTime } from "@/lib/session-activity"
 import { RefreshButton } from "@/components/refresh-button"
 
-type SidebarView = "sessions" | "terminals" | "files" | "members" | "skills"
+type SidebarView = "sessions" | "terminals" | "apps" | "files" | "members" | "skills"
 const VIEW_STORAGE_KEY = "cattery:sidebar:view"
 
 function readSidebarView(): SidebarView {
   if (typeof window === "undefined") return "sessions"
   const saved = localStorage.getItem(VIEW_STORAGE_KEY)
-  return saved === "files" || saved === "members" || saved === "sessions" || saved === "skills" || saved === "terminals" ? saved : "sessions"
+  return saved === "files" || saved === "members" || saved === "sessions" || saved === "skills" || saved === "terminals" || saved === "apps" ? saved : "sessions"
 }
 
 export function WorkspaceShell({ children }: { children: React.ReactNode }) {
@@ -372,6 +374,12 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
               onClick={() => switchView("terminals")}
             />
             <ActivityButton
+              icon={<Globe className="size-[22px]" />}
+              label="Apps"
+              active={view === "apps"}
+              onClick={() => switchView("apps")}
+            />
+            <ActivityButton
               icon={<FolderOpen className="size-[22px]" />}
               label="Files"
               active={view === "files"}
@@ -497,6 +505,15 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
             {visitedViews.has("terminals") && (
               currentProject ? (
                 <TerminalListPanel projectId={currentProject.project_id} active={view === "terminals"} />
+              ) : (
+                <NoProjectPlaceholder onCreate={() => setNewProjectOpen(true)} />
+              )
+            )}
+          </div>
+          <div className={cn("min-h-0 flex-1 overflow-hidden", view === "apps" ? "block" : "hidden")}>
+            {visitedViews.has("apps") && (
+              currentProject ? (
+                <AppListPanel key={currentProject.project_id} projectId={currentProject.project_id} active={view === "apps"} />
               ) : (
                 <NoProjectPlaceholder onCreate={() => setNewProjectOpen(true)} />
               )

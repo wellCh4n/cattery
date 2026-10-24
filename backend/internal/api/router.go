@@ -18,7 +18,7 @@ import (
 // `?token=` (used by <img>/<iframe> file URLs that can't set headers).
 // Anyone with read access to the access log would otherwise have working
 // session tokens.
-var tokenQueryRedactor = regexp.MustCompile(`([?&]token=)[^&]*`)
+var tokenQueryRedactor = regexp.MustCompile(`([?&](?:cattery_)?token=)[^&]*`)
 
 func redactURI(uri string) string {
 	return tokenQueryRedactor.ReplaceAllString(uri, "${1}REDACTED")
@@ -34,6 +34,7 @@ func NewRouter(
 	authH *AuthHandler,
 	adminH *AdminHandler,
 	usersH *UsersHandler,
+	portsH *PortsHandler,
 	signer *auth.Signer,
 ) *echo.Echo {
 	e := echo.New()
@@ -149,6 +150,15 @@ func NewRouter(
 	projects.POST("/:project_id/terminals/import", terminalH.Import)
 	projects.PATCH("/:project_id/terminals/:terminal_id", terminalH.Rename)
 	projects.DELETE("/:project_id/terminals/:terminal_id", terminalH.Delete)
+	projects.GET("/:project_id/apps", portsH.List)
+	projects.DELETE("/:project_id/apps/:port", portsH.Stop)
+
+	// Previews of web servers in the sandbox. Outside `protected`: the pages
+	// load their own assets, which carry the preview cookie, not a bearer token.
+	v1.Any("/projects/:project_id/ports/:port", portsH.Proxy, portsH.PreviewAuth)
+	v1.Any("/projects/:project_id/ports/:port/*", portsH.Proxy, portsH.PreviewAuth)
+	// Everything outside /api/v1 is a previewed app's root-relative request.
+	e.Any("/*", portsH.Fallback)
 
 	protected.GET("/models", sessionH.Models)
 

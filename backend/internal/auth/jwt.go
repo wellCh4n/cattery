@@ -16,8 +16,14 @@ const tokenTTL = 7 * 24 * time.Hour
 type Claims struct {
 	UserID  uuid.UUID `json:"uid"`
 	IsAdmin bool      `json:"adm"`
+	// Scope narrows a token to one use; empty is a full login token. A
+	// ScopePreview token only opens ProjectID's sandbox port previews.
+	Scope     string `json:"scp,omitempty"`
+	ProjectID string `json:"pid,omitempty"`
 	jwt.RegisteredClaims
 }
+
+const ScopePreview = "preview"
 
 type Signer struct {
 	secret []byte
@@ -43,6 +49,28 @@ func (s *Signer) Issue(userID uuid.UUID, isAdmin bool) (string, error) {
 	t := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return t.SignedString(s.secret)
 }
+
+// IssuePreview issues a token that opens only projectID's port previews, for
+// the cookie set on preview pages. It never outlives expires, the login
+// token it was exchanged for.
+func (s *Signer) IssuePreview(userID, projectID uuid.UUID, expires time.Time) (string, error) {
+	now := time.Now()
+	if limit := now.Add(previewTTL); expires.After(limit) {
+		expires = limit
+	}
+	claims := Claims{
+		UserID:    userID,
+		Scope:     ScopePreview,
+		ProjectID: projectID.String(),
+		RegisteredClaims: jwt.RegisteredClaims{
+			IssuedAt:  jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(expires),
+		},
+	}
+	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(s.secret)
+}
+
+const previewTTL = 24 * time.Hour
 
 // Verify returns the claims if the token is valid and not expired.
 // Note: we don't re-check is_admin against the DB — token is the source of

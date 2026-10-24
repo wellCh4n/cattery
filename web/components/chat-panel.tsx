@@ -48,7 +48,7 @@ import {
 } from "@/components/ui/trace"
 import { QuestionnaireCard } from "@/components/questionnaire-card"
 import { useAuthStore } from "@/lib/auth-store"
-import { Markdown } from "@/components/markdown"
+import { Markdown, SandboxLinkProject } from "@/components/markdown"
 import { EffortBadge, EffortPicker, ModelBadge, ModelPicker } from "@/components/model-picker"
 import { ContextMeter } from "@/components/context-meter"
 import { type Session } from "@/lib/api"
@@ -117,7 +117,10 @@ function toSegments(bubbles: Bubble[]): Segment[] {
 export function ChatPanel({ session }: Props) {
   return (
     <MessageScrollerProvider key={session.session_id} autoScroll>
-      <ChatPanelContent session={session} />
+      {/* The agent's localhost links open its sandbox's port previews. */}
+      <SandboxLinkProject value={session.project_id}>
+        <ChatPanelContent session={session} />
+      </SandboxLinkProject>
     </MessageScrollerProvider>
   )
 }

@@ -35,7 +35,8 @@ func AuthMiddleware(signer *auth.Signer) echo.MiddlewareFunc {
 				return echo.NewHTTPError(http.StatusUnauthorized, "missing bearer token")
 			}
 			claims, err := signer.Verify(token)
-			if err != nil {
+			// Scoped tokens (preview cookies) are not login tokens.
+			if err != nil || claims.Scope != "" {
 				return echo.NewHTTPError(http.StatusUnauthorized, "invalid token")
 			}
 			c.Set(ctxUserID, claims.UserID)

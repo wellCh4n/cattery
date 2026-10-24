@@ -2,7 +2,7 @@
 
 // Open-tabs store — the VSCode-style editor tabs across the top of the main
 // pane. A tab is a pointer to a routed view: a session, a skill, an admin
-// page, a file, or a terminal. Project-scoped tabs carry their owning projectId; session
+// page, a file, a terminal, or a sandbox port preview. Project-scoped tabs carry their owning projectId; session
 // ownership is resolved from workspace data. Titles and icons are
 // resolved live at render time (see tab-bar) so renames show up without
 // touching this store. Order is the open order; the active tab is derived from
@@ -10,11 +10,11 @@
 
 import { create } from "zustand"
 
-export type TabKind = "session" | "skill" | "file" | "admin" | "terminal"
+export type TabKind = "session" | "skill" | "file" | "admin" | "terminal" | "port"
 
 export interface Tab {
   kind: TabKind
-  // session_id / skill slug / file path (absolute, e.g. /src/a.go) / admin sub-section ("users") / terminal id
+  // session_id / skill slug / file path (absolute, e.g. /src/a.go) / admin sub-section ("users") / terminal id / port number
   id: string
   // Owning project. Legacy session tabs resolve ownership from the workspace.
   projectId?: string
@@ -23,7 +23,7 @@ export interface Tab {
 const STORAGE_KEY = "cattery:open-tabs"
 
 export function tabKey(tab: Tab): string {
-  return tab.kind === "file" ? `file:${tab.projectId}:${tab.id}` : `${tab.kind}:${tab.id}`
+  return tab.kind === "file" || tab.kind === "port" ? `${tab.kind}:${tab.projectId}:${tab.id}` : `${tab.kind}:${tab.id}`
 }
 
 export function sameTab(a: Tab, b: Tab): boolean {
@@ -36,6 +36,7 @@ export function tabHref(tab: Tab): string {
     case "skill":   return `/skills/${encodeURIComponent(tab.id)}`
     case "admin":   return `/admin/${tab.id}`
     case "terminal": return `/terminals/${tab.projectId}/${tab.id}`
+    case "port":     return `/ports/${tab.projectId}/${tab.id}`
     case "file": {
       const segs = tab.id.split("/").filter(Boolean).map(encodeURIComponent)
       return `/files/${tab.projectId}/${segs.join("/")}`
@@ -51,6 +52,7 @@ export function tabForPath(pathname: string): Tab | null {
   if (parts.length === 2 && parts[0] === "skills") return { kind: "skill", id: decodeURIComponent(parts[1]) }
   if (parts.length === 2 && parts[0] === "admin") return { kind: "admin", id: parts[1] }
   if (parts.length === 3 && parts[0] === "terminals") return { kind: "terminal", id: parts[2], projectId: parts[1] }
+  if (parts.length === 3 && parts[0] === "ports") return { kind: "port", id: parts[2], projectId: parts[1] }
   if (parts.length >= 3 && parts[0] === "files") {
     const projectId = parts[1]
     const path = "/" + parts.slice(2).map(decodeURIComponent).join("/")
@@ -67,7 +69,7 @@ function readTabs(): Tab[] {
     if (!Array.isArray(parsed)) return []
     const tabs = parsed.filter((t): t is Tab => {
       if (!t || typeof t.id !== "string") return false
-      if (t.kind === "file" || t.kind === "terminal") return typeof t.projectId === "string"
+      if (t.kind === "file" || t.kind === "terminal" || t.kind === "port") return typeof t.projectId === "string"
       return t.kind === "session" || t.kind === "skill" || t.kind === "admin"
     })
     // Keep pre-existing shared pages with the project selected before upgrade.
