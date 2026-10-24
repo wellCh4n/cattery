@@ -1,9 +1,10 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { CircleCheck, Info, Loader2, OctagonX, TriangleAlert } from "lucide-react"
+import { CircleCheck, Info, Loader2, OctagonX, TriangleAlert, X } from "lucide-react"
 import { Toaster as Sonner, type ToasterProps } from "sonner"
 import { buttonVariants } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 
 // The theme lives in the <html> "dark" class (lib/theme.ts), not next-themes,
 // so the toaster follows that class.
@@ -35,6 +36,7 @@ export function Toaster(props: ToasterProps) {
         warning: <TriangleAlert className="size-4" />,
         error: <OctagonX className="size-4" />,
         loading: <Loader2 className="size-4 animate-spin" />,
+        close: <X />,
       }}
       toastOptions={{
         unstyled: true,
@@ -46,6 +48,8 @@ export function Toaster(props: ToasterProps) {
           description: "truncate text-xs text-muted-foreground",
           actionButton: buttonVariants({ variant: "outline", size: "sm" }),
           cancelButton: buttonVariants({ variant: "ghost", size: "sm" }),
+          // Sonner renders it first; it belongs after the action.
+          closeButton: cn(buttonVariants({ variant: "ghost", size: "icon-xs" }), "order-last text-muted-foreground"),
         },
       }}
       {...props}

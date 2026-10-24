@@ -2,9 +2,9 @@
 
 import { useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
-import { toast } from "sonner"
 import { useAppsStore } from "@/lib/apps-store"
 import { NewPortDetector } from "@/lib/new-ports"
+import { notify } from "@/lib/notify"
 
 // How often the open project's listening servers are re-read.
 const POLL_MS = 3000
@@ -33,8 +33,10 @@ export function AppWatcher({ projectId }: { projectId: string }) {
   useEffect(() => {
     if (!apps) return
     for (const app of detector.current.next(apps, readAt)) {
-      toast(`Port ${app.port} is running`, {
+      notify(`Port ${app.port} is running`, {
         id: `app-${projectId}-${app.port}`,
+        // Stays until closed, so a server started while away isn't missed.
+        persistent: true,
         description: app.command,
         action: { label: "Open", onClick: () => router.push(`/ports/${projectId}/${app.port}`) },
       })
