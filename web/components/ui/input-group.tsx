@@ -58,7 +58,10 @@ function InputGroupAddon({
         if ((e.target as HTMLElement).closest("button")) {
           return
         }
-        e.currentTarget.parentElement?.querySelector("input")?.focus()
+        // The control may be a textarea (the chat composer), not just an input.
+        e.currentTarget.parentElement
+          ?.querySelector<HTMLElement>("[data-slot=input-group-control]")
+          ?.focus()
       }}
       {...props}
     />

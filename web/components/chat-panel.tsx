@@ -162,6 +162,35 @@ function ChatPanelContent({ session }: Props) {
   // While the agent runs, a message is steered into its turn.
   const canSend = writable && ready && !question && input.trim().length > 0
 
+  // Shell-style recall of this session's sent messages. ArrowUp on the first
+  // line of an empty or recalled field steps back, ArrowDown on its last line
+  // steps forward and past the newest clears it. Editing keeps the text.
+  const sent = useMemo(() => bubbles.filter(b => b.role === "user" && b.kind === "text").map(b => b.content), [bubbles])
+  // Index into sent of the message shown in the field, while recalling.
+  const [recall, setRecall] = useState<number | null>(null)
+
+  function recallKey(e: React.KeyboardEvent<HTMLTextAreaElement>): boolean {
+    if (e.shiftKey || e.altKey || e.metaKey || e.ctrlKey || e.nativeEvent.isComposing) return false
+    const el = e.currentTarget
+    if (el.selectionStart !== el.selectionEnd) return false
+    const at = recall !== null && recall < sent.length ? recall : null
+    if (at === null && input !== "") return false
+    let next: number
+    if (e.key === "ArrowUp") {
+      if (input.slice(0, el.selectionStart).includes("\n")) return false
+      next = (at ?? sent.length) - 1
+      if (next < 0) return false
+    } else if (e.key === "ArrowDown") {
+      if (at === null || input.slice(el.selectionEnd).includes("\n")) return false
+      next = at + 1
+    } else {
+      return false
+    }
+    setRecall(next < sent.length ? next : null)
+    setInput(next < sent.length ? sent[next] : "")
+    return true
+  }
+
   const answering = !!question
   useEffect(() => {
     // The composer stays usable while the sandbox starts (only sending waits for
@@ -208,6 +237,7 @@ function ChatPanelContent({ session }: Props) {
     if (!canSend) return
     const text = input.trim()
     setInput("")
+    setRecall(null)
     setSubmission(value => value + 1)
     sendMessage(session.session_id, text).catch(() => restoreInput([text]))
   }
@@ -373,7 +403,7 @@ function ChatPanelContent({ session }: Props) {
               ref={inputRef}
               value={input}
               disabled={!!question}
-              onChange={e => setInput(e.target.value)}
+              onChange={e => { setInput(e.target.value); setRecall(null) }}
               placeholder={question ? "Answer the questions above first" : sending ? "Steer the agent…" : "Ask the agent to change your code…"}
               aria-label="Message"
               rows={1}
@@ -382,6 +412,8 @@ function ChatPanelContent({ session }: Props) {
                 if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                   e.preventDefault()
                   formRef.current?.requestSubmit()
+                } else if (recallKey(e)) {
+                  e.preventDefault()
                 }
               }}
             />
