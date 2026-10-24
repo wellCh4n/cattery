@@ -206,7 +206,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
 
   return (
     <>
-      <header className="flex h-12 shrink-0 items-center gap-2 px-3">
+      <header className="flex h-12 shrink-0 items-center gap-2 px-3.5">
         <CatteryLogo className="size-6 shrink-0" />
         <span className="font-heading shrink-0 text-base font-semibold tracking-tight">Cattery</span>
         <div ref={projectPickerRef} className="relative min-w-0 w-44">
@@ -360,39 +360,39 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
           />
 
           <div className="flex min-h-0 flex-1 flex-row">
-          <div className="flex w-12 shrink-0 flex-col gap-1">
+          <div className="flex w-13 shrink-0 flex-col gap-1">
             <ActivityButton
-              icon={<MessagesSquare className="size-[22px]" />}
+              icon={<MessagesSquare className="size-6" />}
               label="Sessions"
               active={view === "sessions"}
               onClick={() => switchView("sessions")}
             />
             <ActivityButton
-              icon={<SquareTerminal className="size-[22px]" />}
+              icon={<SquareTerminal className="size-6" />}
               label="Terminals"
               active={view === "terminals"}
               onClick={() => switchView("terminals")}
             />
             <ActivityButton
-              icon={<Globe className="size-[22px]" />}
+              icon={<Globe className="size-6" />}
               label="Apps"
               active={view === "apps"}
               onClick={() => switchView("apps")}
             />
             <ActivityButton
-              icon={<FolderOpen className="size-[22px]" />}
+              icon={<FolderOpen className="size-6" />}
               label="Files"
               active={view === "files"}
               onClick={() => switchView("files")}
             />
             <ActivityButton
-              icon={<Users className="size-[22px]" />}
+              icon={<Users className="size-6" />}
               label="Members"
               active={view === "members"}
               onClick={() => switchView("members")}
             />
             <ActivityButton
-              icon={<Puzzle className="size-[22px]" />}
+              icon={<Puzzle className="size-6" />}
               label="Skills"
               active={view === "skills"}
               onClick={() => switchView("skills")}
@@ -418,7 +418,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                   </div>
                 )}
                 <RailButton
-                  icon={<Settings className="size-[22px]" />}
+                  icon={<Settings className="size-6" />}
                   label="Settings"
                   active={settingsMenuOpen}
                   onClick={() => { setSettingsMenuOpen(o => !o); setUserMenuOpen(false) }}
@@ -731,7 +731,7 @@ function ActivityButton({
         aria-label={label}
         aria-pressed={active}
         className={cn(
-          "flex size-9 cursor-pointer items-center justify-center rounded-md transition-colors",
+          "flex size-10 cursor-pointer items-center justify-center rounded-md transition-colors",
           active
             ? "bg-muted-foreground/15 text-foreground dark:bg-foreground/20"
             : "text-muted-foreground hover:bg-muted-foreground/8 hover:text-foreground dark:hover:bg-foreground/8",
@@ -766,7 +766,7 @@ function RailButton({
       aria-label={label}
       aria-pressed={active}
       className={cn(
-        "flex h-10 w-full cursor-pointer items-center justify-center transition-colors",
+        "flex h-11 w-full cursor-pointer items-center justify-center transition-colors",
         active ? "text-foreground" : "text-muted-foreground hover:text-foreground",
       )}
     >
