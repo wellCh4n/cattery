@@ -7,6 +7,7 @@ import { WorkspaceShell } from "@/components/workspace-shell"
 import { StatusBar } from "@/components/status-bar"
 import { TabBar } from "@/components/tab-bar"
 import { TerminalHost } from "@/components/terminal-host"
+import { Toaster } from "@/components/ui/sonner"
 import { useAuthStore } from "@/lib/auth-store"
 import { blockSwipeNavigation } from "@/lib/swipe-navigation"
 
@@ -59,6 +60,7 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
         </main>
       </WorkspaceShell>
       <StatusBar />
+      <Toaster position="top-center" />
     </div>
   )
 }

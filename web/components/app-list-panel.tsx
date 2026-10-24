@@ -1,62 +1,44 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useState } from "react"
 import { usePathname, useRouter } from "next/navigation"
 import { ExternalLink, Globe, Loader2, Power } from "lucide-react"
 import { RefreshButton } from "@/components/refresh-button"
 import { Tree, type TreeNode } from "@/components/tree"
 import { TreeRowAction } from "@/components/tree-row"
 import { Hint } from "@/components/ui/hint"
-import { listApps, previewURL, stopApp, type SandboxApp } from "@/lib/api"
+import { previewURL, stopApp } from "@/lib/api"
+import { useAppsStore } from "@/lib/apps-store"
 import { tabForPath } from "@/lib/tabs-store"
 import { formatUptime } from "@/lib/uptime"
 
-// How often the shown view re-reads the sandbox's listening servers.
-const POLL_MS = 3000
-
 // Servers listening in the project sandbox, each opening a preview tab. They
 // come from the sandbox's socket table, so servers started by the agent, a
-// terminal or anything else show up within a few seconds.
-export function AppListPanel({ projectId, active }: { projectId: string; active: boolean }) {
+// terminal or anything else show up within a few seconds. AppWatcher polls
+// the list; this view only reads it.
+export function AppListPanel({ projectId }: { projectId: string }) {
   const router = useRouter()
   const pathname = usePathname()
-  const [apps, setApps] = useState<SandboxApp[] | null>(null)
-  // When the list was read; running times count from it.
-  const [now, setNow] = useState(0)
-  const [error, setError] = useState<string | null>(null)
-  const [refreshing, setRefreshing] = useState(false)
+  const loaded = useAppsStore(s => s.projectId === projectId)
+  const apps = useAppsStore(s => (loaded ? s.apps : null))
+  const now = useAppsStore(s => s.readAt)
+  const listError = useAppsStore(s => (loaded ? s.error : null))
+  const refreshing = useAppsStore(s => loaded && s.refreshing)
+  const loadApps = useAppsStore(s => s.load)
+  const load = () => loadApps(projectId)
+  const [stopError, setStopError] = useState<string | null>(null)
+  const error = stopError ?? listError
   // The port being stopped; the stop waits for the process to exit.
   const [stopping, setStopping] = useState<number | null>(null)
 
-  const load = useCallback(async () => {
-    setRefreshing(true)
-    try {
-      setApps(await listApps(projectId))
-      setNow(Date.now())
-      setError(null)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to list apps")
-    } finally {
-      setRefreshing(false)
-    }
-  }, [projectId])
-
-  useEffect(() => {
-    if (!active) return
-    const tick = () => { if (document.visibilityState === "visible") void load() }
-    tick()
-    const timer = window.setInterval(tick, POLL_MS)
-    return () => window.clearInterval(timer)
-  }, [active, load])
-
   async function stop(port: number) {
     setStopping(port)
-    setError(null)
+    setStopError(null)
     try {
       await stopApp(projectId, port)
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : `Failed to stop port ${port}`)
+      setStopError(err instanceof Error ? err.message : `Failed to stop port ${port}`)
     } finally {
       setStopping(null)
     }

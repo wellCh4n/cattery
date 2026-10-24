@@ -32,6 +32,7 @@ import { FileBrowserPanel } from "@/components/file-browser-panel"
 import { ModelIcon } from "@/components/model-icon"
 import { NewProjectDialog } from "@/components/new-project-dialog"
 import { AppListPanel } from "@/components/app-list-panel"
+import { AppWatcher } from "@/components/app-watcher"
 import { ProjectMembersPanel } from "@/components/project-members-panel"
 import { RenameProjectDialog } from "@/components/rename-project-dialog"
 import { RenameSessionDialog } from "@/components/rename-session-dialog"
@@ -206,6 +207,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
 
   return (
     <>
+      {currentProject && <AppWatcher key={currentProject.project_id} projectId={currentProject.project_id} />}
       <header className="flex h-12 shrink-0 items-center gap-2 px-3.5">
         <CatteryLogo className="size-6 shrink-0" />
         <span className="font-heading shrink-0 text-base font-semibold tracking-tight">Cattery</span>
@@ -513,7 +515,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
           <div className={cn("min-h-0 flex-1 overflow-hidden", view === "apps" ? "block" : "hidden")}>
             {visitedViews.has("apps") && (
               currentProject ? (
-                <AppListPanel key={currentProject.project_id} projectId={currentProject.project_id} active={view === "apps"} />
+                <AppListPanel key={currentProject.project_id} projectId={currentProject.project_id} />
               ) : (
                 <NoProjectPlaceholder onCreate={() => setNewProjectOpen(true)} />
               )
