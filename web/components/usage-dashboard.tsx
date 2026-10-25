@@ -534,7 +534,7 @@ function Breakdown({ name, groups, lead, selected, onSelect }: {
   const header = (key: SortKey, label: string, right = true) => {
     const Arrow = sort.desc ? ArrowDown : ArrowUp
     return (
-      <th className={cn("px-3 py-2 font-medium", right ? "text-right" : "text-left")} aria-sort={sort.key === key ? (sort.desc ? "descending" : "ascending") : undefined}>
+      <th key={key} className={cn("px-3 py-2 font-medium", right ? "text-right" : "text-left")} aria-sort={sort.key === key ? (sort.desc ? "descending" : "ascending") : undefined}>
         <button
           type="button"
           className={cn("inline-flex cursor-pointer items-center gap-0.5 hover:text-foreground", sort.key === key && "text-foreground")}
