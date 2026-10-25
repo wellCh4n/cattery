@@ -24,19 +24,27 @@ type Config struct {
 
 	// JWTSecret signs auth tokens. Required; server refuses to start without it.
 	JWTSecret string
+
+	// PreviewURL names each app preview's own host: a URL with a wildcard
+	// host. Defaults to http://*.localhost:<PORT>, which browsers resolve to
+	// this machine; production sets e.g. https://*.preview.example.com, with
+	// wildcard DNS and TLS pointing at the backend.
+	PreviewURL string
 }
 
 func Load() *Config {
 	_ = godotenv.Load(".env", "backend/.env")
 
+	port := getEnv("PORT", "8080")
 	return &Config{
 		DatabaseURL:      getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/cattery?sslmode=disable"),
-		Port:             getEnv("PORT", "8080"),
+		Port:             port,
 		K8sNamespace:     getEnv("K8S_NAMESPACE", "default"),
 		ModelsConfig:     getEnv("MODELS_CONFIG", "models.toml"),
 		JWTSecret:        getEnv("JWT_SECRET", ""),
 		K8sStorageClass:  getEnv("K8S_STORAGE_CLASS", ""),
 		K8sPVCAccessMode: getEnv("K8S_PVC_ACCESS_MODE", "ReadWriteMany"),
+		PreviewURL:       getEnv("PREVIEW_URL", "http://*.localhost:"+port),
 	}
 }
 

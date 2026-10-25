@@ -4,7 +4,8 @@ import { use, useState } from "react"
 import { ExternalLink, Globe, RotateCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Hint } from "@/components/ui/hint"
-import { previewURL } from "@/lib/api"
+import { previewBase, previewURL } from "@/lib/api"
+import { usePreviewTemplate } from "@/lib/server-config"
 import { useDocumentTitle } from "@/lib/use-document-title"
 
 interface PageParams {
@@ -13,8 +14,9 @@ interface PageParams {
 }
 
 // A web server in the project sandbox, framed from the backend's preview
-// proxy. The frame is another origin, so its location can't be read back:
-// the address field shows the last path opened from here.
+// proxy. The address field shows where the frame loads it (its preview host,
+// or its path on the backend). The frame is another origin, so its location
+// can't be read back: the path is the last one opened from here.
 export default function PortPage({ params, searchParams }: {
   params: Promise<PageParams>
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>
@@ -36,6 +38,10 @@ export default function PortPage({ params, searchParams }: {
   }
 
   useDocumentTitle(`Port ${port}`)
+  // The frame waits for the template, so it loads once, at its final URL.
+  const template = usePreviewTemplate()
+  // The address the browser actually loads, without the scheme.
+  const base = template ? previewBase(projectId, port, template).replace(/^https?:\/\//, "") : ""
 
   function go(next: string) {
     const normalized = next.startsWith("/") ? next : `/${next}`
@@ -52,10 +58,10 @@ export default function PortPage({ params, searchParams }: {
           className="flex min-w-0 flex-1 items-center rounded-md border bg-muted/30 px-2 font-mono text-xs focus-within:ring-1 focus-within:ring-ring"
           onSubmit={e => { e.preventDefault(); go(draft.trim() || "/") }}
         >
-          <span className="shrink-0 text-muted-foreground">localhost:{port}</span>
+          <span className="min-w-0 shrink truncate text-muted-foreground" title={base}>{base}</span>
           <input
             aria-label="Path"
-            className="h-6 min-w-0 flex-1 bg-transparent outline-none"
+            className="h-6 min-w-24 flex-1 bg-transparent outline-none"
             value={draft}
             onChange={e => setDraft(e.target.value)}
             spellCheck={false}
@@ -67,17 +73,31 @@ export default function PortPage({ params, searchParams }: {
           </Button>
         </Hint>
         <Hint label="Open in a new browser tab">
-          <Button variant="ghost" size="icon-sm" aria-label="Open in a new browser tab" onClick={() => window.open(previewURL(projectId, port, path), "_blank", "noopener")}>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Open in a new browser tab"
+            disabled={!template}
+            onClick={() => { if (template) window.open(previewURL(projectId, port, path, template), "_blank", "noopener") }}
+          >
             <ExternalLink />
           </Button>
         </Hint>
       </div>
-      <iframe
-        key={loads}
-        title={`Port ${port}`}
-        src={previewURL(projectId, port, path)}
-        className="min-h-0 w-full flex-1 border-0 bg-white"
-      />
+      {template === null ? (
+        <div className="flex min-h-0 flex-1 items-center justify-center text-xs text-muted-foreground">
+          Couldn&apos;t load the preview settings from the backend. Reload the page to try again.
+        </div>
+      ) : template === undefined ? (
+        <div className="min-h-0 flex-1 bg-white" />
+      ) : (
+        <iframe
+          key={loads}
+          title={`Port ${port}`}
+          src={previewURL(projectId, port, path, template)}
+          className="min-h-0 w-full flex-1 border-0 bg-white"
+        />
+      )}
     </div>
   )
 }

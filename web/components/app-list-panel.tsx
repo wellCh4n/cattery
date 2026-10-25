@@ -8,6 +8,7 @@ import { Tree, type TreeNode } from "@/components/tree"
 import { TreeRowAction } from "@/components/tree-row"
 import { Hint } from "@/components/ui/hint"
 import { previewURL, stopApp } from "@/lib/api"
+import { usePreviewTemplate } from "@/lib/server-config"
 import { useAppsStore } from "@/lib/apps-store"
 import { tabForPath } from "@/lib/tabs-store"
 import { formatUptime } from "@/lib/uptime"
@@ -19,6 +20,7 @@ import { formatUptime } from "@/lib/uptime"
 export function AppListPanel({ projectId }: { projectId: string }) {
   const router = useRouter()
   const pathname = usePathname()
+  const previewTemplate = usePreviewTemplate()
   const loaded = useAppsStore(s => s.projectId === projectId)
   const apps = useAppsStore(s => (loaded ? s.apps : null))
   const now = useAppsStore(s => s.readAt)
@@ -67,7 +69,7 @@ export function AppListPanel({ projectId }: { projectId: string }) {
             )}
             <TreeRowAction
               aria-label="Open in a new browser tab"
-              onClick={e => { e.stopPropagation(); window.open(previewURL(projectId, app.port), "_blank", "noopener") }}
+              onClick={e => { e.stopPropagation(); if (previewTemplate) window.open(previewURL(projectId, app.port, "/", previewTemplate), "_blank", "noopener") }}
             >
               <ExternalLink className="size-4" />
             </TreeRowAction>

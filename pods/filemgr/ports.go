@@ -36,7 +36,7 @@ var localTransport = &http.Transport{
 }
 
 // handleProxy forwards /proxy/<port>/<path> to localhost:<port>/<path>. The
-// backend sends the public prefix of the preview in X-Forwarded-Prefix.
+// browser reaches it on the preview's own host, where the app owns every path.
 func handleProxy(w http.ResponseWriter, r *http.Request) {
 	portStr, tail, _ := strings.Cut(strings.TrimPrefix(r.URL.EscapedPath(), "/proxy/"), "/")
 	port, err := strconv.Atoi(portStr)
@@ -44,7 +44,6 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid port", http.StatusBadRequest)
 		return
 	}
-	prefix := strings.TrimSuffix(r.Header.Get("X-Forwarded-Prefix"), "/")
 	escaped := "/" + tail
 	rp := &httputil.ReverseProxy{
 		Transport:     localTransport,
@@ -55,7 +54,7 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 			pr.Out.URL.RawPath = escaped
 			// Rewrite drops X-Forwarded-*; keep the backend's, which describe
 			// the browser's request rather than this hop.
-			for _, h := range []string{"X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto", "X-Forwarded-Prefix"} {
+			for _, h := range []string{"X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto"} {
 				if v := pr.In.Header.Values(h); len(v) > 0 {
 					pr.Out.Header[h] = v
 				}
@@ -63,7 +62,7 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 		},
 		ModifyResponse: func(res *http.Response) error {
 			if loc := res.Header.Get("Location"); loc != "" {
-				res.Header.Set("Location", rewriteLocation(loc, port, prefix))
+				res.Header.Set("Location", rewriteLocation(loc, port))
 			}
 			return nil
 		},
@@ -74,24 +73,20 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 	rp.ServeHTTP(w, r)
 }
 
-// rewriteLocation keeps redirects inside the preview: root-relative paths get
-// the prefix, and absolute URLs to the server itself become root-relative.
-func rewriteLocation(loc string, port int, prefix string) string {
-	if u, err := url.Parse(loc); err == nil && u.IsAbs() {
-		host := u.Hostname()
-		if u.Port() != strconv.Itoa(port) || (host != "localhost" && host != "127.0.0.1" && host != "0.0.0.0" && host != "::1") {
-			return loc
-		}
-		loc = u.RequestURI()
-		if u.Fragment != "" {
-			loc += "#" + u.Fragment
-		}
-	}
-	if prefix == "" || !strings.HasPrefix(loc, "/") || strings.HasPrefix(loc, "//") {
+// rewriteLocation keeps redirects inside the preview: absolute URLs to the
+// server itself (http://localhost:<port>/x) become root-relative.
+func rewriteLocation(loc string, port int) string {
+	u, err := url.Parse(loc)
+	if err != nil || !u.IsAbs() {
 		return loc
 	}
-	if loc == prefix || strings.HasPrefix(loc, prefix+"/") || strings.HasPrefix(loc, prefix+"?") {
+	host := u.Hostname()
+	if u.Port() != strconv.Itoa(port) || (host != "localhost" && host != "127.0.0.1" && host != "0.0.0.0" && host != "::1") {
 		return loc
 	}
-	return prefix + loc
+	loc = u.RequestURI()
+	if u.Fragment != "" {
+		loc += "#" + u.Fragment
+	}
+	return loc
 }

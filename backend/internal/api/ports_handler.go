@@ -1,16 +1,12 @@
 // Web servers running in a project sandbox. GET /projects/:id/apps lists the
 // listening apps (from the agent harness) and DELETE /projects/:id/apps/:port
-// stops one; /projects/:id/ports/:port/* previews one, proxied through
-// filemgr, which shares the Pod network and so also reaches servers bound to
-// localhost. Preview pages load their own assets and can't send the bearer
-// header, so the first request exchanges ?cattery_token= for a cookie
-// (not ?token=, which Vite's HMR socket uses).
-//
-// Previewed apps run unmodified, so their root-relative URLs (/src/main.js,
-// /@vite/client, an HMR socket on /) leave the preview path. The backend's own
-// routes all live under /api/v1, so Fallback takes every other path on this
-// origin to a preview: the one in the Referer, else the last preview page this
-// browser opened.
+// stops one. Each app is previewed on its own host, <port>-<project id>.<domain>
+// (preview_host.go), proxied through filemgr, which shares the Pod network and
+// so also reaches servers bound to localhost. There the app owns every path,
+// so its router, reloads and dev-server sockets need no rewriting. Preview
+// pages load their own assets and can't send the bearer header, so the first
+// request exchanges ?cattery_token= for a cookie (not ?token=, which Vite's
+// HMR socket uses).
 package api
 
 import (
@@ -19,7 +15,6 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -31,26 +26,23 @@ import (
 )
 
 const (
-	// Cookies are Path=/ so they reach root-relative requests too. Every
-	// cookie with this prefix is Cattery's and never reaches the sandbox.
+	// Every cookie with this prefix is Cattery's and never reaches the sandbox.
 	previewCookiePrefix = "cattery_preview"
 	// The sign-in for one project's previews: cattery_preview_<project id>.
 	previewAuthCookie = previewCookiePrefix + "_"
-	// "<project id>:<port>" of the last preview page opened, for Fallback.
-	previewTargetCookie = previewCookiePrefix + "-target"
-	previewTokenParam   = "cattery_token"
+	previewTokenParam = "cattery_token"
 )
-
-var previewPathRE = regexp.MustCompile(`^/api/v1/projects/([0-9a-fA-F-]{36})/ports/(\d+)(?:/|$)`)
 
 type PortsHandler struct {
 	projects *db.ProjectStore
 	sandbox  *sandbox.Manager
 	signer   *auth.Signer
+	// hosts names each preview's own host (PREVIEW_URL).
+	hosts *PreviewHosts
 }
 
-func NewPortsHandler(projects *db.ProjectStore, sandboxMgr *sandbox.Manager, signer *auth.Signer) *PortsHandler {
-	return &PortsHandler{projects: projects, sandbox: sandboxMgr, signer: signer}
+func NewPortsHandler(projects *db.ProjectStore, sandboxMgr *sandbox.Manager, signer *auth.Signer, hosts *PreviewHosts) *PortsHandler {
+	return &PortsHandler{projects: projects, sandbox: sandboxMgr, signer: signer, hosts: hosts}
 }
 
 // The agent and filemgr APIs are internal: a preview of them would let any
@@ -150,27 +142,19 @@ func (h *PortsHandler) Stop(c echo.Context) error {
 	}
 }
 
-func previewPrefix(projectID, port string) string {
-	return "/api/v1/projects/" + projectID + "/ports/" + port
-}
-
-// PreviewAuth authenticates preview requests: a login token in the
-// Authorization header or ?cattery_token=, or the project's preview cookie. A
-// query token on a page load is swapped for the cookie and removed from the
-// URL, so the previewed app never sees it.
-func (h *PortsHandler) PreviewAuth(next echo.HandlerFunc) echo.HandlerFunc {
+// previewAuth authenticates a request to a preview host: ?cattery_token=
+// with a login token, or the project's preview cookie. A query token on a
+// page load is swapped for the cookie and removed from the URL, so the
+// previewed app never sees it; the app's own Authorization header is its
+// business. The web app frames the preview from another site (localhost and
+// <x>.localhost are different sites), so the cookie is SameSite=None and
+// partitioned by the framing site; browsers accept Secure cookies from
+// http://*.localhost too.
+func (h *PortsHandler) previewAuth(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		projectID, err := uuid.Parse(c.Param("project_id"))
 		if err != nil {
 			return echo.NewHTTPError(http.StatusNotFound, "project not found")
-		}
-		if token := extractBearer(c.Request().Header.Get("Authorization")); token != "" {
-			claims, err := h.signer.Verify(token)
-			if err != nil || claims.Scope != "" {
-				return echo.NewHTTPError(http.StatusUnauthorized, "invalid token")
-			}
-			c.Set(ctxUserID, claims.UserID)
-			return next(c)
 		}
 		if token := c.QueryParam(previewTokenParam); token != "" {
 			claims, err := h.signer.Verify(token)
@@ -186,13 +170,14 @@ func (h *PortsHandler) PreviewAuth(next echo.HandlerFunc) echo.HandlerFunc {
 				return err
 			}
 			c.SetCookie(&http.Cookie{
-				Name:     previewAuthCookie + projectID.String(),
-				Value:    preview,
-				Path:     "/",
-				Expires:  claims.ExpiresAt.Time,
-				HttpOnly: true,
-				Secure:   c.Scheme() == "https",
-				SameSite: http.SameSiteLaxMode,
+				Name:        previewAuthCookie + projectID.String(),
+				Value:       preview,
+				Path:        "/",
+				Expires:     claims.ExpiresAt.Time,
+				HttpOnly:    true,
+				Secure:      true,
+				SameSite:    http.SameSiteNoneMode,
+				Partitioned: true,
 			})
 			req := c.Request()
 			if req.Method != http.MethodGet && req.Method != http.MethodHead {
@@ -217,71 +202,8 @@ func (h *PortsHandler) PreviewAuth(next echo.HandlerFunc) echo.HandlerFunc {
 	}
 }
 
-// Proxy forwards /projects/:id/ports/:port/* to the server on that port.
-func (h *PortsHandler) Proxy(c echo.Context) error {
-	req := c.Request()
-	prefix := previewPrefix(c.Param("project_id"), c.Param("port"))
-	if !strings.HasPrefix(req.URL.EscapedPath(), prefix+"/") {
-		// Pages resolve relative URLs against the directory, so the preview
-		// root needs its trailing slash.
-		u := *req.URL
-		u.Path, u.RawPath = prefix+"/", ""
-		return c.Redirect(http.StatusFound, u.RequestURI())
-	}
-	if isPageLoad(req) {
-		c.SetCookie(&http.Cookie{
-			Name:     previewTargetCookie,
-			Value:    c.Param("project_id") + ":" + c.Param("port"),
-			Path:     "/",
-			HttpOnly: true,
-			Secure:   c.Scheme() == "https",
-			SameSite: http.SameSiteLaxMode,
-		})
-	}
-	return h.forward(c, strings.TrimPrefix(req.URL.EscapedPath(), prefix))
-}
-
-// Fallback serves a request outside the backend's routes as part of a
-// preview, with its path unchanged.
-func (h *PortsHandler) Fallback(c echo.Context) error {
-	projectID, port, ok := previewTarget(c)
-	if !ok {
-		return echo.ErrNotFound
-	}
-	c.SetParamNames("project_id", "port")
-	c.SetParamValues(projectID, port)
-	return h.PreviewAuth(func(c echo.Context) error {
-		return h.forward(c, c.Request().URL.EscapedPath())
-	})(c)
-}
-
-// previewTarget picks the preview a root-relative request belongs to.
-func previewTarget(c echo.Context) (projectID, port string, ok bool) {
-	if ref, err := url.Parse(c.Request().Referer()); err == nil && ref.Host == c.Request().Host {
-		if m := previewPathRE.FindStringSubmatch(ref.EscapedPath()); m != nil {
-			return m[1], m[2], true
-		}
-	}
-	if cookie, err := c.Cookie(previewTargetCookie); err == nil {
-		projectID, port, ok = strings.Cut(cookie.Value, ":")
-		if _, err := uuid.Parse(projectID); ok && err == nil {
-			return projectID, port, true
-		}
-	}
-	return "", "", false
-}
-
-// isPageLoad reports a document or frame navigation, as opposed to the page's
-// own requests.
-func isPageLoad(req *http.Request) bool {
-	if dest := req.Header.Get("Sec-Fetch-Dest"); dest != "" {
-		return dest == "document" || dest == "iframe"
-	}
-	return req.Method == http.MethodGet && strings.Contains(req.Header.Get("Accept"), "text/html")
-}
-
-// forward proxies the request to path on the preview's port.
-func (h *PortsHandler) forward(c echo.Context, path string) error {
+// forward proxies the request, path unchanged, to the preview's port.
+func (h *PortsHandler) forward(c echo.Context) error {
 	access, err := requireReadableProject(c, h.projects)
 	if err != nil {
 		return err
@@ -299,7 +221,7 @@ func (h *PortsHandler) forward(c echo.Context, path string) error {
 	if err != nil {
 		return err
 	}
-	prefix := previewPrefix(access.Project.ProjectID.String(), strconv.Itoa(port))
+	path := req.URL.EscapedPath()
 	rp := &httputil.ReverseProxy{
 		FlushInterval: -1,
 		Rewrite: func(pr *httputil.ProxyRequest) {
@@ -312,8 +234,7 @@ func (h *PortsHandler) forward(c echo.Context, path string) error {
 				q.Del(previewTokenParam)
 				pr.Out.URL.RawQuery = q.Encode()
 			}
-			// Cattery's credentials stay out of the sandbox.
-			pr.Out.Header.Del("Authorization")
+			// Cattery's cookies stay out of the sandbox.
 			pr.Out.Header.Del("Cookie")
 			for _, ck := range pr.In.Cookies() {
 				if !strings.HasPrefix(ck.Name, previewCookiePrefix) {
@@ -321,8 +242,6 @@ func (h *PortsHandler) forward(c echo.Context, path string) error {
 				}
 			}
 			pr.SetXForwarded()
-			// filemgr keeps the app's redirects under the preview path.
-			pr.Out.Header.Set("X-Forwarded-Prefix", prefix)
 		},
 		ModifyResponse: func(res *http.Response) error {
 			// The app can't replace Cattery's cookies.

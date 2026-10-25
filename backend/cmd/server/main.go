@@ -62,7 +62,11 @@ func main() {
 	authH := api.NewAuthHandler(userStore, signer)
 	adminH := api.NewAdminHandler(userStore, projectStore, sandboxMgr)
 	usersH := api.NewUsersHandler(userStore)
-	portsH := api.NewPortsHandler(projectStore, sandboxMgr, signer)
+	previewHosts, err := api.NewPreviewHosts(cfg.PreviewURL)
+	if err != nil {
+		log.Fatalf("PREVIEW_URL: %v", err)
+	}
+	portsH := api.NewPortsHandler(projectStore, sandboxMgr, signer, previewHosts)
 	usageH := api.NewUsageHandler(usageStore)
 
 	router := api.NewRouter(database, projectH, sessionH, filesH, terminalH, skillsH, authH, adminH, usersH, portsH, usageH, signer)

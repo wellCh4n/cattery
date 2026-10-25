@@ -55,8 +55,12 @@ func NewRouter(
 			p := c.Path()
 			return p == "/healthz" || p == "/readyz"
 		},
-		LogValuesFunc: func(_ echo.Context, v middleware.RequestLoggerValues) error {
+		LogValuesFunc: func(c echo.Context, v middleware.RequestLoggerValues) error {
 			uri := redactURI(v.URI)
+			// Preview hosts share paths with the backend; say whose they are.
+			if host := c.Request().Host; portsH.IsPreviewHost(host) {
+				uri = host + uri
+			}
 			if v.Error != nil {
 				log.Printf("%s %s %d %s err=%v", v.Method, uri, v.Status, v.Latency, v.Error)
 			} else {
@@ -66,6 +70,10 @@ func NewRouter(
 		},
 	}))
 	e.Use(middleware.Recover())
+	// Previews of web servers in the sandbox, each on its own host. Before
+	// CORS (a previewed app answers its own preflights) and routing (none of
+	// the backend's routes exist on a preview host).
+	e.Use(portsH.ServeHost)
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
 		AllowOrigins: []string{"*"},
 		AllowMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
@@ -159,14 +167,8 @@ func NewRouter(
 	projects.GET("/:project_id/apps", portsH.List)
 	projects.DELETE("/:project_id/apps/:port", portsH.Stop)
 
-	// Previews of web servers in the sandbox. Outside `protected`: the pages
-	// load their own assets, which carry the preview cookie, not a bearer token.
-	v1.Any("/projects/:project_id/ports/:port", portsH.Proxy, portsH.PreviewAuth)
-	v1.Any("/projects/:project_id/ports/:port/*", portsH.Proxy, portsH.PreviewAuth)
-	// Everything outside /api/v1 is a previewed app's root-relative request.
-	e.Any("/*", portsH.Fallback)
-
 	protected.GET("/models", sessionH.Models)
+	protected.GET("/config", portsH.Config)
 
 	sessions := protected.Group("/sessions")
 	sessions.GET("/:session_id", sessionH.Get)

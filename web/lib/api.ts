@@ -673,12 +673,31 @@ export async function stopApp(projectId: string, port: number): Promise<void> {
   if (!res.ok) throw new Error(await readErrorMessage(res, `Failed to stop port ${port}`))
 }
 
-// previewURL opens path on a sandbox port through the backend preview proxy.
+// previewBase is a port's preview origin: the host template with
+// <port>-<project id> in place of its *.
+export function previewBase(projectId: string, port: number | string, template: string): string {
+  return template.replace("*", `${port}-${projectId}`)
+}
+
+// ServerConfig is what the backend tells the web app about its deployment.
+// preview_url is the preview host template, e.g. http://*.localhost:8080.
+export interface ServerConfig {
+  preview_url: string
+}
+
+export async function getServerConfig(): Promise<ServerConfig> {
+  const res = await authedFetch(`${API_BASE}/api/v1/config`, { cache: "no-store" })
+  if (!res.ok) throw new Error(await readErrorMessage(res, "Failed to load server config"))
+  return res.json()
+}
+
+// previewURL opens path on a sandbox port through the backend preview proxy,
+// on the port's own host (previewBase).
 // The login token rides as ?cattery_token= (?token= is the previewed app's,
 // e.g. Vite's HMR socket); the backend swaps it for a preview cookie on the
 // first load and strips it from the URL.
-export function previewURL(projectId: string, port: number | string, path = "/"): string {
-  const url = `${API_BASE}/api/v1/projects/${projectId}/ports/${port}${path.startsWith("/") ? path : `/${path}`}`
+export function previewURL(projectId: string, port: number | string, path: string, template: string): string {
+  const url = `${previewBase(projectId, port, template)}${path.startsWith("/") ? path : `/${path}`}`
   const token = getStoredToken()
   if (!token) return url
   const [base, hash] = url.split("#", 2)
