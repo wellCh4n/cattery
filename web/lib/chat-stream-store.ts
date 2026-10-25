@@ -213,6 +213,17 @@ function parseSSELines(buffer: string): { events: PlatformEvent[]; rest: string 
   return { events, rest }
 }
 
+// A first message typed before its session existed (on the empty main pane).
+// The chat sends it once the session is ready, or puts it back in the
+// composer if the session failed to start.
+const firstPrompts = new Map<string, string>()
+export function setFirstPrompt(sessionId: string, text: string) { firstPrompts.set(sessionId, text) }
+export function takeFirstPrompt(sessionId: string): string | undefined {
+  const text = firstPrompts.get(sessionId)
+  firstPrompts.delete(sessionId)
+  return text
+}
+
 export const useChatStreamStore = create<ChatStreamStore>((set, get) => ({
   sessions: {},
 

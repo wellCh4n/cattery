@@ -53,6 +53,7 @@ import { EffortBadge, EffortPicker, ModelBadge, ModelPicker } from "@/components
 import { ContextMeter } from "@/components/context-meter"
 import { type Session } from "@/lib/api"
 import {
+  takeFirstPrompt,
   useChatStreamStore,
   type Bubble,
 } from "@/lib/chat-stream-store"
@@ -221,6 +222,17 @@ function ChatPanelContent({ session }: Props) {
     ensureSession(session.session_id)
     loadHistory(session.session_id).catch(() => { /* ignore */ })
   }, [ensureSession, loadHistory, ready, session.session_id])
+
+  // A message typed on the empty main pane goes out once the session is up.
+  const started = session.status !== "creating"
+  useEffect(() => {
+    if (!started || !writable) return
+    const text = takeFirstPrompt(session.session_id)
+    if (!text) return
+    const restore = () => setInput(current => [text, current].filter(t => t.trim()).join("\n\n"))
+    if (ready) sendMessage(session.session_id, text).catch(restore)
+    else restore()
+  }, [started, ready, writable, sendMessage, session.session_id])
 
   // Live view of runs this tab did not start. Viewers always follow, since any
   // run is the creator's. The creator follows only a run already going when the
