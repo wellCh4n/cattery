@@ -97,8 +97,8 @@ interface Loaded {
 export function UsageDashboard({ scope }: { scope: "mine" | "all" }) {
   const team = scope === "all"
 
-  const [preset, setPreset] = useState("today")
-  const [custom, setCustom] = useState<[string, string]>(() => [today(), today()])
+  const [preset, setPreset] = useState("7d")
+  const [custom, setCustom] = useState<[string, string]>(() => RANGE_PRESETS.find(p => p.id === "7d")!.range(today()))
   const [user, setUser] = useState<string | null>(null)
   const [model, setModel] = useState<string | null>(null)
   const [dim, setDim] = useState<Dim>(team ? "user" : "model")
