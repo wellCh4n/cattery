@@ -38,6 +38,15 @@ export function addTotals(into: Totals, r: Totals): Totals {
 // Every token the provider counted: pi reports input without the cached part.
 export const totalTokens = (t: Totals) => t.input + t.output + t.cache_read + t.cache_write
 
+// The share of prompt tokens read from the cache, or null without prompts.
+export function cacheHitRate(t: Totals): number | null {
+  const prompt = t.input + t.cache_read + t.cache_write
+  return prompt ? t.cache_read / prompt : null
+}
+
+// Relative change from prev to cur, or null when prev is zero.
+export const change = (cur: number, prev: number): number | null => (prev ? (cur - prev) / prev : null)
+
 const parse = (day: string) => new Date(`${day}T00:00:00Z`)
 const format = (d: Date) => d.toISOString().slice(0, 10)
 
@@ -45,6 +54,20 @@ export function addDays(day: string, n: number): string {
   const d = parse(day)
   d.setUTCDate(d.getUTCDate() + n)
   return format(d)
+}
+
+// Days from..to, both included.
+export const daysIn = (from: string, to: string) => Math.round((parse(to).getTime() - parse(from).getTime()) / 86_400_000) + 1
+
+// The range of the same length that ends the day before from.
+export function previousRange(from: string, to: string): [string, string] {
+  return [addDays(from, -daysIn(from, to)), addDays(from, -1)]
+}
+
+// Days for a month or so, weeks up to half a year, months beyond.
+export function autoBucket(from: string, to: string): Bucket {
+  const days = daysIn(from, to)
+  return days <= 45 ? "day" : days <= 190 ? "week" : "month"
 }
 
 // Today in the viewer's time zone.
@@ -88,9 +111,10 @@ export interface RangePreset {
 }
 
 export const RANGE_PRESETS: RangePreset[] = [
-  { id: "7d", label: "7 days", range: t => [addDays(t, -6), t] },
-  { id: "30d", label: "30 days", range: t => [addDays(t, -29), t] },
-  { id: "90d", label: "90 days", range: t => [addDays(t, -89), t] },
+  { id: "today", label: "Today", range: t => [t, t] },
+  { id: "7d", label: "Last 7 days", range: t => [addDays(t, -6), t] },
+  { id: "30d", label: "Last 30 days", range: t => [addDays(t, -29), t] },
+  { id: "90d", label: "Last 90 days", range: t => [addDays(t, -89), t] },
   { id: "mtd", label: "This month", range: t => [periodStart(t, "month"), t] },
   {
     id: "last-month",
@@ -110,6 +134,17 @@ export function periodLabel(period: string, bucket: Bucket): string {
   const d = parse(period)
   if (bucket === "month") return monthYear.format(d)
   return monthDay.format(d)
+}
+
+const longDay = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })
+
+// "Oct 1 – Oct 30" within this year, "Dec 1, 2025 – Jan 31, 2026" otherwise:
+// both ends always alike.
+export function rangeLabel(from: string, to: string): string {
+  const thisYear = today().slice(0, 4)
+  const fmt = from.slice(0, 4) === thisYear && to.slice(0, 4) === thisYear ? monthDay : longDay
+  if (from === to) return fmt.format(parse(from))
+  return `${fmt.format(parse(from))} – ${fmt.format(parse(to))}`
 }
 
 export function periodTitle(period: string, bucket: Bucket): string {
@@ -132,6 +167,12 @@ export function formatTokens(n: number): string {
   }
   const digits = v < 10 ? 1 : 0
   return `${v.toFixed(digits).replace(/\.0$/, "")}${units[i]}`
+}
+
+// 0.123 → "12%", 0.004 → "0.4%".
+export function formatPercent(f: number): string {
+  const p = f * 100
+  return `${p < 10 && p > 0 ? p.toFixed(1).replace(/\.0$/, "") : Math.round(p)}%`
 }
 
 // Users deleted since keep their username snapshot; sessions deleted before

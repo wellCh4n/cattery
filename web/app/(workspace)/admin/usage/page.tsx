@@ -17,7 +17,7 @@ export default function AdminUsagePage() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="mx-auto max-w-5xl px-6 py-8">
+      <div className="mx-auto flex h-full min-h-[36rem] max-w-5xl flex-col px-6 py-6">
         <UsageDashboard scope="all" />
       </div>
     </div>

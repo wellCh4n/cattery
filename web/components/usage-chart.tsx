@@ -12,11 +12,13 @@ export interface ChartSeries {
 
 // Stacked columns, one per period: values[i][j] is series j in periods[i].
 // The tooltip lists every series of the column under the pointer or focus.
-export function UsageChart({ periods, bucket, series, values }: {
+// Fills its container's height; the caller explains the colors.
+export function UsageChart({ periods, bucket, series, values, unit }: {
   periods: string[]
   bucket: Bucket
   series: ChartSeries[]
   values: number[][]
+  unit: "tokens" | "requests"
 }) {
   const [active, setActive] = useState<number | null>(null)
   const totals = values.map(v => v.reduce((a, b) => a + b, 0))
@@ -27,18 +29,8 @@ export function UsageChart({ periods, bucket, series, values }: {
   const empty = totals.every(t => t === 0)
 
   return (
-    <div className="flex flex-col gap-3">
-      {series.length > 1 && (
-        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-          {series.map(s => (
-            <span key={s.key} className="flex items-center gap-1.5">
-              <span className="size-2.5 rounded-[2px]" style={{ background: s.color }} />
-              {s.label}
-            </span>
-          ))}
-        </div>
-      )}
-      <div className="flex pt-2">
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
+      <div className="flex min-h-40 flex-1 pt-2">
         <div className="relative w-12 shrink-0 text-2xs text-muted-foreground tabular-nums">
           {ticks.map(t => (
             <span key={t} className="absolute right-2 -translate-y-1/2" style={{ bottom: `${(t / top) * 100}%` }}>
@@ -46,7 +38,7 @@ export function UsageChart({ periods, bucket, series, values }: {
             </span>
           ))}
         </div>
-        <div className="relative h-56 flex-1" onPointerLeave={() => setActive(null)}>
+        <div className="relative flex-1" onPointerLeave={() => setActive(null)}>
           {ticks.map(t => (
             <div
               key={t}
@@ -64,7 +56,7 @@ export function UsageChart({ periods, bucket, series, values }: {
               <div
                 key={p}
                 tabIndex={0}
-                aria-label={`${periodTitle(p, bucket)}: ${formatTokens(totals[i])} tokens`}
+                aria-label={`${periodTitle(p, bucket)}: ${formatTokens(totals[i])} ${unit}`}
                 className={cn(
                   "flex h-full min-w-0 flex-1 items-end justify-center outline-none",
                   active === i && "bg-muted/60",
@@ -92,6 +84,7 @@ export function UsageChart({ periods, bucket, series, values }: {
               total={totals[active]}
               series={series}
               values={values[active]}
+              unit={unit}
               x={(active + 0.5) / periods.length}
             />
           )}
@@ -108,11 +101,12 @@ export function UsageChart({ periods, bucket, series, values }: {
   )
 }
 
-function Tooltip({ title, total, series, values, x }: {
+function Tooltip({ title, total, series, values, unit, x }: {
   title: string
   total: number
   series: ChartSeries[]
   values: number[]
+  unit: string
   x: number
 }) {
   // Opens away from the nearer edge so it never leaves the chart.
@@ -125,7 +119,7 @@ function Tooltip({ title, total, series, values, x }: {
       <div className="mb-1.5 text-muted-foreground">{title}</div>
       <div className="mb-1.5 flex items-baseline justify-between gap-4">
         <span className="font-semibold tabular-nums">{total.toLocaleString()}</span>
-        <span className="text-muted-foreground">tokens</span>
+        <span className="text-muted-foreground">{unit}</span>
       </div>
       {series.length > 1 && series.map((s, j) => (
         <div key={s.key} className="flex items-center gap-2 py-0.5">
