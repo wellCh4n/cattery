@@ -1,7 +1,7 @@
 package main
 
-// Web servers started in the sandbox, for the preview the backend serves under
-// /api/v1/projects/<id>/ports/<port>/. filemgr shares the Pod's network
+// Web servers started in the sandbox, for the preview the backend serves on
+// each one's own host, <port>-<project id>.<domain>. filemgr shares the Pod's network
 // namespace with the agent container, so it reaches servers bound to
 // localhost only.
 
