@@ -316,12 +316,7 @@ function ChatPanelContent({ session }: Props) {
                 {sending && turns.at(-1)?.role === "user" && (
                   // Between submit and the first event of the reply.
                   <MessageScrollerItem messageId="pending">
-                    <Trace>
-                      <TraceLine status="running">
-                        <TraceIcon><LoaderCircleIcon className="animate-spin" /></TraceIcon>
-                        <TraceTitle>Working</TraceTitle>
-                      </TraceLine>
-                    </Trace>
+                    <WorkingRow />
                   </MessageScrollerItem>
                 )}
               </MessageScrollerContent>
@@ -471,6 +466,21 @@ function phaseLabel(phase: string | null): string {
   }
 }
 
+// The empty reply a send adds until the first event arrives.
+const isPlaceholder = (b: Bubble) => b.kind === "text" && b.content === ""
+
+// Shown between sending and the reply's first output.
+function WorkingRow() {
+  return (
+    <Trace>
+      <TraceLine status="running">
+        <TraceIcon><LoaderCircleIcon className="animate-spin" /></TraceIcon>
+        <TraceTitle>Working</TraceTitle>
+      </TraceLine>
+    </Trace>
+  )
+}
+
 function AgentTurn({ bubbles, streaming, latest, sessionId, readOnly, onFork }: {
   bubbles: Bubble[]
   streaming: boolean
@@ -513,6 +523,7 @@ function AgentTurn({ bubbles, streaming, latest, sessionId, readOnly, onFork }: 
           }
           return <Markdown key={segment.id}>{segment.bubble.content}</Markdown>
         })}
+        {streaming && bubbles.every(isPlaceholder) && <WorkingRow />}
         {!streaming && (reply || onFork || at) && (
           // Only the latest reply shows its actions; earlier ones on hover. They
           // keep their space, so revealing them doesn't shift the transcript.
