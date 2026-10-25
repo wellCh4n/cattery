@@ -292,6 +292,11 @@ function ChatPanelContent({ session }: Props) {
                           <BubbleUI align="end" variant="muted">
                             <BubbleContent className="whitespace-pre-wrap">{turn.bubbles[0].content}</BubbleContent>
                           </BubbleUI>
+                          {/* Like a reply's actions, on hover and keeping their space. */}
+                          <MessageFooter className="px-0 opacity-0 transition-opacity group-hover/message:opacity-100 focus-within:opacity-100">
+                            {turn.bubbles[0].at && <MessageTime at={turn.bubbles[0].at} className="mr-1.5" />}
+                            <CopyAction text={turn.bubbles[0].content} />
+                          </MessageFooter>
                         </MessageContent>
                       </Message>
                     </MessageScrollerItem>
@@ -530,11 +535,7 @@ function AgentTurn({ bubbles, streaming, latest, sessionId, readOnly, onFork }: 
           <MessageFooter className={cn("px-0", !latest && "opacity-0 transition-opacity group-hover/message:opacity-100 focus-within:opacity-100")}>
             {reply && <CopyAction text={reply} />}
             {onFork && <ForkAction onFork={onFork} />}
-            {at && (
-              <time className="ml-1.5 font-normal tabular-nums" dateTime={new Date(at).toISOString()} title={new Date(at).toLocaleString()}>
-                {formatMessageTime(at)}
-              </time>
-            )}
+            {at && <MessageTime at={at} className="ml-1.5" />}
           </MessageFooter>
         )}
       </MessageContent>
@@ -695,6 +696,14 @@ function CopyAction({ text }: { text: string }) {
 }
 
 // Today's replies show the time alone; older ones add the date.
+function MessageTime({ at, className }: { at: number; className?: string }) {
+  return (
+    <time className={cn("font-normal tabular-nums", className)} dateTime={new Date(at).toISOString()} title={new Date(at).toLocaleString()}>
+      {formatMessageTime(at)}
+    </time>
+  )
+}
+
 function formatMessageTime(at: number): string {
   const date = new Date(at)
   const time = date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
