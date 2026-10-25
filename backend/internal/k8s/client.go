@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"strings"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -136,12 +137,6 @@ type SandboxSpec struct {
 	// agent and filemgr containers. Defaults to the agent user's home directory
 	// when zero, so the project workspace is also `~` inside the Pod.
 	WorkVolumeMount string
-	// SkillsPVC, when non-empty, mounts the global skills PVC read-only into the
-	// agent container at SkillsMount. Empty = no skills volume. The PVC is
-	// shared with the skillmgr Pod; on a single node RWO permits both mounts,
-	// multi-node needs the PVC reprovisioned as RWX.
-	SkillsPVC   string
-	SkillsMount string
 }
 
 func (c *Client) RunTask(ctx context.Context, spec SandboxSpec) error {
@@ -158,26 +153,15 @@ func (c *Client) RunTask(ctx context.Context, spec SandboxSpec) error {
 	// Keep the shell, SDK and container process in the same persisted home.
 	env["HOME"] = workMount
 	env["WORK_DIR"] = workMount
-	if spec.SkillsPVC != "" && spec.SkillsMount != "" {
-		env["SKILLS_DIR"] = spec.SkillsMount
-	}
 	envList := make([]interface{}, 0, len(env))
 	for k, v := range env {
 		envList = append(envList, map[string]interface{}{"name": k, "value": v})
 	}
 
-	const skillsVolumeName = "skills"
-	mountSkills := spec.SkillsPVC != "" && spec.SkillsMount != ""
-
+	// Skills are not mounted: the global library is installed into a
+	// project's ~/.agents/skills on request.
 	volumeMounts := []interface{}{
 		map[string]interface{}{"name": workVolumeName, "mountPath": workMount},
-	}
-	if mountSkills {
-		volumeMounts = append(volumeMounts, map[string]interface{}{
-			"name":      skillsVolumeName,
-			"mountPath": spec.SkillsMount,
-			"readOnly":  true,
-		})
 	}
 
 	containers := []interface{}{
@@ -222,15 +206,6 @@ func (c *Client) RunTask(ctx context.Context, spec SandboxSpec) error {
 	}
 
 	volumes := []interface{}{workspaceVolume}
-	if mountSkills {
-		volumes = append(volumes, map[string]interface{}{
-			"name": skillsVolumeName,
-			"persistentVolumeClaim": map[string]interface{}{
-				"claimName": spec.SkillsPVC,
-				"readOnly":  true,
-			},
-		})
-	}
 
 	sandbox := &unstructured.Unstructured{
 		Object: map[string]interface{}{
@@ -283,7 +258,7 @@ func (c *Client) RunTask(ctx context.Context, spec SandboxSpec) error {
 				if !ok || container["name"] != desired["name"] {
 					continue
 				}
-				compatible = hasWorkspaceMounts(container, desired)
+				compatible = hasWorkspaceMounts(container, desired, workMount)
 				break
 			}
 			if !compatible {
@@ -295,9 +270,20 @@ func (c *Client) RunTask(ctx context.Context, spec SandboxSpec) error {
 	return err
 }
 
-func hasWorkspaceMounts(container, desired map[string]interface{}) bool {
+// hasWorkspaceMounts reports whether container has every mount desired wants
+// and nothing mounted inside the workspace, such as an old global skills
+// mount over ~/.agents/skills, which would make installed skills read-only.
+// Extra mounts elsewhere (the retired /cattery/global-skills) are harmless.
+func hasWorkspaceMounts(container, desired map[string]interface{}, workMount string) bool {
 	mounts, _, _ := unstructured.NestedSlice(container, "volumeMounts")
 	wanted, _, _ := unstructured.NestedSlice(desired, "volumeMounts")
+	for _, item := range mounts {
+		if mount, ok := item.(map[string]interface{}); ok {
+			if path, _ := mount["mountPath"].(string); strings.HasPrefix(path, workMount+"/") {
+				return false
+			}
+		}
+	}
 	for _, item := range wanted {
 		want := item.(map[string]interface{})
 		found := false

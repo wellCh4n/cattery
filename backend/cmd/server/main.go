@@ -58,7 +58,7 @@ func main() {
 	sessionH := api.NewSessionHandler(sessionStore, projectStore, harnessClient, sandboxMgr, models, usageCollector)
 	filesH := api.NewFilesHandler(projectStore, sandboxMgr)
 	terminalH := api.NewTerminalHandler(projectStore, terminalStore, sandboxMgr)
-	skillsH := api.NewSkillsHandler(k8s)
+	skillsH := api.NewSkillsHandler(k8s, projectStore, sandboxMgr)
 	authH := api.NewAuthHandler(userStore, signer)
 	adminH := api.NewAdminHandler(userStore, projectStore, sandboxMgr)
 	usersH := api.NewUsersHandler(userStore)

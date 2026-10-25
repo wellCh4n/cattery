@@ -19,7 +19,7 @@ func testClient() *Client {
 func TestSharedProjectSpec(t *testing.T) {
 	c := testClient()
 	ctx := context.Background()
-	spec := SandboxSpec{Name: "project", ProjectID: "id", Image: "pi", ContainerPort: 1114, FileMgrImage: "filemgr", FileMgrPort: 1115, WorkspacePVC: "work", SkillsPVC: "skills", SkillsMount: "/cattery/global-skills"}
+	spec := SandboxSpec{Name: "project", ProjectID: "id", Image: "pi", ContainerPort: 1114, FileMgrImage: "filemgr", FileMgrPort: 1115, WorkspacePVC: "work"}
 	if err := c.RunTask(ctx, spec); err != nil {
 		t.Fatal(err)
 	}
@@ -48,8 +48,8 @@ func TestSharedProjectSpec(t *testing.T) {
 		if mount["name"] != "workspace" || mount["mountPath"] != "/home/cattery" {
 			t.Fatal("workspace not shared")
 		}
-		if name == "filemgr" && len(mounts) != 1 {
-			t.Fatal("filemgr should not mount global skills")
+		if len(mounts) != 1 {
+			t.Fatal("sandboxes must not mount the global skill library", name)
 		}
 		envList, _, _ := unstructured.NestedSlice(container, "env")
 		env := map[string]string{}
@@ -61,13 +61,26 @@ func TestSharedProjectSpec(t *testing.T) {
 			if env["HOME"] != "/home/cattery" || env["WORK_DIR"] != env["HOME"] || container["workingDir"] != env["HOME"] {
 				t.Fatal("agent process, tools and shell must share the persisted home", container)
 			}
-			skills := mounts[1].(map[string]interface{})
-			if skills["mountPath"] != "/cattery/global-skills" || skills["readOnly"] != true || env["SKILLS_DIR"] != skills["mountPath"] {
-				t.Fatal("global skills must remain read-only and separate from project skills")
+			if _, ok := env["SKILLS_DIR"]; ok {
+				t.Fatal("the agent must load skills only from the project")
 			}
 		} else if env["FILEMGR_ROOT"] != "/home/cattery" {
 			t.Fatal("file browser must expose the same persisted home")
 		}
+	}
+	// Sandboxes created with the retired /cattery/global-skills mount keep working.
+	mounted := obj.DeepCopy()
+	items, _, _ := unstructured.NestedSlice(mounted.Object, "spec", "podTemplate", "spec", "containers")
+	agent := items[0].(map[string]interface{})
+	agent["volumeMounts"] = append(agent["volumeMounts"].([]interface{}), map[string]interface{}{"name": "skills", "mountPath": "/cattery/global-skills", "readOnly": true})
+	if err := unstructured.SetNestedSlice(mounted.Object, items, "spec", "podTemplate", "spec", "containers"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.dynamic.Resource(sandboxGVR).Namespace("test").Update(ctx, mounted, metav1.UpdateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.RunTask(ctx, spec); err != nil {
+		t.Fatal("retired global skills mount must stay compatible", err)
 	}
 	// Old layouts must require migration without deleting the Sandbox or PVCs.
 	for _, layout := range []string{"single-container", "work-root", "nested-global-skills"} {
@@ -83,7 +96,8 @@ func TestSharedProjectSpec(t *testing.T) {
 					container["volumeMounts"].([]interface{})[0].(map[string]interface{})["mountPath"] = "/work"
 				}
 			case "nested-global-skills":
-				items[0].(map[string]interface{})["volumeMounts"].([]interface{})[1].(map[string]interface{})["mountPath"] = "/home/cattery/.agents/skills"
+				agent := items[0].(map[string]interface{})
+				agent["volumeMounts"] = append(agent["volumeMounts"].([]interface{}), map[string]interface{}{"name": "skills", "mountPath": "/home/cattery/.agents/skills", "readOnly": true})
 			}
 			if err := unstructured.SetNestedSlice(legacy.Object, items, "spec", "podTemplate", "spec", "containers"); err != nil {
 				t.Fatal(err)

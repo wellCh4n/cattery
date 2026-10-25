@@ -67,8 +67,11 @@ test('SDK preserves protocol, resources, tools, history, isolated gateways, titl
   await writeFile(path.join(dir, '.agents/skills/project-skill/SKILL.md'), '---\nname: project-skill\ndescription: Project skill description sentinel\n---\nProject skill body')
   await writeFile(path.join(dir, 'AGENTS.md'), 'Cattery SDK context sentinel')
   await writeFile(path.join(dir, 'example.txt'), 'one\ntwo\nthree')
-  await mkdir(path.join(skillsDir, 'skill-fixture'), { recursive: true })
-  await writeFile(path.join(skillsDir, 'skill-fixture/SKILL.md'), '---\nname: skill-fixture\ndescription: >\n  Multiline skill\n  description sentinel\n---\nSkill body sentinel')
+  await mkdir(path.join(dir, '.agents/skills/skill-fixture'), { recursive: true })
+  await writeFile(path.join(dir, '.agents/skills/skill-fixture/SKILL.md'), '---\nname: skill-fixture\ndescription: >\n  Multiline skill\n  description sentinel\n---\nSkill body sentinel')
+  // The global library is installed into projects, never loaded from its mount.
+  await mkdir(path.join(skillsDir, 'library-skill'), { recursive: true })
+  await writeFile(path.join(skillsDir, 'library-skill/SKILL.md'), '---\nname: library-skill\ndescription: Library skill sentinel\n---\nLibrary body')
   const url = `http://127.0.0.1:${port}`
   let child: ChildProcess | undefined
   let logs = ''
@@ -142,6 +145,7 @@ test('SDK preserves protocol, resources, tools, history, isolated gateways, titl
     assert.ok(system.includes('Cattery SDK context sentinel'))
     assert.ok(system.includes('Multiline skill description sentinel'))
     assert.ok(system.includes('Project skill description sentinel'))
+    assert.ok(!system.includes('Library skill sentinel'))
     assert.ok(system.includes(dir))
     assert.ok(!system.includes('Skill body sentinel'))
     assert.deepEqual(main.tools.map((t: any) => t.function.name).sort(), ['bash', 'edit', 'find', 'grep', 'ls', 'questionnaire', 'read', 'write'])

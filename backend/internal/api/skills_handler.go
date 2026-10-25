@@ -6,28 +6,42 @@
 // path. The Pod is lazy-created on the first /skills request (mirroring
 // filemgr's fallback) and the frontend reaches it only through this proxy.
 //
-// Auth: routes sit under the authenticated group but are intentionally NOT
-// admin-gated for now — permissions are deferred.
+// Skills are not loaded into sandboxes from the library: a project member
+// installs one, which copies it into the project's ~/.agents/skills (Install),
+// or uploads a zip straight there (UploadToProject).
+//
+// Auth: every signed-in user can browse the library; changing it (upload,
+// delete, rename, mkdir) is admin-only, enforced in the router.
 package api
 
 import (
+	"archive/zip"
+	"bytes"
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/wellch4n/cattery/internal/db"
 	"github.com/wellch4n/cattery/internal/k8s"
 	"github.com/wellch4n/cattery/internal/sandbox"
 )
 
 type SkillsHandler struct {
-	k8s *k8s.Client
+	k8s      *k8s.Client
+	projects *db.ProjectStore
+	sandbox  *sandbox.Manager
 }
 
-func NewSkillsHandler(k8sClient *k8s.Client) *SkillsHandler {
-	return &SkillsHandler{k8s: k8sClient}
+func NewSkillsHandler(k8sClient *k8s.Client, projects *db.ProjectStore, sandboxMgr *sandbox.Manager) *SkillsHandler {
+	return &SkillsHandler{k8s: k8sClient, projects: projects, sandbox: sandboxMgr}
 }
+
+// ProjectSkillsDir is where installed skills live, relative to the project
+// workspace (the agent's home). pi loads skills from it.
+const ProjectSkillsDir = "/.agents/skills"
 
 // skillMgrReadyTimeout caps how long a /skills request blocks waiting for the
 // global skillmgr Pod to come up. The first request after a cold start hits
@@ -143,6 +157,102 @@ func (h *SkillsHandler) Mkdir(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
+	return forward(c, req)
+}
+
+// Install handles POST /projects/:project_id/skills/:slug: it copies the
+// library's <slug>/ folder into the project's ~/.agents/skills/<slug>,
+// replacing an installed copy. skillmgr's tar stream is piped straight into
+// filemgr, which swaps the folder in only once the archive is complete.
+func (h *SkillsHandler) Install(c echo.Context) error {
+	slug := c.Param("slug")
+	if slug == "" || strings.HasPrefix(slug, ".") || strings.ContainsAny(slug, `/\`) {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid skill")
+	}
+	access, err := requireWritableProject(c, h.projects)
+	if err != nil {
+		return err
+	}
+	mgr, err := h.requireSkillMgrURL(c)
+	if err != nil {
+		return err
+	}
+	ctx := c.Request().Context()
+	files, err := h.sandbox.FileURL(ctx, access.Project.ProjectID)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, err.Error())
+	}
+
+	archiveReq, err := http.NewRequestWithContext(ctx, http.MethodGet, mgr+"/archive?path="+url.QueryEscape("/"+slug), nil)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	archive, err := http.DefaultClient.Do(archiveReq)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadGateway, err.Error())
+	}
+	defer archive.Body.Close()
+	if archive.StatusCode != http.StatusOK {
+		return forwardResponse(c, archive)
+	}
+
+	extractReq, err := http.NewRequestWithContext(ctx, http.MethodPost, files+"/extract?path="+url.QueryEscape(ProjectSkillsDir+"/"+slug), archive.Body)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	extractReq.Header.Set("Content-Type", "application/x-tar")
+	return forward(c, extractReq)
+}
+
+// maxProjectSkillZip caps a project skill upload. The archive is converted
+// in memory, and skills are small.
+const maxProjectSkillZip = 32 << 20
+
+// UploadToProject handles POST /projects/:project_id/skills: a multipart form
+// whose "file" field is a `<slug>.zip` skill archive. The skill goes straight
+// into the project's ~/.agents/skills/<slug>, replacing a folder of that name,
+// and never into the global library, which only admins change.
+func (h *SkillsHandler) UploadToProject(c echo.Context) error {
+	access, err := requireWritableProject(c, h.projects)
+	if err != nil {
+		return err
+	}
+	c.Request().Body = http.MaxBytesReader(c.Response(), c.Request().Body, maxProjectSkillZip+1<<20)
+	header, err := c.FormFile("file")
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "missing zip file")
+	}
+	if header.Size > maxProjectSkillZip {
+		return echo.NewHTTPError(http.StatusRequestEntityTooLarge, "skill archive is too large")
+	}
+	slug, err := skillSlugFromZip(header.Filename)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+	f, err := header.Open()
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+	defer f.Close()
+	zr, err := zip.NewReader(f, header.Size)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid zip: "+err.Error())
+	}
+	var archive bytes.Buffer
+	if err := skillZipToTar(zr, slug, &archive); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
+	ctx := c.Request().Context()
+	files, err := h.sandbox.FileURL(ctx, access.Project.ProjectID)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, err.Error())
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, files+"/extract?path="+url.QueryEscape(ProjectSkillsDir+"/"+slug), &archive)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	req.Header.Set("Content-Type", "application/x-tar")
 	return forward(c, req)
 }
 

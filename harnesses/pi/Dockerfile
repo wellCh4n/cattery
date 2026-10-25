@@ -32,8 +32,8 @@ COPY src/ ./src/
 # seeds missing shell defaults there without overwriting user configuration.
 RUN groupmod -n cattery node \
     && usermod -l cattery -d /home/cattery -m node \
-    && mkdir -p /home/cattery/.agents /cattery/global-skills \
-    && chown -R cattery:cattery /app /home/cattery /cattery
+    && mkdir -p /home/cattery/.agents \
+    && chown -R cattery:cattery /app /home/cattery
 
 USER cattery
 

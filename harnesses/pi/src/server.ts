@@ -60,7 +60,6 @@ const PORT       = Number(process.env.PORT ?? 1114)
 const WORKDIR    = process.env.WORK_DIR ?? homedir()
 const THINKING   = (process.env.THINKING_LEVEL ?? 'high') as ThinkingLevel
 const PROMPT     = process.env.AGENT_PROMPT ?? ''
-const SKILLS_DIR = process.env.SKILLS_DIR ?? '/cattery/global-skills'
 // Dot-dir on the workspace PVC: transcripts survive sandbox restarts and stay
 // out of the way of project files.
 const SESSIONS_DIR = process.env.SESSIONS_DIR ?? path.join(WORKDIR, '.cattery/sessions')
@@ -279,7 +278,8 @@ async function newSession(id: string, ref: ModelRef, gateway: Gateway, titleAtte
   const settingsManager = SettingsManager.inMemory({ cacheWarming: 'off', steeringMode: 'all' })
   const resourceLoader = new DefaultResourceLoader({
     cwd: WORKDIR, agentDir, settingsManager,
-    additionalSkillPaths: [SKILLS_DIR, path.join(WORKDIR, '.agents/skills')],
+    // Skills from the global library are installed (copied) here by Cattery.
+    additionalSkillPaths: [path.join(WORKDIR, '.agents/skills')],
     noExtensions: true, noThemes: true,
     appendSystemPrompt: [
       'You are working in a shared Cattery project workspace. Be concise in replies.',

@@ -152,6 +152,10 @@ func NewRouter(
 	projects.POST("/:project_id/terminals/import", terminalH.Import)
 	projects.PATCH("/:project_id/terminals/:terminal_id", terminalH.Rename)
 	projects.DELETE("/:project_id/terminals/:terminal_id", terminalH.Delete)
+	// Project skills live in ~/.agents/skills: upload a zip, or copy a
+	// library skill in. Uninstalling is a plain file delete.
+	projects.POST("/:project_id/skills", skillsH.UploadToProject)
+	projects.POST("/:project_id/skills/:slug", skillsH.Install)
 	projects.GET("/:project_id/apps", portsH.List)
 	projects.DELETE("/:project_id/apps/:port", portsH.Stop)
 
@@ -178,17 +182,17 @@ func NewRouter(
 	sessions.DELETE("/:session_id", sessionH.Delete)
 
 	// Global skill library, proxied to the single cluster-wide skillmgr Pod.
-	// Not project-scoped and (for now) not admin-gated — permissions are
-	// deferred. Kept intentionally narrower than /files: skills are managed as
+	// Not project-scoped. Everyone can browse it; only admins change it.
+	// Kept intentionally narrower than /files: skills are managed as
 	// top-level folders uploaded from ZIP archives.
 	skills := protected.Group("/skills")
 	skills.GET("/catalog", skillsH.Catalog)
 	skills.GET("/list", skillsH.List)
 	skills.GET("/read", skillsH.Read)
-	skills.POST("/upload-zip", skillsH.UploadZip)
-	skills.DELETE("/delete", skillsH.Delete)
-	skills.POST("/rename", skillsH.Rename)
-	skills.POST("/mkdir", skillsH.Mkdir)
+	skills.POST("/upload-zip", skillsH.UploadZip, AdminOnly())
+	skills.DELETE("/delete", skillsH.Delete, AdminOnly())
+	skills.POST("/rename", skillsH.Rename, AdminOnly())
+	skills.POST("/mkdir", skillsH.Mkdir, AdminOnly())
 
 	// Admin-only user management. AdminOnly layers on top of the existing
 	// AuthMiddleware (already attached to `protected`), so we get both

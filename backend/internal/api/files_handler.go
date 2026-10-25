@@ -219,6 +219,11 @@ func forward(c echo.Context, req *http.Request) error {
 		return echo.NewHTTPError(http.StatusBadGateway, err.Error())
 	}
 	defer resp.Body.Close()
+	return forwardResponse(c, resp)
+}
+
+// forwardResponse streams an upstream response back to c.
+func forwardResponse(c echo.Context, resp *http.Response) error {
 	for _, h := range []string{"Content-Type", "Content-Length", "Content-Disposition"} {
 		if v := resp.Header.Get(h); v != "" {
 			c.Response().Header().Set(h, v)

@@ -40,8 +40,8 @@ const SkillMgrImage = "cattery-skillmgr:dev"
 // project 管理，所以这里不是 per-project。
 const SkillMgrPodName = "cattery-skillmgr"
 
-// SkillsPVCName 是存放 skill 库的全局 PVC：由 skillmgr RW 挂载、（后续）由
-// sandbox RO 挂载。单节点测试用 RWO 即可；生产多节点需要把该 PVC 供给为 RWX。
+// SkillsPVCName 是存放 skill 库的全局 PVC，只由 skillmgr 挂载。sandbox 不挂载它：
+// skill 按需安装（复制）到项目的 ~/.agents/skills。
 const SkillsPVCName = "cattery-skills-work"
 
 // Image is the agent sandbox image (harnesses/pi). `make build-harness` builds it.
@@ -51,11 +51,6 @@ const Image = "cattery-pi:dev"
 // directory. HOME is /home/cattery in the pi image, so this makes the project
 // workspace available as `~`.
 const WorkspaceMountPath = "/home/cattery"
-
-// SkillsMountPath is where the global skill library is mounted read-only in
-// the agent container. It is outside the workspace mount so it does not
-// collide with a project's own ~/.agents/skills directory.
-const SkillsMountPath = "/cattery/global-skills"
 
 type Manager struct {
 	store         *db.ProjectStore
@@ -123,15 +118,11 @@ func (m *Manager) ensureProject(ctx context.Context, projectID uuid.UUID) error 
 	if err := m.k8sClient.EnsurePVC(ctx, pvcName, k8s.ComponentWorkspace, map[string]string{k8s.LabelProjectID: projectID.String()}); err != nil {
 		return err
 	}
-	if err := m.k8sClient.EnsurePVC(ctx, SkillsPVCName, k8s.ComponentSkills, nil); err != nil {
-		return err
-	}
 	if err := m.k8sClient.RunTask(ctx, k8s.SandboxSpec{
 		Name: NameFor(projectID), ProjectID: projectID.String(), Image: Image, ContainerPort: Port,
 		FileMgrImage: FileMgrImage, FileMgrPort: FileMgrPort,
 		Env:          map[string]string{"PORT": fmt.Sprint(Port), "PROJECT_ID": projectID.String()},
 		WorkspacePVC: pvcName, WorkVolumeMount: WorkspaceMountPath,
-		SkillsPVC: SkillsPVCName, SkillsMount: SkillsMountPath,
 	}); err != nil {
 		return err
 	}

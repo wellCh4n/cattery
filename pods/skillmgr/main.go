@@ -4,6 +4,7 @@
 package main
 
 import (
+	"archive/tar"
 	"archive/zip"
 	"encoding/json"
 	"errors"
@@ -68,6 +69,7 @@ func main() {
 	mux.HandleFunc("/catalog", handleCatalog)
 	mux.HandleFunc("/list", handleList)
 	mux.HandleFunc("/read", handleRead)
+	mux.HandleFunc("/archive", handleArchive)
 	mux.HandleFunc("/upload-zip", handleUploadZip)
 	mux.HandleFunc("/delete", handleDelete)
 	mux.HandleFunc("/rename", handleRename)
@@ -221,6 +223,97 @@ func handleRead(w http.ResponseWriter, r *http.Request) {
 		resp.Content = string(buf)
 	}
 	writeJSON(w, resp)
+}
+
+// handleArchive streams one skill folder as a tar of its contents, with paths
+// relative to the folder. The backend pipes it into a project's filemgr to
+// install the skill under ~/.agents/skills/<slug>. Only regular files and
+// directories are archived; symlinks and macOS junk are skipped.
+func handleArchive(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	abs, err := resolve(r.URL.Query().Get("path"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if abs == rootAbs {
+		http.Error(w, "cannot archive root", http.StatusBadRequest)
+		return
+	}
+	if _, err := os.Stat(filepath.Join(abs, skillManifest)); err != nil {
+		if os.IsNotExist(err) {
+			http.Error(w, "not a skill: missing SKILL.md", http.StatusNotFound)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/x-tar")
+	tw := tar.NewWriter(w)
+	err = filepath.WalkDir(abs, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if path == abs {
+			return nil
+		}
+		if isMacJunkName(d.Name()) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() && !info.Mode().IsRegular() {
+			return nil
+		}
+		rel, err := filepath.Rel(abs, path)
+		if err != nil {
+			return err
+		}
+		hdr, err := tar.FileInfoHeader(info, "")
+		if err != nil {
+			return err
+		}
+		hdr.Name = filepath.ToSlash(rel)
+		if info.IsDir() {
+			hdr.Name += "/"
+		}
+		if err := tw.WriteHeader(hdr); err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		f, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		_, err = io.Copy(tw, f)
+		return err
+	})
+	if err == nil {
+		err = tw.Close()
+	}
+	if err != nil {
+		// Headers are already sent: abort the connection so the reader sees a
+		// broken body instead of a tar that merely ends early.
+		log.Printf("archive %s: %v", abs, err)
+		panic(http.ErrAbortHandler)
+	}
 }
 
 const skillManifest = "SKILL.md"
@@ -487,7 +580,9 @@ func cleanZipEntry(raw string, skillDirName string) string {
 	}
 	rel := strings.TrimPrefix(cleaned, "/")
 	parts := strings.Split(rel, "/")
-	if len(parts) > 1 && parts[0] == skillDirName {
+	if parts[0] == skillDirName {
+		// The archive's own top-level folder: its entry is the extract
+		// directory itself, and its contents go directly inside.
 		rel = strings.Join(parts[1:], "/")
 	}
 	return rel

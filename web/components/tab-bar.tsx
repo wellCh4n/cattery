@@ -75,9 +75,10 @@ function resolveTab(tab: Tab, projects: ProjectWithSessions[], terminals: Termin
     }
   }
   if (tab.kind === "admin") {
-    // tab.id is the sub-section ("users", "usage"); title-case it, but keep
-    // everyone's usage apart from the personal Usage tab.
-    const title = tab.id === "usage" ? "Team usage" : tab.id.charAt(0).toUpperCase() + tab.id.slice(1)
+    // tab.id is the sub-section ("users", "usage", "skills"); title-case it,
+    // but keep everyone's usage apart from the personal Usage tab and the
+    // library apart from skill tabs.
+    const title = tab.id === "usage" ? "Team usage" : tab.id === "skills" ? "Skill library" : tab.id.charAt(0).toUpperCase() + tab.id.slice(1)
     return {
       title,
       exists: true,

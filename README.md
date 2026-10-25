@@ -36,6 +36,7 @@ graph TD
     Router -->|"handlers → stores"| DB
     Router -->|"proxy /files/*"| FileMgr
     Router -->|"proxy /skills/*"| SkillMgr
+    SkillMgr -.->|"install: tar → ~/.agents/skills"| FileMgr
     SandboxMgr --> K8sClient
     K8sClient -->|"create/delete Sandbox CR"| SandboxCR
     K8sClient -->|"create Pod"| SkillMgr
@@ -43,7 +44,6 @@ graph TD
     Pi -->|"platform events (SSE)"| Router
     Pi --> ModelAPI
     Pi -->|"mount rw"| WorkPVC
-    Pi -->|"mount ro"| SkillPVC
     FileMgr -->|"mount rw"| WorkPVC
     SkillMgr -->|"mount rw"| SkillPVC
 ```
@@ -182,7 +182,7 @@ Deleting a user cascades to their projects and sessions, and stops their K8s san
 - **Project** — a shared workspace owned by one user with optional members at `owner` / `member` roles. Each project has its own PVC-backed file workspace, mounted at `/home/cattery` by the pi and filemgr containers in one project Pod.
 - **Sandbox** — one Kubernetes `agents.x-k8s.io/v1beta1` Sandbox CR per Project, named `cattery-sandbox-<project_id>`, running pi and filemgr containers with `restartPolicy: Always`. It is provisioned on project creation, with lazy recovery on file/session access. `projects.sandbox_status` tracks agent activation; stopping the agent releases sessions while the Pod and file browser remain available.
 - **Session** — a conversation with the agent, with its own model. All sessions of a project share the sandbox and the workspace. Transcripts are stored on the workspace PVC (`/home/cattery/.cattery/sessions/`), so they survive sandbox restarts.
-- **Skill** — a `<slug>/SKILL.md (+assets)` directory in the global skills library. Skills are cluster-wide, independent of Projects, served by a single `skillmgr` Pod and mounted read-only into every sandbox at `/cattery/global-skills`; the agent lists them in its system prompt.
+- **Skill** — a `<slug>/SKILL.md (+assets)` directory in the global skills library. The library is cluster-wide, independent of Projects, and served by a single `skillmgr` Pod. Only admins change the library (Settings → Skill management). Agents do not load it: a member installs a skill into a project from the Skills view, which copies it into the project's `~/.agents/skills/<slug>`, or uploads a skill `.zip` straight into the project; that project's agent lists its skills in its system prompt.
 
 Project members see all of the project's files and sessions; their access role gates which mutations they can perform. Deleting a project tears down its shared Sandbox Pod and the workspace PVC.
 
@@ -191,8 +191,10 @@ and new web terminals all start there; the file browser exposes the same files.
 Shell configuration, shell history, project skills in `~/.agents/skills`, and
 `.cattery` session data are persisted with the project. On startup the pi image
 copies missing shell defaults from `/etc/skel`, preserving existing configuration.
-The global skill library is mounted separately at `/cattery/global-skills` and
-loaded through `SKILLS_DIR`, so it does not hide project skills.
+The global skill library is not mounted into sandboxes; installed skills are
+plain copies in `~/.agents/skills` that the project can edit. Sandboxes created
+with the retired read-only `/cattery/global-skills` mount keep working; the
+agent ignores it, and recreating the Sandbox drops it.
 
 New sessions record the authenticated creator in `created_by_user_id` and a
 `created_by_username` snapshot, displayed in the session list. Historical

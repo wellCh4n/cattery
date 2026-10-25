@@ -371,10 +371,10 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
               onClick={() => switchView("sessions")}
             />
             <ActivityButton
-              icon={<SquareTerminal className="size-6" />}
-              label="Terminals"
-              active={view === "terminals"}
-              onClick={() => switchView("terminals")}
+              icon={<FolderOpen className="size-6" />}
+              label="Files"
+              active={view === "files"}
+              onClick={() => switchView("files")}
             />
             <ActivityButton
               icon={<Globe className="size-6" />}
@@ -383,22 +383,22 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
               onClick={() => switchView("apps")}
             />
             <ActivityButton
-              icon={<FolderOpen className="size-6" />}
-              label="Files"
-              active={view === "files"}
-              onClick={() => switchView("files")}
-            />
-            <ActivityButton
-              icon={<Users className="size-6" />}
-              label="Members"
-              active={view === "members"}
-              onClick={() => switchView("members")}
+              icon={<SquareTerminal className="size-6" />}
+              label="Terminals"
+              active={view === "terminals"}
+              onClick={() => switchView("terminals")}
             />
             <ActivityButton
               icon={<Puzzle className="size-6" />}
               label="Skills"
               active={view === "skills"}
               onClick={() => switchView("skills")}
+            />
+            <ActivityButton
+              icon={<Users className="size-6" />}
+              label="Members"
+              active={view === "members"}
+              onClick={() => switchView("members")}
             />
 
             <div className="mt-auto flex flex-col gap-1">
@@ -410,7 +410,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
               />
               <div ref={settingsMenuRef} className="relative">
                 {settingsMenuOpen && (
-                  <div className="absolute bottom-0 left-full z-30 ml-1 min-w-44 overflow-hidden rounded-lg border bg-popover text-sm shadow-md">
+                  <div className="absolute bottom-0 left-full z-30 ml-1 min-w-44 overflow-hidden whitespace-nowrap rounded-lg border bg-popover text-sm shadow-md">
                     {user?.is_admin && (
                       <button
                         className="flex h-8 w-full cursor-pointer items-center gap-2 px-2.5 text-left hover:bg-muted"
@@ -427,6 +427,15 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                       >
                         <ChartColumn className="size-3.5 text-muted-foreground" />
                         Team usage
+                      </button>
+                    )}
+                    {user?.is_admin && (
+                      <button
+                        className="flex h-8 w-full cursor-pointer items-center gap-2 px-2.5 text-left hover:bg-muted"
+                        onClick={() => { setSettingsMenuOpen(false); router.push("/admin/skills") }}
+                      >
+                        <Puzzle className="size-3.5 text-muted-foreground" />
+                        Skill management
                       </button>
                     )}
                     <div className="flex h-8 items-center justify-between gap-2 px-2.5">
@@ -561,7 +570,13 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
             )}
           </div>
           <div className={cn("min-h-0 flex-1 overflow-hidden", view === "skills" ? "block" : "hidden")}>
-            {visitedViews.has("skills") && <SkillBrowserPanel active={view === "skills"} />}
+            {visitedViews.has("skills") && (
+              currentProject ? (
+                <SkillBrowserPanel key={currentProject.project_id} projectId={currentProject.project_id} active={view === "skills"} />
+              ) : (
+                <NoProjectPlaceholder onCreate={() => setNewProjectOpen(true)} />
+              )
+            )}
           </div>
           </div>
           </div>

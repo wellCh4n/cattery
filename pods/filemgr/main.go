@@ -4,6 +4,7 @@
 package main
 
 import (
+	"archive/tar"
 	"encoding/json"
 	"errors"
 	"io"
@@ -67,6 +68,7 @@ func main() {
 	mux.HandleFunc("/rename", handleRename)
 	mux.HandleFunc("/move", handleMove)
 	mux.HandleFunc("/mkdir", handleMkdir)
+	mux.HandleFunc("/extract", handleExtract)
 	mux.HandleFunc("/proxy/", handleProxy)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -651,6 +653,125 @@ func handleMove(w http.ResponseWriter, r *http.Request) {
 
 // handleMkdir creates a directory ?name= inside ?path= (the parent dir).
 // "name" must be a bare base name; refuses to overwrite an existing entry.
+// handleExtract replaces the directory at path with the contents of the tar
+// archive in the request body (POST /extract?path=...). The archive is
+// unpacked beside the target first and swapped in only once it is complete,
+// so a broken upload leaves the old directory untouched. Parent directories
+// are created as needed. Installing a skill from the global library into
+// ~/.agents/skills/<slug> is the caller.
+func handleExtract(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	dest, err := resolve(r.URL.Query().Get("path"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if dest == rootAbs {
+		http.Error(w, "cannot replace root", http.StatusBadRequest)
+		return
+	}
+	if info, err := os.Lstat(dest); err == nil && !info.IsDir() {
+		http.Error(w, "path exists and is not a directory", http.StatusConflict)
+		return
+	}
+	parent := filepath.Dir(dest)
+	if err := os.MkdirAll(parent, 0o755); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	tmp, err := os.MkdirTemp(parent, "."+filepath.Base(dest)+".extract-")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer os.RemoveAll(tmp)
+	if err := os.Chmod(tmp, 0o755); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	files, err := extractTar(r.Body, tmp)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	old := ""
+	if _, err := os.Lstat(dest); err == nil {
+		old = tmp + ".old"
+		if err := os.Rename(dest, old); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+	if err := os.Rename(tmp, dest); err != nil {
+		if old != "" {
+			_ = os.Rename(old, dest)
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if old != "" {
+		_ = os.RemoveAll(old)
+	}
+	writeJSON(w, map[string]interface{}{"path": r.URL.Query().Get("path"), "files": files})
+}
+
+// extractTar unpacks regular files and directories from a tar stream under
+// dir, refusing entries that would land outside it.
+func extractTar(body io.Reader, dir string) (int, error) {
+	tr := tar.NewReader(body)
+	files := 0
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			return files, nil
+		}
+		if err != nil {
+			return files, errors.New("invalid tar: " + err.Error())
+		}
+		rel := filepath.Clean("/" + hdr.Name)
+		if rel == "/" {
+			continue
+		}
+		target := filepath.Join(dir, rel)
+		if !strings.HasPrefix(target, dir+string(os.PathSeparator)) {
+			return files, errors.New("entry escapes destination: " + hdr.Name)
+		}
+		switch hdr.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(target, 0o755); err != nil {
+				return files, err
+			}
+		case tar.TypeReg:
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+				return files, err
+			}
+			out, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, os.FileMode(hdr.Mode).Perm()|0o600)
+			if err != nil {
+				return files, err
+			}
+			if _, err := io.Copy(out, tr); err != nil {
+				out.Close()
+				return files, err
+			}
+			if err := out.Close(); err != nil {
+				return files, err
+			}
+			files++
+		default:
+			return files, errors.New("unsupported entry type: " + hdr.Name)
+		}
+	}
+}
+
 func handleMkdir(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

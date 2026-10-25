@@ -128,7 +128,7 @@ export function SkillView({ slug }: { slug: string }) {
               SKILL
             </span>
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="min-h-0 flex-1 overflow-y-auto py-1.5">
             {!rootChildren && (
               <div className="flex items-center gap-2 px-2 py-1 text-muted-foreground">
                 <Loader2 className="size-3.5 animate-spin" />

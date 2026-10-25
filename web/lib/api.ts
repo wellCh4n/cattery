@@ -391,7 +391,8 @@ export async function createFolder(projectId: string, dir: string, name: string)
 // ---- skillmgr (single global Pod, proxied through backend) ----
 //
 // Narrow API for the global skill library. Skills are managed as folders under
-// /skills, with ZIP upload as the only upload path.
+// /skills, with ZIP upload as the only upload path. Everyone can read it;
+// uploading and deleting are admin-only.
 
 const SKILLS_BASE = `${API_BASE}/api/v1/skills`
 
@@ -460,6 +461,39 @@ export async function createSkillFolder(dir: string, name: string): Promise<{ pa
   )
   if (!res.ok) throw new Error(await readErrorMessage(res, `create skill folder failed (${res.status})`))
   return res.json()
+}
+
+// ---- Project skills ----
+//
+// Library skills are not loaded into sandboxes; installing one copies its
+// folder into the project's ~/.agents/skills/<slug>, where the agent loads it.
+// Uninstalling deletes that folder through the files API.
+
+export const PROJECT_SKILLS_DIR = "/.agents/skills"
+
+export async function installSkill(projectId: string, slug: string): Promise<void> {
+  const res = await authedFetch(`${API_BASE}/api/v1/projects/${projectId}/skills/${encodeURIComponent(slug)}`, { method: "POST" })
+  if (!res.ok) throw new Error(await readErrorMessage(res, `install skill failed (${res.status})`))
+}
+
+// uploadProjectSkill adds a `<slug>.zip` skill archive straight to the
+// project's ~/.agents/skills/<slug>, never to the global library.
+export async function uploadProjectSkill(projectId: string, file: File): Promise<{ path: string; files: number }> {
+  const fd = new FormData()
+  fd.append("file", file)
+  const res = await authedFetch(`${API_BASE}/api/v1/projects/${projectId}/skills`, { method: "POST", body: fd })
+  if (!res.ok) throw new Error(await readErrorMessage(res, `upload skill failed (${res.status})`))
+  return res.json()
+}
+
+// listInstalledSkills returns the folder names under the project's skills
+// directory; a project that never installed one has no directory.
+export async function listInstalledSkills(projectId: string): Promise<string[]> {
+  const url = `${API_BASE}/api/v1/projects/${projectId}/files/list?path=${encodeURIComponent(PROJECT_SKILLS_DIR)}`
+  const res = await authedFetch(url, { cache: "no-store" })
+  if (res.status === 404) return []
+  if (!res.ok) throw new Error(await readErrorMessage(res, `list installed skills failed (${res.status})`))
+  return (await res.json() as FileEntry[]).filter(entry => entry.type === "dir").map(entry => entry.name)
 }
 
 // ---- Auth ----
