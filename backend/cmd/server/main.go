@@ -11,6 +11,7 @@ import (
 	"github.com/wellch4n/cattery/internal/harness"
 	k8sclient "github.com/wellch4n/cattery/internal/k8s"
 	"github.com/wellch4n/cattery/internal/sandbox"
+	"github.com/wellch4n/cattery/internal/usage"
 )
 
 func main() {
@@ -46,11 +47,15 @@ func main() {
 	memberStore := db.NewMemberStore(database)
 	sessionStore := db.NewSessionStore(database)
 	terminalStore := db.NewTerminalStore(database)
+	usageStore := db.NewUsageStore(database)
 	harnessClient := harness.NewClient()
 	sandboxMgr := sandbox.NewManager(projectStore, k8s, harnessClient, cfg)
+	usageCollector := usage.NewCollector(usageStore, harnessClient, sandboxMgr)
+	sandboxMgr.OnRelease(usageCollector.Sync)
+	go usageCollector.Run(context.Background())
 
 	projectH := api.NewProjectHandler(projectStore, memberStore, userStore, sandboxMgr, k8s)
-	sessionH := api.NewSessionHandler(sessionStore, projectStore, harnessClient, sandboxMgr, models)
+	sessionH := api.NewSessionHandler(sessionStore, projectStore, harnessClient, sandboxMgr, models, usageCollector)
 	filesH := api.NewFilesHandler(projectStore, sandboxMgr)
 	terminalH := api.NewTerminalHandler(projectStore, terminalStore, sandboxMgr)
 	skillsH := api.NewSkillsHandler(k8s)
@@ -58,8 +63,9 @@ func main() {
 	adminH := api.NewAdminHandler(userStore, projectStore, sandboxMgr)
 	usersH := api.NewUsersHandler(userStore)
 	portsH := api.NewPortsHandler(projectStore, sandboxMgr, signer)
+	usageH := api.NewUsageHandler(usageStore)
 
-	router := api.NewRouter(database, projectH, sessionH, filesH, terminalH, skillsH, authH, adminH, usersH, portsH, signer)
+	router := api.NewRouter(database, projectH, sessionH, filesH, terminalH, skillsH, authH, adminH, usersH, portsH, usageH, signer)
 	log.Printf("starting server on :%s", cfg.Port)
 	log.Fatal(router.Start(":" + cfg.Port))
 }

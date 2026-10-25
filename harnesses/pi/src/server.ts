@@ -17,6 +17,8 @@
  *   POST   /session/:id/questionnaire/:toolId → 204 (answer/cancel a pending tool)
  *   POST   /session/:id/abort              → 204
  *   GET    /event                          → SSE bus of platform events, each with a rising seq
+ *   GET    /usage?offset=<bytes>           → { records, offset, more }  (token usage ledger lines
+ *                                                     from offset; the backend pulls and dedupes by id)
  *   GET    /ports                          → ListeningApp[]  (listening ports, with the process
  *                                                     holding each when visible)
  *   DELETE /ports/:port                    → { forced }  (SIGTERM the process holding the port,
@@ -50,6 +52,7 @@ import { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager
 import { Questionnaire, prepareQuestionnaireArguments } from './questionnaire.ts'
 import { TITLE_FORMAT, TITLE_PROMPT, titleInput, parseTitle } from './title.ts'
 import { listeningApps, stopApp, StopError } from './ports.ts'
+import { UsageLedger } from './usage.ts'
 
 // ── Config ───────────────────────────────────────────────────────────────────
 
@@ -69,6 +72,8 @@ const PREVIEW_PROMPT = 'Users preview web servers you start here from Cattery, w
 // Align the harness process with the SDK tools and the web terminal too.
 process.chdir(WORKDIR)
 console.log('[startup] SESSIONS:', SESSIONS_DIR)
+
+const ledger = new UsageLedger(process.env.USAGE_LEDGER ?? path.join(WORKDIR, '.cattery/usage.jsonl'))
 
 // ── Models ───────────────────────────────────────────────────────────────────
 
@@ -393,7 +398,10 @@ function forward(sess: Session, ev: AgentSessionEvent): void {
       return
     case 'message_end':
       if (ev.message.role === 'user') sess.live.user = undefined
-      else if (ev.message.role === 'assistant') sess.live.assistant = undefined
+      else if (ev.message.role === 'assistant') {
+        sess.live.assistant = undefined
+        ledger.record(sess.id, 'reply', ev.message.model, ev.message.usage)
+      }
       else if (ev.message.role === 'toolResult') sess.live.toolDone.delete(ev.message.toolCallId)
       return
     case 'queue_update':
@@ -439,8 +447,11 @@ function forward(sess: Session, ev: AgentSessionEvent): void {
       broadcast(sess.id, done)
       return
     }
-    case 'turn_end':
     case 'compaction_end':
+      ledger.record(sess.id, 'compaction', sess.sdk.model?.id ?? sess.model.id, ev.result?.usage)
+      broadcastUsage(sess)
+      return
+    case 'turn_end':
       broadcastUsage(sess)
       return
   }
@@ -538,6 +549,7 @@ async function generateTitle(sess: Session, text: string): Promise<void> {
         ? (params) => ({ ...(params as object), text: { ...(params as { text?: object }).text, format: TITLE_FORMAT } })
         : undefined,
     })
+    ledger.record(sess.id, 'title', small.model, result.usage)
     if (controller.signal.aborted) {
       if (!timedOut) sess.titleAttempted = false
       return
@@ -691,6 +703,11 @@ app.delete('/ports/:port', asyncRoute(async (req, res) => {
     if (err instanceof StopError) return void res.status(err.status).json({ error: err.message })
     throw err
   }
+}))
+
+app.get('/usage', asyncRoute(async (req, res) => {
+  const offset = Number(req.query.offset ?? 0)
+  res.json(await ledger.read(Number.isSafeInteger(offset) && offset > 0 ? offset : 0))
 }))
 
 app.get('/session', (_req, res) => {

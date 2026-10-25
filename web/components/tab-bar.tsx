@@ -11,7 +11,7 @@
 
 import { useEffect, useMemo, useRef } from "react"
 import { usePathname, useRouter } from "next/navigation"
-import { File as FileIcon, Globe, Loader2, MessageSquare, Puzzle, Shield, SquareTerminal, X } from "lucide-react"
+import { ChartColumn, File as FileIcon, Globe, Loader2, MessageSquare, Puzzle, Shield, SquareTerminal, X } from "lucide-react"
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu"
 import { Hint } from "@/components/ui/hint"
 import { cn } from "@/lib/utils"
@@ -67,9 +67,17 @@ function resolveTab(tab: Tab, projects: ProjectWithSessions[], terminals: Termin
       icon: <Puzzle className="size-3.5 shrink-0 text-muted-foreground" />,
     }
   }
+  if (tab.kind === "usage") {
+    return {
+      title: "Usage",
+      exists: true,
+      icon: <ChartColumn className="size-3.5 shrink-0 text-muted-foreground" />,
+    }
+  }
   if (tab.kind === "admin") {
-    // tab.id is the sub-section ("users"); for now just title-case it.
-    const title = tab.id.charAt(0).toUpperCase() + tab.id.slice(1)
+    // tab.id is the sub-section ("users", "usage"); title-case it, but keep
+    // everyone's usage apart from the personal Usage tab.
+    const title = tab.id === "usage" ? "Team usage" : tab.id.charAt(0).toUpperCase() + tab.id.slice(1)
     return {
       title,
       exists: true,

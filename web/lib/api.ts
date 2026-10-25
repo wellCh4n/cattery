@@ -682,3 +682,29 @@ export async function answerQuestionnaire(sessionId: string, toolId: string, res
   })
   if (!res.ok) throw new Error(await readErrorMessage(res, "Unable to submit answers"))
 }
+
+// Token usage summed per period, user and model. Periods are the first day of
+// each bucket in tz; to is inclusive.
+export interface UsageRow {
+  period: string
+  user_id: string | null
+  username: string | null
+  model: string
+  requests: number
+  input: number
+  output: number
+  cache_read: number
+  cache_write: number
+}
+
+// "mine" is the caller's own usage; "all" is everyone's, for admins.
+export async function fetchUsage(
+  scope: "mine" | "all",
+  q: { from: string; to: string; bucket: "day" | "week" | "month"; tz: string },
+): Promise<UsageRow[]> {
+  const params = new URLSearchParams(q)
+  const path = scope === "all" ? "admin/usage" : "usage"
+  const res = await authedFetch(`${API_BASE}/api/v1/${path}?${params}`, { cache: "no-store" })
+  if (!res.ok) throw new Error(await readErrorMessage(res, `failed to load usage (${res.status})`))
+  return res.json()
+}

@@ -12,6 +12,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/wellch4n/cattery/internal/model"
 )
 
 type Client struct {
@@ -410,4 +412,41 @@ func (c *Client) AnswerQuestionnaire(ctx context.Context, base, sessionID, toolI
 		_ = json.NewDecoder(resp.Body).Decode(&result)
 	}
 	return resp.StatusCode, result.Error, nil
+}
+
+// UsageLedger is a page of the agent's token usage ledger. Offset is where the
+// next read starts; More says the ledger holds lines past it already.
+type UsageLedger struct {
+	Records []model.UsageRecord `json:"records"`
+	Offset  int64               `json:"offset"`
+	More    bool                `json:"more"`
+}
+
+// ErrNoUsageLedger means the agent image predates the usage ledger.
+var ErrNoUsageLedger = errors.New("agent has no usage ledger")
+
+// Usage reads the agent's usage ledger from a byte offset. The agent restarts
+// from 0 when the offset doesn't fit its ledger, so callers dedupe records.
+func (c *Client) Usage(ctx context.Context, base string, offset int64) (*UsageLedger, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/usage?offset=%d", base, offset), nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("agent usage: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, ErrNoUsageLedger
+	}
+	if resp.StatusCode >= 400 {
+		b, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("agent usage status %d: %s", resp.StatusCode, b)
+	}
+	var page UsageLedger
+	if err := json.NewDecoder(resp.Body).Decode(&page); err != nil {
+		return nil, err
+	}
+	return &page, nil
 }

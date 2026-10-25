@@ -67,10 +67,30 @@ type Manager struct {
 	// and message sends don't race each other into a double start.
 	locks          sync.Map // uuid.UUID → *sync.Mutex
 	provisionLocks sync.Map
+
+	// beforeRelease runs while the agent is still reachable, just before its
+	// sessions are released or its resources destroyed.
+	beforeRelease func(context.Context, uuid.UUID)
 }
 
 func NewManager(store *db.ProjectStore, k8sClient *k8s.Client, harnessClient *harness.Client, cfg *config.Config) *Manager {
 	return &Manager{store: store, k8sClient: k8sClient, harnessClient: harnessClient, cfg: cfg}
+}
+
+// OnRelease sets a hook run, with the agent still reachable, after Stop
+// releases its sessions and before Destroy deletes the sandbox — for
+// collecting what the agent recorded on its workspace. It gets a few seconds.
+func (m *Manager) OnRelease(hook func(context.Context, uuid.UUID)) { m.beforeRelease = hook }
+
+// releaseTimeout bounds the hook so it never stalls a stop or delete.
+const releaseTimeout = 3 * time.Second
+
+func (m *Manager) release(ctx context.Context, projectID uuid.UUID) {
+	if m.beforeRelease != nil {
+		ctx, cancel := context.WithTimeout(ctx, releaseTimeout)
+		defer cancel()
+		m.beforeRelease(ctx, projectID)
+	}
 }
 
 // NameFor 生成 project 的 K8s Sandbox 资源名，形如 `cattery-sandbox-<project_id>`。
@@ -229,6 +249,8 @@ func (m *Manager) Stop(ctx context.Context, projectID uuid.UUID) error {
 		if err := m.harnessClient.Stop(stopCtx, url); err != nil {
 			return err
 		}
+		// After Stop, so usage of the runs it aborted is counted too.
+		m.release(ctx, projectID)
 	}
 	return m.store.UpdateSandboxStatus(ctx, projectID, "idle")
 }
@@ -241,6 +263,7 @@ func (m *Manager) Destroy(ctx context.Context, projectID uuid.UUID) error {
 	mu := v.(*sync.Mutex)
 	mu.Lock()
 	defer mu.Unlock()
+	m.release(ctx, projectID)
 	if err := m.k8sClient.StopTask(ctx, NameFor(projectID)); err != nil && !apierrors.IsNotFound(err) {
 		return err
 	}

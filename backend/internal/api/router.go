@@ -35,6 +35,7 @@ func NewRouter(
 	adminH *AdminHandler,
 	usersH *UsersHandler,
 	portsH *PortsHandler,
+	usageH *UsageHandler,
 	signer *auth.Signer,
 ) *echo.Echo {
 	e := echo.New()
@@ -116,6 +117,7 @@ func NewRouter(
 	protected.POST("/auth/change-password", authH.ChangePassword)
 
 	protected.GET("/users/search", usersH.Search)
+	protected.GET("/usage", usageH.Mine)
 
 	projects := protected.Group("/projects")
 	projects.POST("", projectH.Create)
@@ -196,6 +198,7 @@ func NewRouter(
 	admin.POST("/users", adminH.CreateUser)
 	admin.PATCH("/users/:user_id", adminH.UpdateUser)
 	admin.DELETE("/users/:user_id", adminH.DeleteUser)
+	admin.GET("/usage", usageH.All)
 
 	return e
 }

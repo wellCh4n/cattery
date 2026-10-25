@@ -19,6 +19,7 @@ import (
 	"github.com/wellch4n/cattery/internal/harness"
 	"github.com/wellch4n/cattery/internal/model"
 	"github.com/wellch4n/cattery/internal/sandbox"
+	"github.com/wellch4n/cattery/internal/usage"
 )
 
 type sessionSandbox interface {
@@ -27,12 +28,17 @@ type sessionSandbox interface {
 	URL(context.Context, uuid.UUID) (string, bool)
 }
 
+type usageSyncer interface {
+	Sync(context.Context, uuid.UUID)
+}
+
 type SessionHandler struct {
 	sessionStore  *db.SessionStore
 	projectStore  *db.ProjectStore
 	harnessClient *harness.Client
 	sandbox       sessionSandbox
 	models        *config.Models
+	usage         usageSyncer
 }
 
 func NewSessionHandler(
@@ -41,8 +47,16 @@ func NewSessionHandler(
 	harnessClient *harness.Client,
 	sandboxMgr *sandbox.Manager,
 	models *config.Models,
+	usage usageSyncer,
 ) *SessionHandler {
-	return &SessionHandler{sessionStore, projectStore, harnessClient, sandboxMgr, models}
+	return &SessionHandler{sessionStore, projectStore, harnessClient, sandboxMgr, models, usage}
+}
+
+// syncUsage collects the project's token usage in the background.
+func (h *SessionHandler) syncUsage(projectID uuid.UUID) {
+	if h.usage != nil {
+		go h.usage.Sync(context.Background(), projectID)
+	}
 }
 
 type modelProviderOption struct {
@@ -359,6 +373,9 @@ func (h *SessionHandler) SendMessage(c echo.Context) error {
 	if errors.Is(err, harness.ErrSteered) {
 		return c.NoContent(http.StatusAccepted)
 	}
+	// The run may go on after a client disconnects; the periodic sweep
+	// collects the rest.
+	h.syncUsage(sess.ProjectID)
 	return err
 }
 
@@ -509,6 +526,12 @@ func (h *SessionHandler) Delete(c echo.Context) error {
 	// Only touch the agent if its sandbox is already up — no point starting a
 	// sandbox just to delete a transcript.
 	if sandboxURL, ok := h.sandbox.URL(c.Request().Context(), sess.ProjectID); ok {
+		// While the session row still names who its usage belongs to.
+		if h.usage != nil {
+			syncCtx, cancel := context.WithTimeout(c.Request().Context(), usage.Inline)
+			h.usage.Sync(syncCtx, sess.ProjectID)
+			cancel()
+		}
 		if err := h.harnessClient.DeleteSession(c.Request().Context(), sandboxURL, sess.SessionID.String()); err != nil {
 			log.Printf("warn: delete agent session %s: %v", sess.SessionID, err)
 		}

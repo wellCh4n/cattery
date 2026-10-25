@@ -81,3 +81,24 @@ func TestSetSessionNameFailure(t *testing.T) {
 		t.Fatal("expected native sync error")
 	}
 }
+
+func TestUsageReadsLedgerPage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/usage" || r.URL.Query().Get("offset") != "42" {
+			t.Errorf("unexpected request %s", r.URL)
+		}
+		fmt.Fprint(w, `{"records":[{"id":"r1","sessionId":"5b0c7d4e-7d2a-4a39-9d55-6a1c0f3e2b11","at":1761350400000,"kind":"title","model":"small","input":10,"output":2,"cacheRead":3,"cacheWrite":4}],"offset":200,"more":true}`)
+	}))
+	defer server.Close()
+	page, err := NewClient().Usage(context.Background(), server.URL, 42)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Offset != 200 || !page.More || len(page.Records) != 1 {
+		t.Fatalf("page = %+v", page)
+	}
+	r := page.Records[0]
+	if r.ID != "r1" || r.SessionID.String() != "5b0c7d4e-7d2a-4a39-9d55-6a1c0f3e2b11" || r.Kind != "title" || r.Input != 10 || r.CacheWrite != 4 || r.At != 1761350400000 {
+		t.Fatalf("record = %+v", r)
+	}
+}

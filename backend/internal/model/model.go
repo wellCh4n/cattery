@@ -73,3 +73,17 @@ type Terminal struct {
 	CreatedByUsername *string    `db:"created_by_username" json:"created_by_username"`
 	CreatedAt         time.Time  `db:"created_at" json:"created_at"`
 }
+
+// UsageRecord is one model request in a sandbox's usage ledger: the tokens of
+// a reply, a title or a compaction summary. At is in Unix milliseconds.
+type UsageRecord struct {
+	ID         string    `json:"id"`
+	SessionID  uuid.UUID `json:"sessionId"`
+	At         int64     `json:"at"`
+	Kind       string    `json:"kind"`
+	Model      string    `json:"model"`
+	Input      int64     `json:"input"`
+	Output     int64     `json:"output"`
+	CacheRead  int64     `json:"cacheRead"`
+	CacheWrite int64     `json:"cacheWrite"`
+}

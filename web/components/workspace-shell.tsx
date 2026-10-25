@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { usePathname, useRouter } from "next/navigation"
 import {
+  ChartColumn,
   Check,
   ChevronDown,
   FolderOpen,
@@ -401,6 +402,12 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
             />
 
             <div className="mt-auto flex flex-col gap-1">
+              <RailButton
+                icon={<ChartColumn className="size-6" />}
+                label="Usage"
+                active={pathname === "/usage"}
+                onClick={() => { router.push("/usage"); setSettingsMenuOpen(false) }}
+              />
               <div ref={settingsMenuRef} className="relative">
                 {settingsMenuOpen && (
                   <div className="absolute bottom-0 left-full z-30 ml-1 min-w-44 overflow-hidden rounded-lg border bg-popover text-sm shadow-md">
@@ -411,6 +418,15 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
                       >
                         <Shield className="size-3.5 text-muted-foreground" />
                         User management
+                      </button>
+                    )}
+                    {user?.is_admin && (
+                      <button
+                        className="flex h-8 w-full cursor-pointer items-center gap-2 px-2.5 text-left hover:bg-muted"
+                        onClick={() => { setSettingsMenuOpen(false); router.push("/admin/usage") }}
+                      >
+                        <ChartColumn className="size-3.5 text-muted-foreground" />
+                        Team usage
                       </button>
                     )}
                     <div className="flex h-8 items-center justify-between gap-2 px-2.5">

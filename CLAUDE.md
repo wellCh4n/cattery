@@ -88,6 +88,7 @@ POST   /session/:id/abort              → 204
 GET    /event                          → SSE: {"sessionId", "seq", "type", "data"} platform events
 GET    /ports                          → [{port, pid?, command?, startedAt?}]  (listening apps, see Port previews)
 DELETE /ports/:port                    → { forced }  (stop the app: SIGTERM, then SIGKILL after 3s)
+GET    /usage?offset=<bytes>           → { records, offset, more }  (token usage ledger, see Token usage)
 ```
 
 The backend calls these from `backend/internal/harness/client.go`. The harness embeds `createAgentSession` with an isolated, memory-only `ModelRuntime` per platform session. `DefaultResourceLoader` loads skills, prompt templates, and project instructions; `SessionManager` persists messages and manages context compaction. SDK automatic retries and compaction remain enabled. File-based extensions and themes are disabled in this headless host. Skills include the read-only `/cattery/global-skills` mount (or `SKILLS_DIR`) and project `.agents/skills`, alongside SDK default discovery. Resources refresh when a session is loaded.
@@ -136,6 +137,12 @@ The response is itself an SSE stream; the frontend reads it directly from the `f
 ### Auth
 
 Stateless HS256 JWT (`backend/internal/auth/jwt.go`), 7-day TTL, no server-side revocation — the token is the source of truth until expiry (demoting an admin only takes effect on the next token). Every route except `POST /auth/login` sits behind `AuthMiddleware` (`auth_middleware.go`), which accepts the bearer token from the `Authorization: Bearer` header or, failing that, a `?token=` query param (for `<img>`/`<iframe>`/download URLs that can't set headers; redacted from access logs). Admin-only routes layer `AdminOnly` on top.
+
+### Token usage
+
+Each model request is recorded at the source: pi appends one JSON line per request to `~/.cattery/usage.jsonl` on the workspace PVC (`harnesses/pi/src/usage.ts`) — a reply (assistant `message_end`), the small-model title call, or a compaction summary — with its session id, model and `input` / `output` / `cacheRead` / `cacheWrite` tokens (pi counts input without the cached part). The backend pulls it; nothing depends on a browser holding the stream. `usage.Collector` (`backend/internal/usage`) reads new lines with `GET /usage?offset=<bytes>`, stores them in `usage_records` under their record id (`ON CONFLICT DO NOTHING`, so rereads are harmless; pi restarts from 0 when an offset doesn't fit its ledger) and advances `projects.usage_offset` in the same transaction. It syncs every 30 s for `ready` sandboxes, when a send stream ends, before a session is deleted, and through `sandbox.Manager.OnRelease` after Stop and before Destroy. A record is charged to its session's creator (the project owner for sessions without one), with a username snapshot; rows have no foreign key to sessions or projects, so usage outlives them. Forks copy transcripts but not the ledger, so nothing is counted twice. Agents on an image without `/usage` (404) are skipped quietly. Recording never delays a request: pi appends in the background, the after-stream sync runs in a goroutine, and the syncs that deleting a session or stopping/destroying a sandbox wait on are capped at 3 s (missed lines stay for the next sync).
+
+`GET /usage?from&to&bucket=day|week|month&tz` returns the caller's own usage; `GET /admin/usage` (admin only) everyone's (`usage_handler.go`). Both sum rows per period, user and model in the viewer's time zone (`to` inclusive, weeks start Monday). The web's Usage tab (`/usage`, the rail button above Settings, for every user) shows the caller's own usage per model, stacked by model or token type. Admins also get Team usage (`/admin/usage`, in the Settings menu): everyone's usage, stacked by user, model or token type, with a user filter and per-user and per-model tables; clicking a user scopes it to them. Both pages render `components/usage-dashboard.tsx` (with `components/usage-chart.tsx`, `lib/usage.ts`). Seven groups are charted by name and the rest fold into "Other".
 
 ### The filemgr container (per-project file manager)
 
