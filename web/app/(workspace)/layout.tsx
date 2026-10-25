@@ -60,7 +60,8 @@ export default function WorkspaceLayout({ children }: { children: React.ReactNod
         </main>
       </WorkspaceShell>
       <StatusBar />
-      <Toaster position="top-center" />
+      {/* Below the 48px top bar, clear of the account menu. */}
+      <Toaster position="top-right" offset={{ top: 56, right: 16 }} />
     </div>
   )
 }
