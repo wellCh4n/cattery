@@ -124,6 +124,15 @@ export function SkillBrowserPanel({ active, projectId }: { active: boolean; proj
     : []
   const isInstalled = (slug: string) => installed?.includes(slug) ?? false
   const bothOpen = !collapsed.installed && !collapsed.library
+  // Sizes in the sections' column: the Installed section's basis moves
+  // between its split share, header only and everything but the Library
+  // header, and the Library section fills the rest (header only when both
+  // are collapsed), so expanding and collapsing animate. The divider row
+  // (h-2) is always there; it only drags while both are open.
+  const installedBasis = collapsed.installed ? HEADER_HEIGHT
+    : collapsed.library ? `calc(100% - ${HEADER_HEIGHT} - 0.5rem)`
+    : `${split.ratio * 100}%`
+  const libraryFlex = collapsed.installed && collapsed.library ? `0 0 ${HEADER_HEIGHT}` : "1 1 0%"
 
   function openSkill(skill: SkillRowItem) {
     if (!skill.valid) return
@@ -207,7 +216,8 @@ export function SkillBrowserPanel({ active, projectId }: { active: boolean; proj
             count={installedRows.length}
             collapsed={collapsed.installed}
             onToggle={() => setCollapsed(c => ({ ...c, installed: !c.installed }))}
-            style={bothOpen ? { flex: `0 0 ${split.ratio * 100}%` } : undefined}
+            style={{ flex: `0 0 ${installedBasis}` }}
+            animate={!split.dragging}
           >
             {installedRows.length === 0 && !uploading && (
               <div className="flex flex-col items-center px-4 py-6 text-center">
@@ -244,13 +254,15 @@ export function SkillBrowserPanel({ active, projectId }: { active: boolean; proj
               <div className="h-px w-full bg-border transition-colors group-hover/split:bg-ring group-active/split:bg-ring" />
             </div>
           ) : (
-            <div className="h-px shrink-0 bg-border" />
+            <div className="flex h-2 shrink-0 items-center"><div className="h-px w-full bg-border" /></div>
           )}
           <Section
             title="Library"
             count={libraryRows.length}
             collapsed={collapsed.library}
             onToggle={() => setCollapsed(c => ({ ...c, library: !c.library }))}
+            style={{ flex: libraryFlex }}
+            animate
           >
             {libraryRows.length === 0
               ? <p className="px-3 py-2 text-xs text-muted-foreground">The skill library is empty.</p>
@@ -283,11 +295,15 @@ type SkillRowItem = SkillCatalogItem & { local?: boolean }
 const SPLIT_KEY = "cattery.skills.split"
 const SPLIT_MIN = 0.15
 const SPLIT_MAX = 0.85
+// A section header's height (h-7).
+const HEADER_HEIGHT = "1.75rem"
 
 // useSplit tracks the Installed section's share of the sections' height,
 // dragged by the divider between them and remembered across reloads.
 function useSplit() {
   const [ratio, setRatio] = useState(0.5)
+  // Sizes follow the pointer directly while dragging, without easing.
+  const [dragging, setDragging] = useState(false)
   // Server render uses the default; the saved split is read after mount.
   useEffect(() => {
     const saved = Number(localStorage.getItem(SPLIT_KEY))
@@ -298,6 +314,7 @@ function useSplit() {
     onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
       e.preventDefault()
       e.currentTarget.setPointerCapture(e.pointerId)
+      setDragging(true)
     },
     onPointerMove(e: React.PointerEvent<HTMLDivElement>) {
       // The divider sits directly in the sections' container.
@@ -307,45 +324,55 @@ function useSplit() {
     },
     onPointerUp(e: React.PointerEvent<HTMLDivElement>) {
       e.currentTarget.releasePointerCapture(e.pointerId)
+      setDragging(false)
       localStorage.setItem(SPLIT_KEY, String(ratio))
     },
+    onLostPointerCapture() { setDragging(false) },
   }
-  return { ratio, handleProps }
+  return { ratio, dragging, handleProps }
 }
 
-// Section is one collapsible, independently scrolling part of the panel.
+// Section is one collapsible, independently scrolling part of the panel. Its
+// size comes from the caller's flex style; the body stays mounted and is
+// clipped while collapsed, so the size change can ease.
 function Section({
   title,
   count,
   collapsed,
   onToggle,
   style,
+  animate,
   children,
 }: {
   title: string
   count: number
   collapsed: boolean
   onToggle: () => void
-  style?: React.CSSProperties
+  style: React.CSSProperties
+  animate: boolean
   children: React.ReactNode
 }) {
   return (
-    <section className={cn("flex min-h-0 flex-col", collapsed ? "shrink-0" : "flex-1")} style={style}>
+    <section
+      className={cn(
+        "flex min-h-0 flex-col overflow-hidden",
+        animate && "transition-[flex-basis,flex-grow] duration-200 ease-out motion-reduce:transition-none",
+      )}
+      style={style}
+    >
       <button
         type="button"
         aria-expanded={!collapsed}
         className="flex h-7 shrink-0 cursor-pointer items-center gap-1 px-1.5 text-2xs font-medium uppercase tracking-wide text-muted-foreground hover:text-foreground"
         onClick={onToggle}
       >
-        <ChevronRight className={cn("size-3.5 transition-transform", !collapsed && "rotate-90")} />
+        <ChevronRight className={cn("size-3.5 transition-transform duration-200 motion-reduce:transition-none", !collapsed && "rotate-90")} />
         <span className="flex-1 text-left">{title}</span>
         <span className="font-normal tabular-nums">{count}</span>
       </button>
-      {!collapsed && (
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="flex flex-col gap-1.5 pb-1">{children}</div>
-        </div>
-      )}
+      <div className="min-h-0 flex-1 overflow-y-auto" inert={collapsed}>
+        <div className="flex flex-col gap-1.5 pb-1">{children}</div>
+      </div>
     </section>
   )
 }
