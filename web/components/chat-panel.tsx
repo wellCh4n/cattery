@@ -1,8 +1,9 @@
 "use client"
 
 import { profileName } from "@/lib/profile"
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import {
+  ArrowDownIcon,
   ArrowUpIcon,
   CheckIcon,
   CornerDownRightIcon,
@@ -11,6 +12,7 @@ import {
   FilePenIcon,
   FileTextIcon,
   FolderIcon,
+  GaugeIcon,
   GitForkIcon,
   LoaderCircleIcon,
   MessageCircleDashedIcon,
@@ -60,6 +62,7 @@ import {
 } from "@/lib/chat-stream-store"
 import { canWriteSession, useWorkspaceStore } from "@/lib/workspace-store"
 import { useForkSession } from "@/lib/use-fork-session"
+import { formatTokens } from "@/lib/usage"
 import { cn } from "@/lib/utils"
 
 interface Props {
@@ -101,6 +104,7 @@ function toTurns(bubbles: Bubble[]): Turn[] {
 function toSegments(bubbles: Bubble[]): Segment[] {
   const segments: Segment[] = []
   for (const b of bubbles) {
+    if (b.kind === "usage") continue
     if (b.kind === "tool" && b.toolName === "questionnaire") {
       segments.push({ kind: "questionnaire", id: b.id, bubble: b })
     } else if (b.kind === "thinking" || b.kind === "tool") {
@@ -487,8 +491,8 @@ function phaseLabel(phase: string | null): string {
   }
 }
 
-// The empty reply a send adds until the first event arrives.
-const isPlaceholder = (b: Bubble) => b.kind === "text" && b.content === ""
+// The empty reply a send adds until the first event arrives, or a bubble never drawn.
+const isPlaceholder = (b: Bubble) => (b.kind === "text" && b.content === "") || b.kind === "usage"
 
 // Shown between sending and the reply's first output.
 function WorkingRow() {
@@ -516,6 +520,7 @@ function AgentTurn({ bubbles, streaming, latest, sessionId, readOnly, onFork }: 
     .map(s => (s.kind === "text" ? s.bubble.content : ""))
     .join("\n\n")
   const at = bubbles.reduce<number | undefined>((t, b) => b.at && (!t || b.at > t) ? b.at : t, undefined)
+  const usage = usageStats(bubbles)
 
   return (
     <Message>
@@ -545,13 +550,15 @@ function AgentTurn({ bubbles, streaming, latest, sessionId, readOnly, onFork }: 
           return <Markdown key={segment.id}>{segment.bubble.content}</Markdown>
         })}
         {streaming && bubbles.every(isPlaceholder) && <WorkingRow />}
-        {!streaming && (reply || onFork || at) && (
+        {(streaming ? usage.output > 0 : reply || onFork || at || usage.output > 0) && (
           // Only the latest reply shows its actions; earlier ones on hover. They
           // keep their space, so revealing them doesn't shift the transcript.
-          <MessageFooter className={cn("px-0", !latest && "opacity-0 transition-opacity group-hover/message:opacity-100 focus-within:opacity-100")}>
-            {reply && <CopyAction text={reply} />}
-            {onFork && <ForkAction onFork={onFork} />}
-            {at && <MessageTime at={at} className="ml-1.5" />}
+          // While streaming, only the output and speed climb.
+          <MessageFooter className={cn("min-h-7 px-0", !latest && "opacity-0 transition-opacity group-hover/message:opacity-100 focus-within:opacity-100")}>
+            {!streaming && reply && <CopyAction text={reply} />}
+            {!streaming && onFork && <ForkAction onFork={onFork} />}
+            {!streaming && at && <MessageTime at={at} className="ml-1.5" />}
+            {usage.output > 0 && <UsageStats {...usage} streaming={streaming} className={cn(!streaming && at && "ml-3")} />}
           </MessageFooter>
         )}
       </MessageContent>
@@ -708,6 +715,59 @@ function CopyAction({ text }: { text: string }) {
         <p>{copied ? "Copied" : "Copy"}</p>
       </TooltipContent>
     </Tooltip>
+  )
+}
+
+// A reply's tokens summed over its model requests. Speed is output over the
+// time the requests took, start to end, so tool runs don't slow it down.
+function usageStats(bubbles: Bubble[]) {
+  let input = 0, cacheRead = 0, output = 0, ms = 0
+  for (const b of bubbles) {
+    if (b.kind !== "usage" || !b.usage) continue
+    input += b.usage.input ?? 0
+    cacheRead += b.usage.cacheRead ?? 0
+    output += b.usage.output
+    ms += b.usage.durationMs
+  }
+  // Too short a request (one chunk) gives no meaningful rate.
+  const perSecond = ms >= 500 ? output / (ms / 1000) : undefined
+  return { input, cacheRead, output, ms, perSecond }
+}
+
+// ↑ input (without cached tokens, as pi counts it) once the reply is done,
+// ↓ output and its speed climbing while it streams.
+function UsageStats({ input, cacheRead, output, ms, perSecond, streaming, className }: ReturnType<typeof usageStats> & {
+  streaming: boolean
+  className?: string
+}) {
+  const speed = perSecond === undefined ? undefined : `${perSecond < 10 ? perSecond.toFixed(1) : Math.round(perSecond)} tok/s`
+  const showInput = !streaming && input > 0
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={<span className={cn("inline-flex items-center gap-3 font-normal tabular-nums", className)} />}
+      >
+        {showInput && <Stat icon={<ArrowUpIcon />}>{formatTokens(input)}</Stat>}
+        <Stat icon={<ArrowDownIcon />}>{formatTokens(output)}</Stat>
+        {speed && <Stat icon={<GaugeIcon />}>{speed}</Stat>}
+      </TooltipTrigger>
+      <TooltipContent>
+        {/* Output is estimated until each model request ends and reports its counts. */}
+        <p>
+          {showInput && `${input.toLocaleString()} input${cacheRead ? ` + ${cacheRead.toLocaleString()} cached` : ""}, `}
+          {streaming ? "about " : ""}{output.toLocaleString()} output tokens in {(ms / 1000).toFixed(1)}s
+        </p>
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
+function Stat({ icon, children }: { icon: ReactNode; children: ReactNode }) {
+  return (
+    <span className="inline-flex items-center gap-1 [&_svg]:size-3 [&_svg]:opacity-70">
+      {icon}
+      {children}
+    </span>
   )
 }
 

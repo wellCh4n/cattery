@@ -34,6 +34,7 @@
  * Events are emitted already in platform shape (see
  * backend/internal/harness/event.go), wrapped with `sessionId` for routing:
  *   message.delta / message.thinking / message.thinking.done / tool.start / tool.done
+ *   message.usage (a model request's tokens and time; output estimated while it streams)
  *   message.user (a steered message reached the model) / session.queue (steered, not yet delivered)
  *   session.title / session.usage / session.error / session.idle
  *
@@ -156,7 +157,7 @@ function userText(content: unknown): string {
 }
 
 /** Rebuild platform history from a transcript: one item per user prompt and one per agent run. */
-function toHistory(messages: AgentMessage[], thinkingMs: Map<string, number>): HistoryItem[] {
+function toHistory(messages: AgentMessage[], thinkingMs: Map<string, number>, endedAt: Map<AgentMessage, number>): HistoryItem[] {
   const items: HistoryItem[] = []
   let current: HistoryItem | null = null
   const toolNames = new Map<string, string>()
@@ -191,6 +192,8 @@ function toHistory(messages: AgentMessage[], thinkingMs: Map<string, number>): H
           current!.events.push({ type: 'tool.start', data: { toolId: b.id, tool: b.name, input: JSON.stringify(b.name === 'questionnaire' ? prepareQuestionnaireArguments(b.arguments) : b.arguments ?? {}) } })
         }
       })
+      const ended = endedAt.get(m)
+      if (ended !== undefined) current.events.push(messageUsage(m, ended))
       if (m.stopReason === 'error' && m.errorMessage) {
         current.events.push({ type: 'session.error', data: { message: m.errorMessage } })
       }
@@ -241,6 +244,8 @@ interface LiveState {
   toolDone: Map<string, PlatformEvent>
   // When each streaming tool call's preview was last sent, by toolCallId.
   toolPreviewAt?: Map<string, number>
+  // Output of the assistant message still streaming, estimated from its deltas.
+  output?: { messageId: string; startedAt: number; tokens: number; sentAt: number }
 }
 interface SessionMetadata { version: 2; model: ModelRef; titleAttempted: boolean }
 
@@ -310,6 +315,19 @@ async function newSession(id: string, ref: ModelRef, gateway: Gateway, titleAtte
 const THINKING_ENTRY = 'cattery.thinking'
 interface ThinkingEntryData { partId: string; durationMs: number }
 
+// One model request's tokens and how long it took, from its start (the
+// message's timestamp) to its end (when its transcript entry was written), so
+// the transcript alone gives both. Providers report tokens only once a request
+// ends: while it streams, output is estimated and input is absent.
+interface MessageUsageData { messageId: string; input?: number; output: number; cacheRead?: number; cacheWrite?: number; durationMs: number }
+const messageUsageId = (msg: { timestamp: number }) => `a${msg.timestamp}`
+
+function messageUsage(msg: AssistantMessage, endedAt: number): PlatformEvent {
+  const { input, output, cacheRead, cacheWrite } = msg.usage
+  const data: MessageUsageData = { messageId: messageUsageId(msg), input, output, cacheRead, cacheWrite, durationMs: Math.max(0, endedAt - msg.timestamp) }
+  return { type: 'message.usage', data }
+}
+
 // Context window fill and session token totals, straight from the SDK. Cost is
 // left out: pi prices from its catalog, which a gateway may not match.
 // reserveTokens is the auto-compaction buffer: compaction runs once the context
@@ -341,14 +359,17 @@ function broadcastUsage(sess: Session): void {
 function history(sess: Session): HistoryItem[] {
   const messages: AgentMessage[] = []
   const thinkingMs = new Map<string, number>()
+  const endedAt = new Map<AgentMessage, number>()
   for (const entry of sess.manager.getBranch()) {
-    if (entry.type === 'message') messages.push(entry.message)
-    else if (entry.type === 'custom' && entry.customType === THINKING_ENTRY) {
+    if (entry.type === 'message') {
+      messages.push(entry.message)
+      endedAt.set(entry.message, Date.parse(entry.timestamp))
+    } else if (entry.type === 'custom' && entry.customType === THINKING_ENTRY) {
       const d = entry.data as ThinkingEntryData
       thinkingMs.set(d.partId, d.durationMs)
     }
   }
-  const items = toHistory(messages, thinkingMs)
+  const items = toHistory(messages, thinkingMs, endedAt)
   appendLive(sess.live, items)
   return items
 }
@@ -378,6 +399,7 @@ function appendLive(live: LiveState, items: HistoryItem[]): void {
     item.events.push(...live.assistant.blocks.values(), ...live.assistant.thinkingDone)
     item.timestamp = now
   }
+  if (live.output) reply(now).events.push(outputEvent(live.output, now))
 }
 
 function liveBlock(sess: Session, msg: { timestamp: number }, id: string, type: 'message.delta' | 'message.thinking', delta: string): void {
@@ -403,6 +425,8 @@ function forward(sess: Session, ev: AgentSessionEvent): void {
       if (ev.message.role === 'user') sess.live.user = undefined
       else if (ev.message.role === 'assistant') {
         sess.live.assistant = undefined
+        sess.live.output = undefined
+        broadcast(sess.id, messageUsage(ev.message, Date.now()))
         ledger.record(sess.id, 'reply', ev.message.model, ev.message.usage)
       }
       else if (ev.message.role === 'toolResult') sess.live.toolDone.delete(ev.message.toolCallId)
@@ -417,6 +441,9 @@ function forward(sess: Session, ev: AgentSessionEvent): void {
       // soon as the answer or a tool call starts.
       if (e.type === 'text_start' || e.type === 'toolcall_start') {
         for (const id of [...sess.thinkingStarts.keys()]) endThinking(sess, id)
+      }
+      if (e.type === 'text_delta' || e.type === 'thinking_delta' || e.type === 'toolcall_delta') {
+        countOutput(sess, e.partial, e.delta)
       }
       if (e.type === 'toolcall_start' || e.type === 'toolcall_delta') {
         streamingTool(sess, e.partial, e.contentIndex)
@@ -489,6 +516,34 @@ function previewArgs(args: Record<string, unknown> | undefined): Record<string, 
     else if (typeof v === 'number' || typeof v === 'boolean') out[k] = v
   }
   return out
+}
+
+// Rough token count of streamed text: about one token per CJK character and
+// per four other characters. Replaced by the provider's count when the
+// request ends.
+const CJK = /[\u2e80-\u9fff\uac00-\ud7af\uf900-\ufaff\uff00-\uffef]/g
+const estimateTokens = (text: string) => {
+  const cjk = text.match(CJK)?.length ?? 0
+  return cjk + (text.length - cjk) / 4
+}
+
+function outputEvent(o: NonNullable<LiveState['output']>, now: number): PlatformEvent {
+  const data: MessageUsageData = { messageId: o.messageId, output: Math.round(o.tokens), durationMs: now - o.startedAt }
+  return { type: 'message.usage', data }
+}
+
+// Estimates the streaming request's output, sending it at most every
+// OUTPUT_INTERVAL_MS; message_end then sends the provider's counts.
+const OUTPUT_INTERVAL_MS = 250
+function countOutput(sess: Session, msg: AssistantMessage, delta: string): void {
+  const now = Date.now()
+  const messageId = messageUsageId(msg)
+  if (sess.live.output?.messageId !== messageId) sess.live.output = { messageId, startedAt: msg.timestamp, tokens: 0, sentAt: 0 }
+  const o = sess.live.output
+  o.tokens += estimateTokens(delta)
+  if (now - o.sentAt < OUTPUT_INTERVAL_MS) return
+  o.sentAt = now
+  broadcast(sess.id, outputEvent(o, now))
 }
 
 // Records how long a thinking block took; later ends for the same block are ignored.

@@ -19,6 +19,7 @@ const (
 	EventMessageUser     = "message.user"          // user 消息送达模型: { partId, text }，含 steer 插入的消息
 	EventMessageThinking = "message.thinking"      // AI 思考过程片段（可选）
 	EventThinkingDone    = "message.thinking.done" // 思考块结束: { partId, durationMs }
+	EventMessageUsage    = "message.usage"         // 一次模型请求的 token 与耗时: { messageId, input?, output, cacheRead?, cacheWrite?, durationMs }，流式期间 output 为估算、无 input
 	EventToolStart       = "tool.start"            // 工具调用开始
 	EventToolDone        = "tool.done"             // 工具调用结束
 	EventSessionState    = "session.state"         // history snapshot: { busy: boolean, seq: number }

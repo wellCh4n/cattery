@@ -107,6 +107,7 @@ The SDK's built-in tools are enabled directly: read, write, edit, bash, grep, fi
 { type: "message.user",       data: { partId, text } }     // a user message reached the model (prompt or steer)
 { type: "message.thinking",   data: { partId, text } }     // streaming thinking chunk (optional)
 { type: "message.thinking.done", data: { partId, durationMs } } // thinking block ended (agent-timed)
+{ type: "message.usage",      data: { messageId, input?, output, cacheRead?, cacheWrite?, durationMs } } // one model request's tokens and time
 { type: "tool.start",         data: { toolId, tool, input } } // repeats: previews while the model writes the call, full input before it runs
 { type: "tool.done",          data: { toolId, tool, output, parsed? } }
 { type: "session.title",      data: { title } }            // session title generated/updated
@@ -117,6 +118,8 @@ The SDK's built-in tools are enabled directly: read, write, edit, bash, grep, fi
 ```
 
 `tool.start` is sent as soon as the model begins a tool call and repeated (throttled, long strings cut) while it streams the arguments, so a long `write` shows at once; the last one, at execution, carries the full input. `partId` / `toolId` are stable IDs: the frontend appends `message.delta` text to the bubble keyed by `partId`, and updates the bubble keyed by `toolId` when `tool.done` arrives. The agent derives partIds from the assistant message timestamp + content index, so live stream and history replay agree. pi has no per-block thinking time, so the agent times each block between `thinking_start` and `thinking_end` and stores it as a `cattery.thinking` custom transcript entry (never sent to the model); history replays it as `message.thinking.done`.
+
+`message.usage` gives each model request's tokens and its time, from the assistant message's `timestamp` (request start) to its end; history takes the end from the transcript entry's `timestamp`, so nothing extra is stored. Providers report tokens only when a request ends, so while it streams the agent sends an estimated `output` (about one token per CJK character or four other characters, every 250 ms) with no `input`, then the real counts at `message_end`. Each reply's footer sums its requests: ↓ output and tok/s (output over request time) climb while it streams; ↑ input (without cached tokens, as pi counts it) shows once it is done.
 
 ### Request flow for sending a message
 

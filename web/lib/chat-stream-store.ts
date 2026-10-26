@@ -13,6 +13,16 @@ import { selectSession, useWorkspaceStore } from "@/lib/workspace-store"
 
 export interface MessageDeltaData  { partId: string; text: string }
 export interface ThinkingDoneData  { partId: string; durationMs: number }
+// One model request's tokens and how long it took. While it streams, output
+// is estimated and input is absent: providers report them when it ends.
+export interface MessageUsageData {
+  messageId: string
+  input?: number
+  output: number
+  cacheRead?: number
+  cacheWrite?: number
+  durationMs: number
+}
 export interface ToolStartData     { toolId: string; tool: string; input?: string }
 export interface ToolDoneData      { toolId: string; tool: string; output?: string; parsed?: unknown }
 export interface SessionErrorData  { message: string }
@@ -32,7 +42,8 @@ export interface SessionUsageData {
 export interface Bubble {
   id: string
   role: "user" | "assistant"
-  kind: "text" | "thinking" | "tool" | "error"
+  // usage: a model request's output, never drawn; the reply's footer sums them.
+  kind: "text" | "thinking" | "tool" | "error" | "usage"
   content: string
   toolName?: string
   toolStatus?: "pending" | "running" | "completed"
@@ -43,6 +54,7 @@ export interface Bubble {
   // Thinking: local start time while streaming; agent-measured length once done.
   startedAt?: number
   durationMs?: number
+  usage?: MessageUsageData
   done: boolean
 }
 
@@ -54,6 +66,7 @@ export interface PlatformEvent {
     | "message.user"
     | "message.thinking"
     | "message.thinking.done"
+    | "message.usage"
     | "tool.start"
     | "tool.done"
     | "session.idle"
@@ -64,6 +77,7 @@ export interface PlatformEvent {
   data:
     | MessageDeltaData
     | ThinkingDoneData
+    | MessageUsageData
     | ToolStartData
     | ToolDoneData
     | SessionErrorData
@@ -156,6 +170,10 @@ function restoreHistory(items: Awaited<ReturnType<typeof getHistory>>): Bubble[]
         const d = ev.data as Partial<ThinkingDoneData>
         const existing = restored.find(b => b.id === d.partId && b.kind === "thinking")
         if (existing) existing.durationMs = d.durationMs
+      } else if (ev.type === "message.usage") {
+        const d = ev.data as Partial<MessageUsageData>
+        if (!d.messageId) continue
+        restored.push(usageBubble(d as MessageUsageData))
       } else if (ev.type === "tool.start") {
         const d = ev.data as { toolId?: string; tool?: string; input?: string }
         if (!d.toolId) continue
@@ -197,6 +215,15 @@ function restoreHistory(items: Awaited<ReturnType<typeof getHistory>>): Bubble[]
   }
   return restored
 }
+
+const usageBubble = (usage: MessageUsageData): Bubble => ({
+  id: usage.messageId,
+  role: "assistant",
+  kind: "usage",
+  content: "",
+  usage,
+  done: true,
+})
 
 function parseSSELines(buffer: string): { events: PlatformEvent[]; rest: string } {
   const events: PlatformEvent[] = []
@@ -627,6 +654,20 @@ export const useChatStreamStore = create<ChatStreamStore>((set, get) => ({
           const bubbles = session.bubbles.map(b =>
             b.id === d.partId && b.kind === "thinking" ? { ...b, durationMs: d.durationMs, done: true } : b,
           )
+          return { sessions: { ...state.sessions, [sessionId]: { ...session, bubbles } } }
+        })
+        break
+      }
+
+      case "message.usage": {
+        const d = ev.data as MessageUsageData
+        if (!d.messageId) break
+        set(state => {
+          const session = state.sessions[sessionId] ?? emptySession()
+          const bubble = usageBubble(d)
+          const bubbles = session.bubbles.some(b => b.id === d.messageId && b.kind === "usage")
+            ? session.bubbles.map(b => b.id === d.messageId && b.kind === "usage" ? bubble : b)
+            : [...session.bubbles, bubble]
           return { sessions: { ...state.sessions, [sessionId]: { ...session, bubbles } } }
         })
         break
