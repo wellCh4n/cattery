@@ -11,11 +11,10 @@
 # pods/exec backs the web terminal; WebSocket exec is a GET and SPDY a POST, and
 # clusters before 1.35 authorize them as get and create respectively.
 #
-# Applied as part of the Kustomize bundle (k8s/kustomization.yaml), which also
-# creates the namespace and the upstream Agent Sandbox controller:
-#   kubectl apply -k k8s/
-# Then reference the SA from the backend Deployment via:
-#   spec.template.spec.serviceAccountName: cattery
+# Applied as part of the Kustomize bundle (deploy/cluster/kustomization.yaml),
+# which also creates the namespace and the upstream Agent Sandbox controller:
+#   kubectl apply -k deploy/cluster/
+# deploy/cattery.yaml runs the backend as this ServiceAccount.
 apiVersion: v1
 kind: ServiceAccount
 metadata:

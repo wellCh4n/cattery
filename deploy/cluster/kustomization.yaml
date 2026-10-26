@@ -4,11 +4,11 @@
 # with Cattery's own namespace + RBAC, so the whole prerequisite stack installs
 # in one command:
 #
-#   kubectl apply -k k8s/
+#   kubectl apply -k deploy/cluster/
 #
 # Preview the fully-rendered manifests without applying:
 #
-#   kubectl kustomize k8s/
+#   kubectl kustomize deploy/cluster/
 #
 # The first resource is fetched over the network at apply time. To bump the
 # controller, change the version in the URL below (releases:

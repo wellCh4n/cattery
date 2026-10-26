@@ -49,7 +49,7 @@ spec:
       labels:
         app.kubernetes.io/name: cattery
     spec:
-      # Created by k8s/rbac.yaml: lets the backend manage Sandboxes, Pods and
+      # Created by cluster/rbac.yaml: lets the backend manage Sandboxes, Pods and
       # PVCs in this namespace.
       serviceAccountName: cattery
       containers:

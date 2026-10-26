@@ -1,9 +1,9 @@
 # Cattery itself on Kubernetes: a single-replica StatefulSet whose Pod runs the
 # web and backend containers, and a Traefik Ingress in front. Postgres is
-# external: point DATABASE_URL in cattery.env at it.
+# external: point DATABASE_URL in cattery.env at it. Full steps: README.md.
 #
 # Prerequisites (namespace, ServiceAccount/RBAC, Agent Sandbox controller):
-#   kubectl apply -k k8s/
+#   kubectl apply -k deploy/cluster/
 #
 # Before applying, replace the placeholders:
 #   - images below and PI_IMAGE in cattery.yaml: registry.example.com/…

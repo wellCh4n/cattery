@@ -58,18 +58,18 @@ graph TD
 
 ### Install the cluster prerequisites
 
-The `k8s/` directory bundles everything the cluster needs behind one Kustomize
+The `deploy/cluster/` directory bundles everything the cluster needs behind one Kustomize
 entrypoint — the upstream Agent Sandbox controller (version-pinned), the
 `cattery` namespace, and the backend's ServiceAccount + RBAC:
 
 ```bash
-kubectl apply -k k8s/
+kubectl apply -k deploy/cluster/
 ```
 
 This fetches the Agent Sandbox controller manifest over the network; to pin a
-different release, edit the URL in [`k8s/kustomization.yaml`](k8s/kustomization.yaml)
+different release, edit the URL in [`deploy/cluster/kustomization.yaml`](deploy/cluster/kustomization.yaml)
 (see the [agent-sandbox releases page](https://github.com/kubernetes-sigs/agent-sandbox/releases)).
-Preview the fully-rendered manifests first with `kubectl kustomize k8s/`.
+Preview the fully-rendered manifests first with `kubectl kustomize deploy/cluster/`.
 
 Verify the CRD is registered and the controller is running:
 
@@ -149,7 +149,7 @@ Backend env vars (file: `backend/.env`, gitignored):
 | `PI_IMAGE`           | `cattery-pi:dev`                                                 | Agent image the backend starts in every project Pod (`harnesses/pi`); it also serves the project's files, LaTeX previews and app previews. Point it at a registry in a cluster. Running project Pods keep their image until recreated. |
 | `SKILLS_DIR`         | `data/skills`                                                    | Directory of the global skill library, one `<slug>/SKILL.md` folder per skill, created if missing. Relative to the working directory: `make dev` keeps it in `backend/data/skills` (gitignored). In a cluster, mount a volume (`deploy/` mounts PVC `cattery-skills-work`). |
 
-To run Cattery itself in the cluster, see `deploy/` (`kubectl apply -k deploy/`).
+To run Cattery itself in the cluster, see [`deploy/README.md`](deploy/README.md).
 
 The backend uses `clientcmd.RecommendedHomeFile` (`~/.kube/config`) when not running in-cluster.
 
