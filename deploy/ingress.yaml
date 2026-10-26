@@ -1,0 +1,46 @@
+# The web and the API share one host: /api goes to the backend, everything else
+# to the web. Each app preview gets its own host under the wildcard, served by
+# the backend (it reads the Host header), so the wildcard needs a DNS record and
+# a TLS certificate of its own.
+#
+# The TLS secrets are not created here: issue them with cert-manager (the
+# wildcard needs a DNS-01 solver) or create them by hand:
+#   kubectl -n cattery create secret tls cattery-tls --cert=… --key=…
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: cattery
+  labels:
+    app.kubernetes.io/name: cattery
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts: [cattery.example.com]
+      secretName: cattery-tls
+    - hosts: ["*.preview.example.com"]
+      secretName: cattery-preview-tls
+  rules:
+    - host: cattery.example.com
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: cattery
+                port: {name: backend}
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: cattery
+                port: {name: web}
+    - host: "*.preview.example.com"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: cattery
+                port: {name: backend}

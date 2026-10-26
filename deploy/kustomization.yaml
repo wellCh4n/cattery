@@ -1,0 +1,55 @@
+# Cattery itself on Kubernetes: a single-replica StatefulSet whose Pod runs the
+# web and backend containers, and a Traefik Ingress in front. Postgres is
+# external: point DATABASE_URL in cattery.env at it.
+#
+# Prerequisites (namespace, ServiceAccount/RBAC, Agent Sandbox controller):
+#   kubectl apply -k k8s/
+#
+# Before applying, replace the placeholders:
+#   - images below: registry.example.com/… → your registry and tags
+#   - ingress.yaml: cattery.example.com / *.preview.example.com, TLS secrets
+#   - cattery.yaml: PREVIEW_URL, matching the preview host in ingress.yaml
+# and create the two gitignored config files:
+#   cp cattery.env.example cattery.env     # JWT_SECRET, DATABASE_URL
+#   cp ../backend/models.example.toml models.toml
+# Then:
+#   kubectl apply -k deploy/
+#   kubectl logs -n cattery sts/cattery -c backend   # first-start admin password
+#
+# Build and push the two images (the web image needs no build args: it calls
+# /api on its own host, which the Ingress routes to the backend):
+#   docker build -t registry.example.com/cattery-backend:latest backend
+#   docker build -t registry.example.com/cattery-web:latest web
+#
+# The sandbox images are not set here: the backend creates project Pods with
+# cattery-pi:dev and cattery-filemgr:dev, and the skill library Pod with
+# cattery-skillmgr:dev (backend/internal/sandbox/manager.go), pulled
+# IfNotPresent. Build them with `make build-harness build-pod` and load them
+# on every node, e.g. on k3s:
+#   docker save cattery-pi:dev cattery-filemgr:dev cattery-skillmgr:dev | sudo k3s ctr images import -
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: cattery
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: cattery
+
+resources:
+  - cattery.yaml
+  - ingress.yaml
+
+secretGenerator:
+  - name: cattery-env
+    envs: [cattery.env]
+  - name: cattery-models
+    files: [models.toml]
+
+images:
+  - name: cattery-backend
+    newName: registry.example.com/cattery-backend
+    newTag: latest
+  - name: cattery-web
+    newName: registry.example.com/cattery-web
+    newTag: latest

@@ -1,0 +1,93 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: cattery
+  labels:
+    app.kubernetes.io/name: cattery
+spec:
+  selector:
+    app.kubernetes.io/name: cattery
+  ports:
+    - name: backend
+      port: 8080
+      targetPort: backend
+    - name: web
+      port: 3000
+      targetPort: web
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: cattery
+  labels:
+    app.kubernetes.io/name: cattery
+spec:
+  # The backend keeps per-process state (sandbox bring-up, usage sync), so
+  # run one replica and never two side by side: a StatefulSet replaces its Pod
+  # only after the old one is gone.
+  replicas: 1
+  serviceName: cattery
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cattery
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cattery
+    spec:
+      # Created by k8s/rbac.yaml: lets the backend manage Sandboxes, Pods and
+      # PVCs in this namespace.
+      serviceAccountName: cattery
+      containers:
+        - name: backend
+          image: cattery-backend
+          ports:
+            - name: backend
+              containerPort: 8080
+          env:
+            - name: PORT
+              value: "8080"
+            - name: K8S_NAMESPACE
+              valueFrom:
+                fieldRef: {fieldPath: metadata.namespace}
+            # local-path volumes are single-node; project Pods mount theirs
+            # from one Pod, so ReadWriteOnce is enough.
+            - name: K8S_PVC_ACCESS_MODE
+              value: ReadWriteOnce
+            - name: MODELS_CONFIG
+              value: /etc/cattery/models.toml
+            # Must match the preview host in ingress.yaml. Preview cookies are
+            # Secure, so production previews need https.
+            - name: PREVIEW_URL
+              value: https://*.preview.example.com
+          # JWT_SECRET and DATABASE_URL.
+          envFrom:
+            - secretRef: {name: cattery-env}
+          livenessProbe:
+            httpGet: {path: /healthz, port: backend}
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: {path: /readyz, port: backend}
+            periodSeconds: 5
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {memory: 1Gi}
+          volumeMounts:
+            - name: models
+              mountPath: /etc/cattery
+              readOnly: true
+        - name: web
+          image: cattery-web
+          ports:
+            - name: web
+              containerPort: 3000
+          readinessProbe:
+            tcpSocket: {port: web}
+            periodSeconds: 5
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {memory: 512Mi}
+      volumes:
+        - name: models
+          secret:
+            secretName: cattery-models
