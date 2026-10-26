@@ -8,7 +8,7 @@
 # Before applying, replace the placeholders:
 #   - images below and the *_IMAGE env vars in cattery.yaml: registry.example.com/…
 #     → your registry and tags
-#   - ingress.yaml: cattery.example.com / *.preview.example.com, TLS secrets
+#   - ingress.yaml: cattery.example.com / *.preview.example.com
 #   - cattery.yaml: PREVIEW_URL, matching the preview host in ingress.yaml
 # and create the two gitignored config files:
 #   cp cattery.env.example cattery.env     # JWT_SECRET, DATABASE_URL

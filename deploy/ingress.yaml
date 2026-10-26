@@ -1,24 +1,25 @@
 # The web and the API share one host: /api goes to the backend, everything else
 # to the web. Each app preview gets its own host under the wildcard, served by
-# the backend (it reads the Host header), so the wildcard needs a DNS record and
-# a TLS certificate of its own.
+# the backend (it reads the Host header), so the wildcard needs a DNS record of
+# its own.
 #
-# The TLS secrets are not created here: issue them with cert-manager (the
-# wildcard needs a DNS-01 solver) or create them by hand:
-#   kubectl -n cattery create secret tls cattery-tls --cert=… --key=…
+# Traefik issues the certificates through its `cloudflare` certificate resolver
+# (DNS-01, which is what lets it issue the preview wildcard). The domains are
+# listed explicitly because Traefik cannot derive a wildcard certificate from a
+# wildcard host rule.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: cattery
   labels:
     app.kubernetes.io/name: cattery
+  annotations:
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    traefik.ingress.kubernetes.io/router.tls.certresolver: cloudflare
+    traefik.ingress.kubernetes.io/router.tls.domains.0.main: cattery.example.com
+    traefik.ingress.kubernetes.io/router.tls.domains.1.main: "*.preview.example.com"
 spec:
   ingressClassName: traefik
-  tls:
-    - hosts: [cattery.example.com]
-      secretName: cattery-tls
-    - hosts: ["*.preview.example.com"]
-      secretName: cattery-preview-tls
   rules:
     - host: cattery.example.com
       http:
