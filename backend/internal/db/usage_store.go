@@ -12,15 +12,17 @@ import (
 
 // UsageRow is token usage summed per period, user and model.
 type UsageRow struct {
-	Period     string     `db:"period"      json:"period"`
-	UserID     *uuid.UUID `db:"user_id"     json:"user_id"`
-	Username   *string    `db:"username"    json:"username"`
-	Model      string     `db:"model"       json:"model"`
-	Requests   int64      `db:"requests"    json:"requests"`
-	Input      int64      `db:"input"       json:"input"`
-	Output     int64      `db:"output"      json:"output"`
-	CacheRead  int64      `db:"cache_read"  json:"cache_read"`
-	CacheWrite int64      `db:"cache_write" json:"cache_write"`
+	Period        string     `db:"period"      json:"period"`
+	UserID        *uuid.UUID `db:"user_id"     json:"user_id"`
+	Username      *string    `db:"username"    json:"username"`
+	Name          string     `db:"name" json:"name"`
+	AvatarVersion string     `db:"avatar_version" json:"avatar_version"`
+	Model         string     `db:"model"       json:"model"`
+	Requests      int64      `db:"requests"    json:"requests"`
+	Input         int64      `db:"input"       json:"input"`
+	Output        int64      `db:"output"      json:"output"`
+	CacheRead     int64      `db:"cache_read"  json:"cache_read"`
+	CacheWrite    int64      `db:"cache_write" json:"cache_write"`
 }
 
 var ErrUnknownTimeZone = errors.New("unknown time zone")
@@ -88,7 +90,9 @@ func (s *UsageStore) Stats(ctx context.Context, from, to time.Time, bucket, tz s
 		SELECT to_char(date_trunc($1, created_at AT TIME ZONE $2), 'YYYY-MM-DD') AS period,
 		       user_id, MAX(username) AS username, model,
 		       COUNT(*) AS requests, SUM(input) AS input, SUM(output) AS output,
-		       SUM(cache_read) AS cache_read, SUM(cache_write) AS cache_write
+		       SUM(cache_read) AS cache_read, SUM(cache_write) AS cache_write,
+               COALESCE((SELECT name FROM users WHERE users.user_id=usage_records.user_id), '') AS name,
+               COALESCE((SELECT version FROM user_avatars WHERE user_avatars.user_id=usage_records.user_id), '') AS avatar_version
 		FROM usage_records
 		WHERE created_at >= ($3::date)::timestamp AT TIME ZONE $2
 		  AND created_at <  ($4::date)::timestamp AT TIME ZONE $2

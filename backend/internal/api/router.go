@@ -122,6 +122,10 @@ func NewRouter(
 	protected := v1.Group("", AuthMiddleware(signer))
 
 	protected.GET("/auth/me", authH.Me)
+	protected.PATCH("/auth/me", authH.UpdateProfile)
+	protected.PUT("/auth/me/avatar", authH.UploadAvatar)
+	protected.DELETE("/auth/me/avatar", authH.DeleteAvatar)
+	protected.GET("/users/:user_id/avatar", usersH.Avatar)
 	protected.POST("/auth/change-password", authH.ChangePassword)
 
 	protected.GET("/users/search", usersH.Search)

@@ -14,6 +14,8 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { TreeRow, TreeRowAction } from "@/components/tree-row"
+import { profileName, type UserIdentity } from "@/lib/profile"
+import { useUserProfile } from "@/lib/use-user-profile"
 import { UserAvatar } from "@/components/user-avatar"
 import {
   Dialog,
@@ -97,7 +99,7 @@ export function ProjectMembersPanel({ project, canManage, active }: Props) {
       <div className="flex-1 min-h-0 overflow-y-auto">
         <div className="flex flex-col gap-1.5">
         <MemberRow
-          name={project.owner_username}
+          user={{ user_id: project.owner_user_id, username: project.owner_username, name: project.owner_name, avatar_version: project.owner_avatar_version }}
           isOwner={true}
           busy={false}
           canManage={false}
@@ -110,7 +112,7 @@ export function ProjectMembersPanel({ project, canManage, active }: Props) {
           members.map(member => (
             <MemberRow
               key={member.user_id}
-              name={member.username}
+              user={member}
               isOwner={false}
               busy={busy === member.user_id}
               canManage={canManage}
@@ -133,22 +135,23 @@ export function ProjectMembersPanel({ project, canManage, active }: Props) {
 }
 
 function MemberRow({
-  name,
+  user,
   isOwner,
   busy,
   canManage,
   onRemove,
 }: {
-  name: string
+  user: UserIdentity
   isOwner: boolean
   busy: boolean
   canManage: boolean
   onRemove?: () => void
 }) {
+  const profile = useUserProfile(user)
   return (
     <TreeRow className="px-2">
-      <UserAvatar username={name} />
-      <span className="min-w-0 flex-1 truncate">{name}</span>
+      <UserAvatar {...profile} />
+      <span className="min-w-0 flex-1 truncate" title={`@${profile.username}`}>{profileName(profile)}<span className="ml-1.5 text-muted-foreground">@{profile.username}</span></span>
       {isOwner || !canManage ? (
         <Badge variant="secondary" className="h-4 shrink-0 px-1.5 text-2xs font-normal">
           {isOwner ? "owner" : "member"}
@@ -228,12 +231,12 @@ function ManageMembersDialog({
     const q = leftQuery.trim().toLowerCase()
     return allUsers
       .filter(u => u.user_id !== project.owner_user_id && !memberIds.has(u.user_id))
-      .filter(u => !q || u.username.toLowerCase().includes(q))
+      .filter(u => !q || (u.username + " " + (u.name ?? "")).toLowerCase().includes(q))
   }, [allUsers, leftQuery, memberIds, project.owner_user_id])
 
   const rightMembers = useMemo(() => {
     const q = rightQuery.trim().toLowerCase()
-    return members.filter(m => !q || m.username.toLowerCase().includes(q))
+    return members.filter(m => !q || (m.username + " " + (m.name ?? "")).toLowerCase().includes(q))
   }, [members, rightQuery])
 
   function toggle(set: Set<string>, id: string): Set<string> {
@@ -291,7 +294,7 @@ function ManageMembersDialog({
             empty={loadingUsers ? "Loading" : "No users"}
             loading={loadingUsers}
             disabled={busy}
-            items={leftUsers.map(u => ({ id: u.user_id, label: u.username }))}
+            items={leftUsers.map(u => ({ id: u.user_id, user: u }))}
             selected={leftSelected}
             onToggle={id => setLeftSelected(s => toggle(s, id))}
           />
@@ -326,7 +329,7 @@ function ManageMembersDialog({
             empty="No members"
             loading={false}
             disabled={busy}
-            items={rightMembers.map(m => ({ id: m.user_id, label: m.username }))}
+            items={rightMembers.map(m => ({ id: m.user_id, user: m }))}
             selected={rightSelected}
             onToggle={id => setRightSelected(s => toggle(s, id))}
           />
@@ -351,7 +354,7 @@ function TransferList({
   title: string
   search: string
   onSearch: (value: string) => void
-  items: { id: string; label: string }[]
+  items: { id: string; user: UserIdentity }[]
   selected: Set<string>
   onToggle: (id: string) => void
   empty: string
@@ -404,8 +407,8 @@ function TransferList({
                 >
                   {active && <Check className="size-3" strokeWidth={3} />}
                 </span>
-                <UserAvatar username={item.label} />
-                <span className="truncate">{item.label}</span>
+                <UserAvatar {...item.user} />
+                <span className="truncate">{profileName(item.user)}<span className="ml-1.5 text-xs text-muted-foreground">@{item.user.username}</span></span>
               </button>
             )
           })

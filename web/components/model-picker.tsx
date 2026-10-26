@@ -69,7 +69,7 @@ const staticPill = "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full b
 
 export function ModelBadge({ model }: { model: string }) {
   return (
-    <span className={cn(staticPill, "max-w-56")} aria-label={`Model: ${model}`}>
+    <span className={cn(staticPill, "min-w-0 max-w-[min(14rem,100%)]")} aria-label={`Model: ${model}`}>
       <ModelIcon id={model} className="size-3.5 shrink-0" />
       <span className="truncate">{model}</span>
     </span>
@@ -98,8 +98,8 @@ export function ModelPicker({ sessionId, model, disabled, className }: Omit<Prop
             size="sm"
             variant="outline"
             aria-label={`Model: ${model}`}
-            title={error ?? undefined}
-            className={cn(pill, "max-w-56", error && "text-destructive", className)}
+            title={error ?? model}
+            className={cn(pill, "min-w-0 max-w-56 shrink", error && "text-destructive", className)}
           />
         }
       >

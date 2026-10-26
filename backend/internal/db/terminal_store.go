@@ -8,19 +8,23 @@ import (
 	"github.com/wellch4n/cattery/internal/model"
 )
 
-const terminalColumns = `terminal_id, project_id, title, created_by_user_id, created_by_username, created_at`
+const terminalColumns = `terminal_id, project_id, title, created_by_user_id, created_by_username, created_at, COALESCE((SELECT name FROM users WHERE user_id=terminals.created_by_user_id), '') AS created_by_name, COALESCE((SELECT version FROM user_avatars WHERE user_id=terminals.created_by_user_id), '') AS created_by_avatar_version`
 
 type TerminalStore struct{ db *sqlx.DB }
 
 func NewTerminalStore(db *sqlx.DB) *TerminalStore { return &TerminalStore{db} }
 
 func (s *TerminalStore) Create(ctx context.Context, terminal *model.Terminal, creatorID uuid.UUID) error {
-	return s.db.QueryRowxContext(ctx, `
+	err := s.db.QueryRowxContext(ctx, `
 		INSERT INTO terminals (terminal_id, project_id, created_by_user_id, created_by_username)
 		SELECT $1, $2, user_id, username FROM users WHERE user_id=$3
 		RETURNING title, created_at, created_by_user_id, created_by_username`,
 		terminal.TerminalID, terminal.ProjectID, creatorID,
 	).Scan(&terminal.Title, &terminal.CreatedAt, &terminal.CreatedByUserID, &terminal.CreatedByUsername)
+	if err != nil {
+		return err
+	}
+	return s.db.QueryRowContext(ctx, `SELECT name, COALESCE((SELECT version FROM user_avatars WHERE user_id=users.user_id), '') FROM users WHERE user_id=$1`, creatorID).Scan(&terminal.CreatedByName, &terminal.CreatedByAvatarVersion)
 }
 
 func (s *TerminalStore) Get(ctx context.Context, projectID, terminalID uuid.UUID) (*model.Terminal, error) {

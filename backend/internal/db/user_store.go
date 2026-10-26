@@ -13,7 +13,7 @@ import (
 
 var ErrUserNotFound = errors.New("user not found")
 
-const userColumns = `user_id, username, password_hash, is_admin, created_at, last_login_at`
+const userColumns = `user_id, username, password_hash, is_admin, created_at, last_login_at, name, COALESCE((SELECT version FROM user_avatars WHERE user_id=users.user_id), '') AS avatar_version`
 
 type UserStore struct{ db *sqlx.DB }
 
@@ -67,7 +67,7 @@ func (s *UserStore) Search(ctx context.Context, query string, limit int) ([]*mod
 	rows, err := s.db.QueryxContext(ctx,
 		`SELECT `+userColumns+`
 		 FROM users
-		 WHERE username ILIKE '%' || $1 || '%'
+		 WHERE username ILIKE '%' || $1 || '%' OR name ILIKE '%' || $1 || '%'
 		 ORDER BY username ASC
 		 LIMIT $2`,
 		query, limit,
@@ -146,7 +146,7 @@ func normalizeUsername(s string) string {
 
 func scanUser(row scanner) (*model.User, error) {
 	var u model.User
-	err := row.Scan(&u.UserID, &u.Username, &u.PasswordHash, &u.IsAdmin, &u.CreatedAt, &u.LastLoginAt)
+	err := row.Scan(&u.UserID, &u.Username, &u.PasswordHash, &u.IsAdmin, &u.CreatedAt, &u.LastLoginAt, &u.Name, &u.AvatarVersion)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrUserNotFound
 	}
@@ -154,4 +154,34 @@ func scanUser(row scanner) (*model.User, error) {
 		return nil, err
 	}
 	return &u, nil
+}
+
+func (s *UserStore) UpdateName(ctx context.Context, id uuid.UUID, name string) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE users SET name=$2 WHERE user_id=$1`, id, name)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err == nil && n == 0 {
+		return ErrUserNotFound
+	}
+	return err
+}
+
+func (s *UserStore) PutAvatar(ctx context.Context, id uuid.UUID, data []byte, version string) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO user_avatars (user_id, data, version) VALUES ($1,$2,$3)
+        ON CONFLICT (user_id) DO UPDATE SET data=EXCLUDED.data, version=EXCLUDED.version`, id, data, version)
+	return err
+}
+
+func (s *UserStore) DeleteAvatar(ctx context.Context, id uuid.UUID) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM user_avatars WHERE user_id=$1`, id)
+	return err
+}
+
+func (s *UserStore) Avatar(ctx context.Context, id uuid.UUID) ([]byte, string, error) {
+	var data []byte
+	var version string
+	err := s.db.QueryRowContext(ctx, `SELECT data, version FROM user_avatars WHERE user_id=$1`, id).Scan(&data, &version)
+	return data, version, err
 }

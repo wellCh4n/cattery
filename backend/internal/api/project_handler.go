@@ -28,15 +28,19 @@ func NewProjectHandler(projects *db.ProjectStore, members *db.MemberStore, users
 
 type projectDTO struct {
 	*model.Project
-	AccessRole    string `json:"access_role"`
-	OwnerUsername string `json:"owner_username"`
+	AccessRole         string `json:"access_role"`
+	OwnerUsername      string `json:"owner_username"`
+	OwnerName          string `json:"owner_name"`
+	OwnerAvatarVersion string `json:"owner_avatar_version"`
 }
 
 func toProjectDTO(access *model.ProjectAccess) *projectDTO {
 	return &projectDTO{
-		Project:       access.Project,
-		AccessRole:    access.AccessRole,
-		OwnerUsername: access.OwnerUsername,
+		Project:            access.Project,
+		AccessRole:         access.AccessRole,
+		OwnerUsername:      access.OwnerUsername,
+		OwnerName:          access.OwnerName,
+		OwnerAvatarVersion: access.OwnerAvatarVersion,
 	}
 }
 
@@ -66,11 +70,11 @@ func (h *ProjectHandler) Create(c echo.Context) error {
 		log.Printf("warn: ensure project pod %s: %v", project.ProjectID, err)
 	}
 	owner, _ := h.users.GetByID(c.Request().Context(), userID)
-	ownerUsername := ""
+	ownerUsername, ownerName, avatarVersion := "", "", ""
 	if owner != nil {
-		ownerUsername = owner.Username
+		ownerUsername, ownerName, avatarVersion = owner.Username, owner.Name, owner.AvatarVersion
 	}
-	return c.JSON(http.StatusCreated, &projectDTO{Project: project, AccessRole: model.AccessOwner, OwnerUsername: ownerUsername})
+	return c.JSON(http.StatusCreated, &projectDTO{Project: project, AccessRole: model.AccessOwner, OwnerUsername: ownerUsername, OwnerName: ownerName, OwnerAvatarVersion: avatarVersion})
 }
 
 func (h *ProjectHandler) List(c echo.Context) error {

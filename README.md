@@ -172,6 +172,21 @@ Capture the password from the logs, sign in, and change it. **Lost the password?
 
 **Adding more users**: log in as admin → user menu → "User management" → "Add user". Users can change their own password from the user menu.
 
+**Personal settings**: open the account menu → "Personal settings" to edit your
+name, upload or remove an avatar, or change your password. `username` remains
+the unique sign-in account; optional `name` is shown throughout the platform,
+falling back to `username` when blank. Names can repeat and are limited to 64
+characters. Member search accepts either name or username. Existing sessions,
+terminals and usage rows display the creator's current profile; deleted users
+keep their original username snapshot.
+
+Avatar uploads accept JPEG, PNG and WebP up to 2 MB and 16 megapixels. The crop
+dialog supports dragging, keyboard positioning and zoom, with a circular preview.
+The backend validates and re-encodes uploads as 256 × 256 PNGs stored in the
+PostgreSQL `user_avatars` table, separate from user queries. Avatar reads require
+authentication and use content versions and private cache validation. Database
+backups include avatars; no object storage or project PVC is needed.
+
 **Token lifetime is 7 days, with no server-side revocation** (no session table). Two practical implications:
 - Logging out only clears the token from the browser. The token itself stays valid until expiry — keep `JWT_SECRET` confidential.
 - Admin role changes propagate immediately for the affected user's *next* HTTP request that depends on `/auth/me`, but `/admin/*` endpoints accept the token's claim until it expires. **Plan up to a 7-day window for full role-change propagation.** To shorten this, lower the TTL in `internal/auth/jwt.go` or rotate `JWT_SECRET` (kicks everyone out).

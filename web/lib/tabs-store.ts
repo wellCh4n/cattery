@@ -10,7 +10,7 @@
 
 import { create } from "zustand"
 
-export type TabKind = "session" | "skill" | "file" | "admin" | "usage" | "terminal" | "port"
+export type TabKind = "session" | "skill" | "file" | "admin" | "settings" | "usage" | "terminal" | "port"
 
 export interface Tab {
   kind: TabKind
@@ -35,6 +35,7 @@ export function tabHref(tab: Tab): string {
     case "session": return `/sessions/${tab.id}`
     case "skill":   return `/skills/${encodeURIComponent(tab.id)}`
     case "admin":   return `/admin/${tab.id}`
+    case "settings": return "/settings"
     case "usage":   return "/usage"
     case "terminal": return `/terminals/${tab.projectId}/${tab.id}`
     case "port":     return `/ports/${tab.projectId}/${tab.id}`
@@ -52,6 +53,7 @@ export function tabForPath(pathname: string): Tab | null {
   if (parts.length === 2 && parts[0] === "sessions") return { kind: "session", id: parts[1] }
   if (parts.length === 2 && parts[0] === "skills") return { kind: "skill", id: decodeURIComponent(parts[1]) }
   if (parts.length === 2 && parts[0] === "admin") return { kind: "admin", id: parts[1] }
+  if (parts.length === 1 && parts[0] === "settings") return { kind: "settings", id: "profile" }
   if (parts.length === 1 && parts[0] === "usage") return { kind: "usage", id: "usage" }
   if (parts.length === 3 && parts[0] === "terminals") return { kind: "terminal", id: parts[2], projectId: parts[1] }
   if (parts.length === 3 && parts[0] === "ports") return { kind: "port", id: parts[2], projectId: parts[1] }
@@ -72,7 +74,7 @@ function readTabs(): Tab[] {
     const tabs = parsed.filter((t): t is Tab => {
       if (!t || typeof t.id !== "string") return false
       if (t.kind === "file" || t.kind === "terminal" || t.kind === "port") return typeof t.projectId === "string"
-      return t.kind === "session" || t.kind === "skill" || t.kind === "admin" || t.kind === "usage"
+      return t.kind === "session" || t.kind === "skill" || t.kind === "admin" || t.kind === "settings" || t.kind === "usage"
     })
     // Keep pre-existing shared pages with the project selected before upgrade.
     const currentProjectId = window.localStorage.getItem("cattery:current-project")

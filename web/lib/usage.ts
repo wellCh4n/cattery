@@ -181,8 +181,8 @@ export function userKey(r: Pick<UsageRow, "user_id" | "username">): string {
   return r.user_id ?? (r.username ? `name:${r.username}` : "unknown")
 }
 
-export function userName(r: Pick<UsageRow, "user_id" | "username">): string {
-  return r.username ?? "Unknown"
+export function userName(r: Pick<UsageRow, "user_id" | "username" | "name">): string {
+  return r.name?.trim() || r.username || "Unknown"
 }
 
 export interface Group extends Totals {

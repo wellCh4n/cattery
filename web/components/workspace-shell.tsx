@@ -9,7 +9,7 @@ import {
   FolderOpen,
   GitFork,
   Globe,
-  KeyRound,
+  UserRound,
   Loader2,
   LogOut,
   MessageSquare,
@@ -27,7 +27,6 @@ import {
 import { CatteryLogo } from "@/components/cattery-logo"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { ChangePasswordDialog } from "@/components/change-password-dialog"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { FileBrowserPanel } from "@/components/file-browser-panel"
 import { ModelIcon } from "@/components/model-icon"
@@ -53,6 +52,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
+import { profileName } from "@/lib/profile"
 import { useResizable } from "@/lib/use-resizable"
 import { type Session } from "@/lib/api"
 import { canWriteSession, type ProjectWithSessions, useWorkspaceStore } from "@/lib/workspace-store"
@@ -99,7 +99,6 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
   const logout = useAuthStore(s => s.logout)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [settingsMenuOpen, setSettingsMenuOpen] = useState(false)
-  const [changePasswordOpen, setChangePasswordOpen] = useState(false)
   const userMenuRef = useRef<HTMLDivElement>(null)
   const settingsMenuRef = useRef<HTMLDivElement>(null)
 
@@ -309,24 +308,24 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
         </div>
         <div ref={userMenuRef} className="relative ml-auto shrink-0">
           {userMenuOpen && (
-            <div className="absolute right-0 top-full z-30 mt-2 min-w-44 overflow-hidden rounded-lg border bg-popover text-sm shadow-md">
-              <div className="border-b px-2.5 py-2">
+            <div className="absolute right-0 top-full z-30 mt-2 w-max min-w-44 max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border bg-popover text-sm shadow-md">
+              <div className="max-w-xs border-b px-2.5 py-2">
                 <div className="flex items-center gap-2">
-                  <span className="min-w-0 flex-1 truncate text-xs font-medium">{user?.username ?? "-"}</span>
+                  <span className="min-w-0 flex-1 truncate text-xs font-medium">{profileName(user)}</span>
                   {user?.is_admin && (
                     <Badge variant="secondary" className="h-4 shrink-0 px-1.5 text-2xs font-normal">admin</Badge>
                   )}
                 </div>
               </div>
               <button
-                className="flex h-8 w-full cursor-pointer items-center gap-2 px-2.5 text-left hover:bg-muted"
-                onClick={() => { setUserMenuOpen(false); setChangePasswordOpen(true) }}
+                className="flex h-8 w-full cursor-pointer items-center gap-2 whitespace-nowrap px-2.5 text-left hover:bg-muted"
+                onClick={() => { setUserMenuOpen(false); router.push("/settings") }}
               >
-                <KeyRound className="size-3.5 text-muted-foreground" />
-                Change password
+                <UserRound className="size-3.5 text-muted-foreground" />
+                Personal settings
               </button>
               <button
-                className="flex h-8 w-full cursor-pointer items-center gap-2 px-2.5 text-left text-destructive hover:bg-muted"
+                className="flex h-8 w-full cursor-pointer items-center gap-2 whitespace-nowrap px-2.5 text-left text-destructive hover:bg-muted"
                 onClick={() => { setUserMenuOpen(false); logout() }}
               >
                 <LogOut className="size-3.5" />
@@ -338,14 +337,14 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
             type="button"
             aria-label="Account"
             aria-expanded={userMenuOpen}
-            title={user?.username ?? "Account"}
+            title={profileName(user)}
             onClick={() => { setUserMenuOpen(o => !o); setSettingsMenuOpen(false) }}
             className={cn(
               "flex cursor-pointer rounded-full ring-offset-2 ring-offset-background transition-shadow outline-none hover:ring-2 hover:ring-border focus-visible:ring-2 focus-visible:ring-ring/50",
               userMenuOpen && "ring-2 ring-primary/40 hover:ring-primary/40",
             )}
           >
-            <UserAvatar username={user?.username} className="size-8 text-xs" />
+            <UserAvatar {...user} className="size-8 text-xs" />
           </button>
         </div>
       </header>
@@ -590,7 +589,6 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
         onOpenChange={setNewProjectOpen}
       />
 
-      <ChangePasswordDialog open={changePasswordOpen} onOpenChange={setChangePasswordOpen} />
 
       <RenameProjectDialog
         project={renameProjectTarget}
@@ -684,7 +682,7 @@ function buildSessionNode({
           <MessageSquare className={cn("size-4", session.status === "failed" ? "text-destructive" : "text-muted-foreground")} />
         )}
         title={session.title ?? "New Session"}
-        creator={session.created_by_username}
+        creator={{ user_id: session.created_by_user_id, username: session.created_by_username, name: session.created_by_name, avatar_version: session.created_by_avatar_version }}
         timestamp={sessionActivityTime(session)}
         accessory={
           <span className="flex shrink-0 items-center text-muted-foreground/70">

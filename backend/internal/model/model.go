@@ -22,26 +22,32 @@ type Project struct {
 }
 
 type ProjectAccess struct {
-	Project       *Project `json:"project"`
-	AccessRole    string   `json:"access_role"`
-	OwnerUsername string   `json:"owner_username"`
+	Project            *Project `json:"project"`
+	AccessRole         string   `json:"access_role"`
+	OwnerUsername      string   `json:"owner_username"`
+	OwnerName          string   `json:"owner_name"`
+	OwnerAvatarVersion string   `json:"owner_avatar_version"`
 }
 
 type ProjectMember struct {
-	ProjectID uuid.UUID `db:"project_id" json:"project_id"`
-	UserID    uuid.UUID `db:"user_id"    json:"user_id"`
-	Username  string    `db:"username"   json:"username"`
-	Role      string    `db:"role"       json:"role"`
-	CreatedAt time.Time `db:"created_at" json:"created_at"`
+	ProjectID     uuid.UUID `db:"project_id" json:"project_id"`
+	UserID        uuid.UUID `db:"user_id"    json:"user_id"`
+	Username      string    `db:"username"   json:"username"`
+	Name          string    `db:"name" json:"name"`
+	AvatarVersion string    `db:"avatar_version" json:"avatar_version"`
+	Role          string    `db:"role"       json:"role"`
+	CreatedAt     time.Time `db:"created_at" json:"created_at"`
 }
 
 type User struct {
-	UserID       uuid.UUID  `db:"user_id"       json:"user_id"`
-	Username     string     `db:"username"      json:"username"`
-	PasswordHash string     `db:"password_hash" json:"-"`
-	IsAdmin      bool       `db:"is_admin"      json:"is_admin"`
-	CreatedAt    time.Time  `db:"created_at"    json:"created_at"`
-	LastLoginAt  *time.Time `db:"last_login_at" json:"last_login_at"`
+	UserID        uuid.UUID  `db:"user_id"       json:"user_id"`
+	Username      string     `db:"username"      json:"username"`
+	Name          string     `db:"name" json:"name"`
+	AvatarVersion string     `db:"avatar_version" json:"avatar_version"`
+	PasswordHash  string     `db:"password_hash" json:"-"`
+	IsAdmin       bool       `db:"is_admin"      json:"is_admin"`
+	CreatedAt     time.Time  `db:"created_at"    json:"created_at"`
+	LastLoginAt   *time.Time `db:"last_login_at" json:"last_login_at"`
 }
 
 // Session is one conversation with the agent in its project's sandbox. The
@@ -50,9 +56,11 @@ type Session struct {
 	SessionID uuid.UUID `db:"session_id"   json:"session_id"`
 	ProjectID uuid.UUID `db:"project_id"   json:"project_id"`
 	// Legacy sessions have no creator. The username snapshot survives account deletion.
-	CreatedByUserID   *uuid.UUID `db:"created_by_user_id" json:"created_by_user_id"`
-	CreatedByUsername *string    `db:"created_by_username" json:"created_by_username"`
-	Model             string     `db:"model"        json:"model"`
+	CreatedByUserID        *uuid.UUID `db:"created_by_user_id" json:"created_by_user_id"`
+	CreatedByUsername      *string    `db:"created_by_username" json:"created_by_username"`
+	CreatedByName          string     `db:"created_by_name" json:"created_by_name"`
+	CreatedByAvatarVersion string     `db:"created_by_avatar_version" json:"created_by_avatar_version"`
+	Model                  string     `db:"model"        json:"model"`
 	// Effort is the thinking effort (a pi thinking level); empty means the
 	// model provider's default.
 	Effort      string     `db:"effort"       json:"effort"`
@@ -66,12 +74,14 @@ type Session struct {
 
 // Terminal is a shared tmux session in a project's agent container.
 type Terminal struct {
-	TerminalID        uuid.UUID  `db:"terminal_id" json:"terminal_id"`
-	ProjectID         uuid.UUID  `db:"project_id" json:"project_id"`
-	Title             string     `db:"title" json:"title"`
-	CreatedByUserID   *uuid.UUID `db:"created_by_user_id" json:"created_by_user_id"`
-	CreatedByUsername *string    `db:"created_by_username" json:"created_by_username"`
-	CreatedAt         time.Time  `db:"created_at" json:"created_at"`
+	TerminalID             uuid.UUID  `db:"terminal_id" json:"terminal_id"`
+	ProjectID              uuid.UUID  `db:"project_id" json:"project_id"`
+	Title                  string     `db:"title" json:"title"`
+	CreatedByUserID        *uuid.UUID `db:"created_by_user_id" json:"created_by_user_id"`
+	CreatedByUsername      *string    `db:"created_by_username" json:"created_by_username"`
+	CreatedByName          string     `db:"created_by_name" json:"created_by_name"`
+	CreatedByAvatarVersion string     `db:"created_by_avatar_version" json:"created_by_avatar_version"`
+	CreatedAt              time.Time  `db:"created_at" json:"created_at"`
 }
 
 // UsageRecord is one model request in a sandbox's usage ledger: the tokens of

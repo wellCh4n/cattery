@@ -8,19 +8,23 @@ import (
 	"github.com/wellch4n/cattery/internal/model"
 )
 
-const sessionColumns = `session_id, project_id, created_by_user_id, created_by_username, model, effort, status, phase, title, title_manual, created_at, last_seen_at`
+const sessionColumns = `session_id, project_id, created_by_user_id, created_by_username, model, effort, status, phase, title, title_manual, created_at, last_seen_at, COALESCE((SELECT name FROM users WHERE user_id=sessions.created_by_user_id), '') AS created_by_name, COALESCE((SELECT version FROM user_avatars WHERE user_id=sessions.created_by_user_id), '') AS created_by_avatar_version`
 
 type SessionStore struct{ db *sqlx.DB }
 
 func NewSessionStore(db *sqlx.DB) *SessionStore { return &SessionStore{db} }
 
 func (s *SessionStore) Create(ctx context.Context, sess *model.Session, creatorID uuid.UUID) error {
-	return s.db.QueryRowxContext(ctx, `
+	err := s.db.QueryRowxContext(ctx, `
 		INSERT INTO sessions (session_id, project_id, model, effort, status, title, created_by_user_id, created_by_username)
 		SELECT $1, $2, $3, $4, $5, $6, user_id, username FROM users WHERE user_id=$7
 		RETURNING created_at, created_by_user_id, created_by_username`,
 		sess.SessionID, sess.ProjectID, sess.Model, sess.Effort, sess.Status, sess.Title, creatorID,
 	).Scan(&sess.CreatedAt, &sess.CreatedByUserID, &sess.CreatedByUsername)
+	if err != nil {
+		return err
+	}
+	return s.db.QueryRowContext(ctx, `SELECT name, COALESCE((SELECT version FROM user_avatars WHERE user_id=users.user_id), '') FROM users WHERE user_id=$1`, creatorID).Scan(&sess.CreatedByName, &sess.CreatedByAvatarVersion)
 }
 
 func (s *SessionStore) GetByID(ctx context.Context, id uuid.UUID) (*model.Session, error) {

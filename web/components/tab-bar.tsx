@@ -11,7 +11,7 @@
 
 import { useEffect, useMemo, useRef } from "react"
 import { usePathname, useRouter } from "next/navigation"
-import { ChartColumn, File as FileIcon, Globe, Loader2, MessageSquare, Puzzle, Shield, SquareTerminal, X } from "lucide-react"
+import { ChartColumn, File as FileIcon, Globe, Loader2, MessageSquare, Puzzle, Shield, SquareTerminal, UserRound, X } from "lucide-react"
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu"
 import { Hint } from "@/components/ui/hint"
 import { cn } from "@/lib/utils"
@@ -66,6 +66,9 @@ function resolveTab(tab: Tab, projects: ProjectWithSessions[], terminals: Termin
       exists: true,
       icon: <Puzzle className="size-3.5 shrink-0 text-muted-foreground" />,
     }
+  }
+  if (tab.kind === "settings") {
+    return { title: "Personal settings", exists: true, icon: <UserRound className="size-3.5 shrink-0 text-muted-foreground" /> }
   }
   if (tab.kind === "usage") {
     return {

@@ -77,7 +77,7 @@ export function TerminalListPanel({ projectId, active }: { projectId: string; ac
             <SquareTerminal className="size-4 text-muted-foreground" />
           )}
           title={terminal.title}
-          creator={terminal.created_by_username}
+          creator={{ user_id: terminal.created_by_user_id, username: terminal.created_by_username, name: terminal.created_by_name, avatar_version: terminal.created_by_avatar_version }}
           timestamp={terminal.created_at}
           actions={
             <>

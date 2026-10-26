@@ -31,9 +31,11 @@ interface AuthState {
   login: (email: string, password: string) => Promise<void>
   logout: () => void
   changePassword: (oldPassword: string, newPassword: string) => Promise<void>
+  updateUser: (user: CurrentUser) => void
 }
 
 export const useAuthStore = create<AuthState>(set => ({
+  updateUser: user => set({ user }),
   user: null,
   status: "loading",
 

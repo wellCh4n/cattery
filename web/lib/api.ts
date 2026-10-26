@@ -22,12 +22,19 @@ async function readErrorMessage(res: Response, fallback: string): Promise<string
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080"
 
+export interface ProfileFields {
+  name?: string
+  avatar_version?: string
+}
+
 export interface Project {
   project_id: string
   owner_user_id: string
   project_name: string | null
   access_role: "owner" | "member"
   owner_username: string
+  owner_name?: string
+  owner_avatar_version?: string
   // The project's agent sandbox, shared by all its sessions:
   // idle | starting | ready | failed. Started on demand.
   sandbox_status: string
@@ -40,6 +47,8 @@ export interface Session {
   created_by_user_id: string | null
   // Username at creation time, retained even if the account is deleted.
   created_by_username: string | null
+  created_by_name?: string
+  created_by_avatar_version?: string
   model: string
   // Thinking effort (a pi thinking level); empty means the provider default.
   effort: string
@@ -89,7 +98,7 @@ export async function deleteProject(projectId: string): Promise<void> {
   await authedFetch(`${API_BASE}/api/v1/projects/${projectId}`, { method: "DELETE" })
 }
 
-export interface ProjectMember {
+export interface ProjectMember extends ProfileFields {
   project_id: string
   user_id: string
   username: string
@@ -97,7 +106,7 @@ export interface ProjectMember {
   created_at: string
 }
 
-export interface UserSummary {
+export interface UserSummary extends ProfileFields {
   user_id: string
   username: string
 }
@@ -498,7 +507,7 @@ export async function listInstalledSkills(projectId: string): Promise<string[]> 
 
 // ---- Auth ----
 
-export interface CurrentUser {
+export interface CurrentUser extends ProfileFields {
   user_id: string
   username: string
   is_admin: boolean
@@ -543,7 +552,7 @@ export async function changePassword(oldPassword: string, newPassword: string): 
 
 // ---- Admin ----
 
-export interface AdminUser {
+export interface AdminUser extends ProfileFields {
   user_id: string
   username: string
   is_admin: boolean
@@ -606,6 +615,8 @@ export interface Terminal {
   title: string
   created_by_user_id: string | null
   created_by_username: string | null
+  created_by_name?: string
+  created_by_avatar_version?: string
   created_at: string
 }
 
@@ -738,7 +749,7 @@ export async function answerQuestionnaire(sessionId: string, toolId: string, res
 
 // Token usage summed per period, user and model. Periods are the first day of
 // each bucket in tz; to is inclusive.
-export interface UsageRow {
+export interface UsageRow extends ProfileFields {
   period: string
   user_id: string | null
   username: string | null
@@ -760,4 +771,28 @@ export async function fetchUsage(
   const res = await authedFetch(`${API_BASE}/api/v1/${path}?${params}`, { cache: "no-store" })
   if (!res.ok) throw new Error(await readErrorMessage(res, `failed to load usage (${res.status})`))
   return res.json()
+}
+
+export async function updateMyName(name: string): Promise<CurrentUser> {
+  const res = await authedFetch(`${API_BASE}/api/v1/auth/me`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }),
+  })
+  if (!res.ok) throw new Error(await readErrorMessage(res, "Could not save profile"))
+  return res.json()
+}
+
+export async function updateMyAvatar(image: Blob | null): Promise<CurrentUser> {
+  const body = new FormData()
+  if (image) body.append("avatar", image, "avatar.png")
+  const res = await authedFetch(`${API_BASE}/api/v1/auth/me/avatar`, {
+    method: image ? "PUT" : "DELETE", ...(image ? { body } : {}),
+  })
+  if (!res.ok) throw new Error(await readErrorMessage(res, "Could not update avatar"))
+  return res.json()
+}
+
+export async function fetchAvatar(userId: string, version: string, signal?: AbortSignal): Promise<Blob> {
+  const res = await authedFetch(`${API_BASE}/api/v1/users/${encodeURIComponent(userId)}/avatar?v=${encodeURIComponent(version)}`, { signal })
+  if (!res.ok) throw new Error("Could not load avatar")
+  return res.blob()
 }

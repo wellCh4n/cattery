@@ -36,7 +36,7 @@ func (s *ProjectStore) GetAccessible(ctx context.Context, id, userID uuid.UUID) 
 	row := s.db.QueryRowxContext(ctx, `
 		SELECT `+prefixedProjectColumns("p")+`,
 		       CASE WHEN p.owner_user_id=$2 THEN $3 ELSE ps.role END AS access_role,
-		       u.username AS owner_username
+		       u.username AS owner_username, u.name, COALESCE((SELECT version FROM user_avatars WHERE user_id=u.user_id), '')
 		FROM projects p
 		JOIN users u ON u.user_id = p.owner_user_id
 		LEFT JOIN project_members ps ON ps.project_id = p.project_id AND ps.user_id = $2
@@ -50,7 +50,7 @@ func (s *ProjectStore) ListAccessible(ctx context.Context, userID uuid.UUID) ([]
 	rows, err := s.db.QueryxContext(ctx, `
 		SELECT `+prefixedProjectColumns("p")+`,
 		       CASE WHEN p.owner_user_id=$1 THEN $2 ELSE ps.role END AS access_role,
-		       u.username AS owner_username
+		       u.username AS owner_username, u.name, COALESCE((SELECT version FROM user_avatars WHERE user_id=u.user_id), '')
 		FROM projects p
 		JOIN users u ON u.user_id = p.owner_user_id
 		LEFT JOIN project_members ps ON ps.project_id = p.project_id AND ps.user_id = $1
@@ -164,13 +164,13 @@ func scanProject(row scanner) (*model.Project, error) {
 func scanProjectAccess(row scanner) (*model.ProjectAccess, error) {
 	var p model.Project
 	var role string
-	var ownerUsername string
-	err := row.Scan(&p.ProjectID, &p.OwnerUserID, &p.ProjectName, &p.SandboxStatus, &p.CreatedAt, &role, &ownerUsername)
+	var ownerUsername, ownerName, avatarVersion string
+	err := row.Scan(&p.ProjectID, &p.OwnerUserID, &p.ProjectName, &p.SandboxStatus, &p.CreatedAt, &role, &ownerUsername, &ownerName, &avatarVersion)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrProjectNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
-	return &model.ProjectAccess{Project: &p, AccessRole: role, OwnerUsername: ownerUsername}, nil
+	return &model.ProjectAccess{Project: &p, AccessRole: role, OwnerUsername: ownerUsername, OwnerName: ownerName, OwnerAvatarVersion: avatarVersion}, nil
 }

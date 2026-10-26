@@ -280,7 +280,7 @@ export function UsageDashboard({ scope }: { scope: "mine" | "all" }) {
                     <span className="flex min-w-0 items-center gap-2">
                       {g.key === "unknown"
                         ? <span className="italic text-muted-foreground">{g.label}</span>
-                        : <><UserAvatar username={g.label} className="size-5 text-[10px]" /><span className="truncate">{g.label}</span></>}
+                        : <><UserAvatar {...rows.find(r => userKey(r) === g.key)} className="size-5 text-[10px]" /><span className="truncate">{g.label}</span></>}
                     </span>
                   )}
                 />

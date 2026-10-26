@@ -9,6 +9,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/wellch4n/cattery/internal/auth"
 	"github.com/wellch4n/cattery/internal/db"
+	"github.com/wellch4n/cattery/internal/model"
 )
 
 type AuthHandler struct {
@@ -31,9 +32,11 @@ type loginResponse struct {
 }
 
 type userDTO struct {
-	UserID   string `json:"user_id"`
-	Username string `json:"username"`
-	IsAdmin  bool   `json:"is_admin"`
+	UserID        string `json:"user_id"`
+	Username      string `json:"username"`
+	Name          string `json:"name"`
+	AvatarVersion string `json:"avatar_version"`
+	IsAdmin       bool   `json:"is_admin"`
 }
 
 // Login validates credentials and issues a JWT. We deliberately collapse
@@ -74,11 +77,7 @@ func (h *AuthHandler) Login(c echo.Context) error {
 
 	return c.JSON(http.StatusOK, loginResponse{
 		Token: token,
-		User: userDTO{
-			UserID:   u.UserID.String(),
-			Username: u.Username,
-			IsAdmin:  u.IsAdmin,
-		},
+		User:  toUserDTO(u),
 	})
 }
 
@@ -94,11 +93,7 @@ func (h *AuthHandler) Me(c echo.Context) error {
 	if err != nil {
 		return echo.ErrUnauthorized
 	}
-	return c.JSON(http.StatusOK, userDTO{
-		UserID:   u.UserID.String(),
-		Username: u.Username,
-		IsAdmin:  u.IsAdmin,
-	})
+	return c.JSON(http.StatusOK, toUserDTO(u))
 }
 
 type changePasswordRequest struct {
@@ -133,4 +128,8 @@ func (h *AuthHandler) ChangePassword(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	return c.NoContent(http.StatusNoContent)
+}
+
+func toUserDTO(u *model.User) userDTO {
+	return userDTO{UserID: u.UserID.String(), Username: u.Username, Name: u.Name, AvatarVersion: u.AvatarVersion, IsAdmin: u.IsAdmin}
 }

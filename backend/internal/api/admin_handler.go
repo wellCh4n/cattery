@@ -28,20 +28,24 @@ func NewAdminHandler(users *db.UserStore, projectStore *db.ProjectStore, sandbox
 // adminUserDTO is the richer user view shown only on admin endpoints —
 // includes timestamps so the admin UI can show "created at" / "last login".
 type adminUserDTO struct {
-	UserID      string     `json:"user_id"`
-	Username    string     `json:"username"`
-	IsAdmin     bool       `json:"is_admin"`
-	CreatedAt   time.Time  `json:"created_at"`
-	LastLoginAt *time.Time `json:"last_login_at"`
+	UserID        string     `json:"user_id"`
+	Username      string     `json:"username"`
+	Name          string     `json:"name"`
+	AvatarVersion string     `json:"avatar_version"`
+	IsAdmin       bool       `json:"is_admin"`
+	CreatedAt     time.Time  `json:"created_at"`
+	LastLoginAt   *time.Time `json:"last_login_at"`
 }
 
 func toAdminDTO(u *model.User) adminUserDTO {
 	return adminUserDTO{
-		UserID:      u.UserID.String(),
-		Username:    u.Username,
-		IsAdmin:     u.IsAdmin,
-		CreatedAt:   u.CreatedAt,
-		LastLoginAt: u.LastLoginAt,
+		UserID:        u.UserID.String(),
+		Username:      u.Username,
+		Name:          u.Name,
+		AvatarVersion: u.AvatarVersion,
+		IsAdmin:       u.IsAdmin,
+		CreatedAt:     u.CreatedAt,
+		LastLoginAt:   u.LastLoginAt,
 	}
 }
 

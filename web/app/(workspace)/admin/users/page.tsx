@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
+import { profileName } from "@/lib/profile"
 import { UserAvatar } from "@/components/user-avatar"
 import {
   Dialog,
@@ -112,8 +113,8 @@ export default function AdminUsersPage() {
                     <tr key={u.user_id} className="border-t group">
                       <td className="px-3 py-2 truncate">
                         <span className="flex items-center gap-2 whitespace-nowrap">
-                          <UserAvatar username={u.username} className="size-5 text-[10px]" />
-                          <span className="truncate">{u.username}</span>
+                          <UserAvatar {...u} className="size-5 text-[10px]" />
+                          <div className="min-w-0"><span className="block truncate">{profileName(u)}</span><span className="block truncate text-xs text-muted-foreground">@{u.username}</span></div>
                           {isMe && <span className="shrink-0 text-xs text-muted-foreground">(you)</span>}
                         </span>
                       </td>

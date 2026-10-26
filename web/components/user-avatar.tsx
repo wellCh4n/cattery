@@ -1,4 +1,10 @@
-import type { CSSProperties } from "react"
+"use client"
+
+import { useEffect, useState, type CSSProperties } from "react"
+import { fetchAvatar } from "@/lib/api"
+import { profileName, type UserIdentity } from "@/lib/profile"
+import { useUserProfile } from "@/lib/use-user-profile"
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
 import { UserCircle2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -14,37 +20,35 @@ export function avatarHue(username: string): number {
   return (hash >>> 0) % 360
 }
 
-export function UserAvatar({ username, className }: { username?: string | null; className?: string }) {
-  const name = username?.trim() ?? ""
+export function UserAvatar({ className, ...identity }: UserIdentity & { className?: string }) {
+  const profile = useUserProfile(identity)
+  const name = profileName(profile)
+  const userId = profile.user_id
+  const version = profile.avatar_version
+  const [loaded, setLoaded] = useState<{ key: string; url: string } | null>(null)
+  const key = `${userId}:${version}`
+  useEffect(() => {
+    if (!userId || !version) return
+    const controller = new AbortController()
+    let url: string | undefined
+    fetchAvatar(userId, version, controller.signal).then(blob => {
+      if (controller.signal.aborted) return
+      url = URL.createObjectURL(blob)
+      setLoaded({ key, url })
+    }).catch(() => { /* Keep the generated avatar on network or image errors. */ })
+    return () => { controller.abort(); if (url) URL.revokeObjectURL(url) }
+  }, [userId, version, key])
+  const hasName = Boolean(profile.name?.trim() || profile.username?.trim())
   const initial = Array.from(name)[0]?.toUpperCase()
-
-  if (!initial) {
-    return (
-      <span
-        role="img"
-        aria-label="Unknown user"
-        className={cn("flex size-4 shrink-0 items-center justify-center rounded-full border border-border bg-background text-muted-foreground", className)}
-      >
-        <UserCircle2 className="size-3.5" />
-      </span>
-    )
-  }
-
-  // A soft tint of the name's hue with a darker letter in the same hue; the
-  // dark theme flips to a deep tint with a light letter.
   return (
-    <span
-      role="img"
-      aria-label={name}
-      style={{ "--avatar-hue": avatarHue(name) } as CSSProperties}
-      className={cn(
-        "flex size-4 shrink-0 items-center justify-center rounded-full text-[9px] font-semibold leading-none select-none",
-        "bg-[oklch(0.9_0.07_var(--avatar-hue))] text-[oklch(0.42_0.12_var(--avatar-hue))]",
-        "dark:bg-[oklch(0.38_0.09_var(--avatar-hue))] dark:text-[oklch(0.92_0.05_var(--avatar-hue))]",
-        className,
-      )}
-    >
-      {initial}
-    </span>
+    <Avatar aria-label={name} style={{ "--avatar-hue": avatarHue(profile.username || name) } as CSSProperties} className={cn("size-4 text-[9px] font-semibold leading-none", className)}>
+      {loaded?.key === key && version && <AvatarImage src={loaded.url} alt={name} />}
+      <AvatarFallback className={cn(
+        "text-[length:inherit]",
+        hasName ? "bg-[oklch(0.9_0.07_var(--avatar-hue))] text-[oklch(0.42_0.12_var(--avatar-hue))] dark:bg-[oklch(0.38_0.09_var(--avatar-hue))] dark:text-[oklch(0.92_0.05_var(--avatar-hue))]" : "bg-background text-muted-foreground",
+      )}>
+        {hasName ? initial : <UserCircle2 className="size-3.5" />}
+      </AvatarFallback>
+    </Avatar>
   )
 }

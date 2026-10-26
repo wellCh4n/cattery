@@ -12,7 +12,7 @@ import (
 
 var ErrMemberNotFound = errors.New("project member not found")
 
-const memberColumns = `m.project_id, m.user_id, u.username, m.role, m.created_at`
+const memberColumns = `m.project_id, m.user_id, u.username, u.name, COALESCE((SELECT version FROM user_avatars WHERE user_id=u.user_id), '') AS avatar_version, m.role, m.created_at`
 
 type MemberStore struct{ db *sqlx.DB }
 
@@ -55,11 +55,9 @@ func (s *MemberStore) Upsert(ctx context.Context, projectID, userID uuid.UUID, r
 	if err := row.Scan(&member.ProjectID, &member.UserID, &member.Role, &member.CreatedAt); err != nil {
 		return nil, err
 	}
-	var username string
-	if err := s.db.GetContext(ctx, &username, `SELECT username FROM users WHERE user_id=$1`, userID); err != nil {
+	if err := s.db.QueryRowxContext(ctx, `SELECT username, name, COALESCE((SELECT version FROM user_avatars WHERE user_id=users.user_id), '') FROM users WHERE user_id=$1`, userID).Scan(&member.Username, &member.Name, &member.AvatarVersion); err != nil {
 		return nil, err
 	}
-	member.Username = username
 	return &member, nil
 }
 
@@ -80,7 +78,7 @@ func (s *MemberStore) Delete(ctx context.Context, projectID, userID uuid.UUID) e
 
 func scanMember(row scanner) (*model.ProjectMember, error) {
 	var member model.ProjectMember
-	err := row.Scan(&member.ProjectID, &member.UserID, &member.Username, &member.Role, &member.CreatedAt)
+	err := row.Scan(&member.ProjectID, &member.UserID, &member.Username, &member.Name, &member.AvatarVersion, &member.Role, &member.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrMemberNotFound
 	}

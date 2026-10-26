@@ -1,5 +1,6 @@
 "use client"
 
+import { profileName } from "@/lib/profile"
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import {
   ArrowUpIcon,
@@ -375,10 +376,10 @@ function ChatPanelContent({ session }: Props) {
           </div>
         )}
         {!writable ? (
-          <div className="flex items-center gap-2 rounded-xl border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
             <EyeIcon className="size-4 shrink-0" />
             <span className="min-w-0 flex-1 truncate">
-              Read-only · {session.created_by_username ? `${session.created_by_username}'s session` : "only the project owner can send messages"}
+              Read-only, {session.created_by_username ? `${profileName({ name: session.created_by_name, username: session.created_by_username })}'s session` : "only the project owner can send messages"}
             </span>
             {usage && <ContextMeter usage={usage} />}
             {/* The creator's settings, shown but not changeable. */}
@@ -429,20 +430,23 @@ function ChatPanelContent({ session }: Props) {
                 }
               }}
             />
-            <InputGroupAddon align="block-end" className="gap-2 px-3 pb-3">
-              {usage && <ContextMeter usage={usage} className="ml-auto" />}
-              <ModelPicker
-                sessionId={session.session_id}
-                model={session.model}
-                disabled={sending}
-                className={usage ? undefined : "ml-auto"}
-              />
-              <EffortPicker
-                sessionId={session.session_id}
-                model={session.model}
-                effort={session.effort}
-                disabled={sending}
-              />
+            <InputGroupAddon align="block-end" className="items-end gap-2 px-3 pb-3">
+              <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
+                <div className="flex min-w-0 max-w-full items-center gap-2">
+                  {usage && <ContextMeter usage={usage} />}
+                  <ModelPicker
+                    sessionId={session.session_id}
+                    model={session.model}
+                    disabled={sending}
+                  />
+                </div>
+                <EffortPicker
+                  sessionId={session.session_id}
+                  model={session.model}
+                  effort={session.effort}
+                  disabled={sending}
+                />
+              </div>
               {sending && !canSend ? (
                 <InputGroupButton
                   variant="destructive"

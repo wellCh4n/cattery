@@ -21,8 +21,10 @@ func NewUsersHandler(users *db.UserStore) *UsersHandler {
 }
 
 type userSearchDTO struct {
-	UserID   uuid.UUID `json:"user_id"`
-	Username string    `json:"username"`
+	UserID        uuid.UUID `json:"user_id"`
+	Username      string    `json:"username"`
+	Name          string    `json:"name"`
+	AvatarVersion string    `json:"avatar_version"`
 }
 
 // Search returns users whose username contains the query substring. Empty
@@ -45,7 +47,7 @@ func (h *UsersHandler) Search(c echo.Context) error {
 	}
 	out := make([]userSearchDTO, 0, len(users))
 	for _, u := range users {
-		out = append(out, userSearchDTO{UserID: u.UserID, Username: u.Username})
+		out = append(out, userSearchDTO{UserID: u.UserID, Username: u.Username, Name: u.Name, AvatarVersion: u.AvatarVersion})
 	}
 	return c.JSON(http.StatusOK, out)
 }

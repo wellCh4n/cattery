@@ -1,4 +1,8 @@
+"use client"
+
 import type { ReactNode } from "react"
+import { profileName, type UserIdentity } from "@/lib/profile"
+import { useUserProfile } from "@/lib/use-user-profile"
 import { UserAvatar } from "@/components/user-avatar"
 
 function formatItemTime(timestamp: string): string {
@@ -15,9 +19,10 @@ export function WorkspaceItemBody({ icon, title, accessory, actions, creator, ti
   title: string
   accessory?: ReactNode
   actions?: ReactNode
-  creator: string | null
+  creator: UserIdentity
   timestamp: string
 }) {
+  const profile = useUserProfile(creator)
   return (
     <span className="flex min-w-0 flex-1 flex-col gap-1">
       <span className="flex h-6 min-w-0 items-center gap-1.5">
@@ -27,9 +32,9 @@ export function WorkspaceItemBody({ icon, title, accessory, actions, creator, ti
         {actions}
       </span>
       <span className="flex h-4 min-w-0 items-center gap-1.5 text-xs font-normal text-muted-foreground">
-        <UserAvatar username={creator} />
+        <UserAvatar {...profile} />
         <span className="min-w-0 flex-1 truncate">
-          {creator || "Unknown creator"}
+          {profileName(profile)}
         </span>
         <time className="shrink-0 font-mono tabular-nums text-muted-foreground/70" dateTime={timestamp}>
           {formatItemTime(timestamp)}

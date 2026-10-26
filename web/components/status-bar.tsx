@@ -1,7 +1,8 @@
 "use client"
 
 import { usePathname } from "next/navigation"
-import { UserCircle2 } from "lucide-react"
+import { UserAvatar } from "@/components/user-avatar"
+import { profileName } from "@/lib/profile"
 import { ExportMenu } from "@/components/export-menu"
 import { ModelIcon } from "@/components/model-icon"
 import { useAuthStore } from "@/lib/auth-store"
@@ -27,8 +28,8 @@ export function StatusBar() {
   return (
     <footer className="flex h-7 shrink-0 items-center text-xs">
       <div className="flex shrink-0 items-center gap-1.5 px-2.5 text-muted-foreground">
-        <UserCircle2 className="size-3.5" />
-        <span className="text-foreground/80">{user?.username ?? "-"}</span>
+        <UserAvatar {...user} className="size-3.5" />
+        <span className="text-foreground/80">{profileName(user)}</span>
       </div>
 
       <div className="ml-auto flex min-w-0 items-center gap-2 px-2">
