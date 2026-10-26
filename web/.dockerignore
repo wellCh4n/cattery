@@ -1,0 +1,8 @@
+# The image installs its own Linux node_modules and builds its own .next;
+# copying the host's would overwrite them with macOS binaries.
+node_modules
+.next
+# Local env (e.g. NEXT_PUBLIC_API_URL for `bun dev`) must not reach the
+# production build.
+.env*
+.git
