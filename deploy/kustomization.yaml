@@ -6,7 +6,7 @@
 #   kubectl apply -k k8s/
 #
 # Before applying, replace the placeholders:
-#   - images below and the *_IMAGE env vars in cattery.yaml: registry.example.com/…
+#   - images below and PI_IMAGE in cattery.yaml: registry.example.com/…
 #     → your registry and tags
 #   - ingress.yaml: cattery.example.com / *.preview.example.com
 #   - cattery.yaml: PREVIEW_URL, matching the preview host in ingress.yaml
@@ -22,10 +22,8 @@
 #   docker build -t registry.example.com/cattery-backend:latest backend
 #   docker build -t registry.example.com/cattery-web:latest web
 #   docker build -t registry.example.com/cattery-pi:latest harnesses/pi
-#   docker build -t registry.example.com/cattery-skillmgr:latest pods/skillmgr
-# The last two are the images the backend starts for project Pods and the
-# skill library; their names are the PI_IMAGE / SKILLMGR_IMAGE env vars in
-# cattery.yaml, not the images: list below.
+# The last is the image the backend starts for project Pods; its name is the
+# PI_IMAGE env var in cattery.yaml, not the images: list below.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 

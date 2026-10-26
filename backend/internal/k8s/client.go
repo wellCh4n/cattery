@@ -60,9 +60,7 @@ const (
 // Component values for LabelComponent — the role a resource plays.
 const (
 	ComponentSandbox   = "sandbox"
-	ComponentSkillMgr  = "skillmgr"
 	ComponentWorkspace = "workspace"
-	ComponentSkills    = "skills"
 )
 
 // commonLabels returns the app.kubernetes.io/* labels every cattery resource
@@ -301,7 +299,7 @@ func hasWorkspaceMounts(container, desired map[string]interface{}, workMount str
 // EnsurePVC creates the PVC if absent. Its access mode and storageClassName
 // come from Client config (K8S_PVC_ACCESS_MODE / K8S_STORAGE_CLASS); an empty
 // storage class is omitted so the cluster's default StorageClass is used.
-// component is its role (ComponentWorkspace / ComponentSkills); extra carries
+// component is its role (ComponentWorkspace); extra carries
 // business dimensions (e.g. LabelProjectID) merged on top of the common
 // app.kubernetes.io/* set.
 func (c *Client) EnsurePVC(ctx context.Context, name, component string, extra map[string]string) error {
@@ -354,100 +352,6 @@ func (c *Client) ListSandboxes(ctx context.Context) ([]unstructured.Unstructured
 		return nil, err
 	}
 	return list.Items, nil
-}
-
-// SkillMgrPodSpec describes the single, global skillmgr Pod. It mounts the
-// global skills PVC and is not tied to any project.
-type SkillMgrPodSpec struct {
-	Name    string
-	PVCName string
-	Image   string
-	Port    int
-}
-
-// EnsureSkillMgrPod creates the global skillmgr Pod with the global skills PVC
-// mounted at /skills. Idempotent: returns nil if a Pod with
-// the same name already exists. Unlike project Pods there is exactly one of
-// these cluster-wide, so it carries no project label.
-func (c *Client) EnsureSkillMgrPod(ctx context.Context, spec SkillMgrPodSpec) error {
-	if _, err := c.dynamic.Resource(podGVR).Namespace(c.namespace).Get(ctx, spec.Name, metav1.GetOptions{}); err == nil {
-		return nil
-	} else if !apierrors.IsNotFound(err) {
-		return err
-	}
-	pod := &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "v1",
-			"kind":       "Pod",
-			"metadata": map[string]interface{}{
-				"name":      spec.Name,
-				"namespace": c.namespace,
-				"labels":    commonLabels(ComponentSkillMgr, spec.Name),
-			},
-			"spec": map[string]interface{}{
-				"restartPolicy": "Always",
-				"securityContext": map[string]interface{}{
-					"fsGroup": int64(1000),
-				},
-				"volumes": []interface{}{
-					map[string]interface{}{
-						"name": "skills",
-						"persistentVolumeClaim": map[string]interface{}{
-							"claimName": spec.PVCName,
-						},
-					},
-				},
-				"containers": []interface{}{
-					map[string]interface{}{
-						"name":  "skillmgr",
-						"image": spec.Image,
-						"ports": []interface{}{
-							map[string]interface{}{"containerPort": int64(spec.Port)},
-						},
-						"env": []interface{}{
-							map[string]interface{}{"name": "SKILLMGR_ROOT", "value": "/skills"},
-							map[string]interface{}{"name": "PORT", "value": fmt.Sprintf("%d", spec.Port)},
-						},
-						"volumeMounts": []interface{}{
-							map[string]interface{}{"name": "skills", "mountPath": "/skills"},
-						},
-					},
-				},
-			},
-		},
-	}
-	_, err := c.dynamic.Resource(podGVR).Namespace(c.namespace).Create(ctx, pod, metav1.CreateOptions{})
-	return err
-}
-
-// WaitPodReady polls until status.podIP is set and the Ready condition is
-// True, then returns the Pod IP. Used for skillmgr — sandbox readiness flows
-// through the Sandbox CR instead.
-func (c *Client) WaitPodReady(ctx context.Context, name string, timeout time.Duration) (string, error) {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		obj, err := c.dynamic.Resource(podGVR).Namespace(c.namespace).Get(ctx, name, metav1.GetOptions{})
-		if err == nil {
-			ip, _, _ := unstructured.NestedString(obj.Object, "status", "podIP")
-			ready := false
-			conditions, _, _ := unstructured.NestedSlice(obj.Object, "status", "conditions")
-			for _, raw := range conditions {
-				cond, ok := raw.(map[string]interface{})
-				if !ok {
-					continue
-				}
-				if cond["type"] == "Ready" && cond["status"] == "True" {
-					ready = true
-					break
-				}
-			}
-			if ip != "" && ready {
-				return ip, nil
-			}
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-	return "", fmt.Errorf("timeout waiting for pod %s", name)
 }
 
 // DeletePod removes the named Pod. A NotFound is treated as success so

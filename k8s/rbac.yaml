@@ -6,7 +6,7 @@
 # kubeconfig is needed in-cluster.
 #
 # Permissions are scoped to exactly what the backend uses: it creates/reads/
-# deletes Sandbox CRs, Pods (skillmgr), and PVCs, all within
+# deletes Sandbox CRs, Pods (legacy cleanup), and PVCs, all within
 # K8S_NAMESPACE. Get is used to poll readiness, so no watch/update/patch needed.
 # pods/exec backs the web terminal; WebSocket exec is a GET and SPDY a POST, and
 # clusters before 1.35 authorize them as get and create respectively.

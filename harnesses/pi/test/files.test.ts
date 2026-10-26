@@ -21,7 +21,7 @@ async function serve() {
   return { root, base, close: () => new Promise(resolve => server.close(resolve)) }
 }
 
-// A tar archive of regular files, as Go's archive/tar (skillmgr) writes it.
+// A tar archive of regular files, as Go's archive/tar (the backend's skill library) writes it.
 function tarOf(files: Record<string, string>): Buffer {
   const blocks: Buffer[] = []
   for (const [name, body] of Object.entries(files)) {

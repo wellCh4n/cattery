@@ -1,4 +1,4 @@
-.PHONY: dev dev-front dev-back build stop docker-up docker-db docker-down docker-reset-db build-harness build-pod
+.PHONY: dev dev-front dev-back build stop docker-up docker-db docker-down docker-reset-db build-harness
 
 GO = $(shell which go)
 BUN = $(shell which bun)
@@ -55,8 +55,3 @@ docker-reset-db:
 build-harness:
 	@echo "→ building cattery-pi:dev"
 	@docker build -t cattery-pi:dev harnesses/pi/
-
-# make build-pod — build the global skill library image (skillmgr)
-build-pod:
-	@echo "→ building cattery-skillmgr:dev"
-	@docker build -t cattery-skillmgr:dev pods/skillmgr/

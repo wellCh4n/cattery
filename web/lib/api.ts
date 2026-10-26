@@ -401,7 +401,7 @@ export async function createFolder(projectId: string, dir: string, name: string)
   return res.json()
 }
 
-// ---- skillmgr (single global Pod, proxied through backend) ----
+// ---- global skill library (served by the backend) ----
 //
 // Narrow API for the global skill library. Skills are managed as folders under
 // /skills, with ZIP upload as the only upload path. Everyone can read it;
@@ -439,7 +439,7 @@ export async function readSkillFile(path: string): Promise<FileReadResponse> {
   return res.json()
 }
 
-// uploadSkillZip uploads a ZIP archive and asks skillmgr to extract it under
+// uploadSkillZip uploads a ZIP archive and asks the backend to extract it under
 // `dir`. Used by the SKILLS panel as the only upload affordance — the user
 // zips a `<slug>/SKILL.md (+assets)` folder locally and drops the zip,
 // landing the entire tree in one shot.

@@ -25,17 +25,10 @@ func FileMgrPodNameForProject(projectID uuid.UUID) string {
 	return fmt.Sprintf("cattery-filemgr-%s", projectID.String())
 }
 
-// SkillMgrPort 是全局 skillmgr Pod 监听的端口。与 project Pod 不同，整个集群只有
-// 一个 skillmgr，挂载全局 skills PVC 暴露 skill 库，后端把 /skills 请求代理过去。
-const SkillMgrPort = 1116
-
-// SkillMgrPodName 是全局唯一的 skillmgr Pod 名。skill 是全局资源，独立于任何
-// project 管理，所以这里不是 per-project。
-const SkillMgrPodName = "cattery-skillmgr"
-
-// SkillsPVCName 是存放 skill 库的全局 PVC，只由 skillmgr 挂载。sandbox 不挂载它：
-// skill 按需安装（复制）到项目的 ~/.agents/skills。
-const SkillsPVCName = "cattery-skills-work"
+// LegacySkillMgrPodName names the retired global skill library Pod. The
+// backend now serves the library from SKILLS_DIR and deletes this Pod on
+// startup, leaving its PVC (cattery-skills-work) for the backend to mount.
+const LegacySkillMgrPodName = "cattery-skillmgr"
 
 // WorkspaceMountPath is the project workspace and the agent's working
 // directory. HOME is /home/cattery in the pi image, so this makes the project

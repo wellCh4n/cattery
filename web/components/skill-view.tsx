@@ -2,7 +2,7 @@
 
 // SkillView — renders one skill filling its container as a two-pane body (the
 // editor tab already shows the skill's name). Left is the skill's file tree (lazy-listed via the
-// skillmgr list endpoint); right previews the selected file — SKILL.md and
+// library list endpoint); right previews the selected file — SKILL.md and
 // other markdown render through Markdown (with a source toggle), everything
 // else through the shiki-highlighted FileViewer. A markdown file's YAML
 // frontmatter (the skill's name, description, license, …) is parsed out of the

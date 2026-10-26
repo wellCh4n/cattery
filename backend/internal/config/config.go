@@ -17,9 +17,9 @@ type Config struct {
 	// "use the cluster's default StorageClass" (current/legacy behavior).
 	K8sStorageClass string
 	// K8sPVCAccessMode is the access mode for every PVC. Defaults to
-	// ReadWriteMany — the mode the shared-PVC architecture actually wants
-	// (sandbox/skillmgr mount the same volume). Set to ReadWriteOnce
-	// when the chosen StorageClass is block-backed (most single-SC clusters).
+	// ReadWriteMany. Set to ReadWriteOnce when the chosen StorageClass is
+	// block-backed (most single-SC clusters): each workspace PVC is mounted by
+	// its project's Pod only.
 	K8sPVCAccessMode string
 
 	// JWTSecret signs auth tokens. Required; server refuses to start without it.
@@ -31,11 +31,14 @@ type Config struct {
 	// wildcard DNS and TLS pointing at the backend.
 	PreviewURL string
 
-	// PiImage and SkillMgrImage are the images the backend starts: pi in
-	// every project Pod, skillmgr in the global skill library Pod. Default to the local :dev tags that `make
-	// build-harness build-pod` builds; deployments point them at a registry.
-	PiImage       string
-	SkillMgrImage string
+	// PiImage is the image of every project Pod. Defaults to the local :dev
+	// tag `make build-harness` builds; deployments point it at a registry.
+	PiImage string
+
+	// SkillsDir holds the global skill library, one `<slug>/SKILL.md` folder
+	// per skill. Relative paths resolve against the working directory, so
+	// `make dev` keeps it in backend/data/skills; deployments mount a volume.
+	SkillsDir string
 }
 
 func Load() *Config {
@@ -52,7 +55,7 @@ func Load() *Config {
 		K8sPVCAccessMode: getEnv("K8S_PVC_ACCESS_MODE", "ReadWriteMany"),
 		PreviewURL:       getEnv("PREVIEW_URL", "http://*.localhost:"+port),
 		PiImage:          getEnv("PI_IMAGE", "cattery-pi:dev"),
-		SkillMgrImage:    getEnv("SKILLMGR_IMAGE", "cattery-skillmgr:dev"),
+		SkillsDir:        getEnv("SKILLS_DIR", "data/skills"),
 	}
 }
 

@@ -1,4 +1,4 @@
-package api
+package skills
 
 import (
 	"archive/tar"
@@ -64,7 +64,7 @@ func TestSkillZipToTar(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			var buf bytes.Buffer
-			err := skillZipToTar(zipOf(t, tc.entries...), "demo", &buf)
+			err := ZipToTar(zipOf(t, tc.entries...), "demo", &buf)
 			if tc.want == "" {
 				if err == nil {
 					t.Fatal("archive without a top-level SKILL.md accepted")
@@ -83,7 +83,7 @@ func TestSkillZipToTar(t *testing.T) {
 
 func TestSkillSlugFromZip(t *testing.T) {
 	for in, want := range map[string]string{"demo.zip": "demo", "dir/My Skill.ZIP": "My Skill", `C:\x\demo.zip`: "demo", ".zip": "", "..zip": "", ".hidden.zip": ""} {
-		got, err := skillSlugFromZip(in)
+		got, err := SlugFromZip(in)
 		if want == "" {
 			if err == nil {
 				t.Errorf("%q accepted as %q", in, got)
@@ -91,7 +91,7 @@ func TestSkillSlugFromZip(t *testing.T) {
 			continue
 		}
 		if err != nil || got != want {
-			t.Errorf("skillSlugFromZip(%q) = %q, %v; want %q", in, got, err, want)
+			t.Errorf("SlugFromZip(%q) = %q, %v; want %q", in, got, err, want)
 		}
 	}
 }

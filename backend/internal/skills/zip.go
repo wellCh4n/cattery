@@ -1,4 +1,4 @@
-package api
+package skills
 
 import (
 	"archive/tar"
@@ -12,11 +12,10 @@ import (
 
 // A skill archive is a `<slug>.zip` holding the skill folder: either
 // `<slug>/SKILL.md (+assets)` or the folder's contents at the top level.
-// These helpers mirror skillmgr's upload rules for uploads that go straight
-// into a project.
+// The library's upload-zip and a project's skill upload share these rules.
 
-// skillSlugFromZip names the skill after the archive, without `.zip`.
-func skillSlugFromZip(filename string) (string, error) {
+// SlugFromZip names the skill after the archive, without `.zip`.
+func SlugFromZip(filename string) (string, error) {
 	name := filepath.Base(strings.ReplaceAll(filename, `\`, "/"))
 	if strings.EqualFold(path.Ext(name), ".zip") {
 		name = strings.TrimSuffix(name, path.Ext(name))
@@ -27,9 +26,9 @@ func skillSlugFromZip(filename string) (string, error) {
 	return name, nil
 }
 
-// skillZipEntry returns an entry's path inside the skill folder, dropping the
+// zipEntry returns an entry's path inside the skill folder, dropping the
 // archive's own top-level `<slug>/` folder; "" means the folder itself.
-func skillZipEntry(raw, slug string) string {
+func zipEntry(raw, slug string) string {
 	rel := strings.TrimPrefix(path.Clean("/"+raw), "/")
 	if rel == "" {
 		return ""
@@ -43,17 +42,21 @@ func skillZipEntry(raw, slug string) string {
 
 func isMacJunkPath(rel string) bool {
 	for _, part := range strings.Split(rel, "/") {
-		if part == "__MACOSX" || part == ".DS_Store" || strings.HasPrefix(part, "._") {
+		if isMacJunkName(part) {
 			return true
 		}
 	}
 	return false
 }
 
-// skillZipToTar rewrites a skill archive as a tar of the skill folder's
+func isMacJunkName(name string) bool {
+	return name == "__MACOSX" || name == ".DS_Store" || strings.HasPrefix(name, "._")
+}
+
+// ZipToTar rewrites a skill archive as a tar of the skill folder's
 // contents (the agent's /extract format). It requires a SKILL.md at the top and
 // refuses symlinks and other special entries.
-func skillZipToTar(zr *zip.Reader, slug string, w io.Writer) error {
+func ZipToTar(zr *zip.Reader, slug string, w io.Writer) error {
 	type entry struct {
 		rel  string
 		file *zip.File
@@ -64,7 +67,7 @@ func skillZipToTar(zr *zip.Reader, slug string, w io.Writer) error {
 		if f.Name == "" || strings.HasPrefix(f.Name, "/") || strings.Contains(f.Name, `\`) {
 			return errors.New("invalid entry path: " + f.Name)
 		}
-		rel := skillZipEntry(f.Name, slug)
+		rel := zipEntry(f.Name, slug)
 		if rel == "" || isMacJunkPath(rel) {
 			continue
 		}

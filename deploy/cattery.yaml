@@ -1,3 +1,17 @@
+# The global skill library (SKILLS_DIR). Clusters that ran the retired
+# skillmgr Pod already have this claim, created by the backend, and keep it.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: cattery-skills-work
+  labels:
+    app.kubernetes.io/name: cattery
+    app.kubernetes.io/component: skills
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests: {storage: 10Gi}
+---
 apiVersion: v1
 kind: Service
 metadata:
@@ -60,13 +74,12 @@ spec:
             # Secure, so production previews need https.
             - name: PREVIEW_URL
               value: https://*.preview.example.com
-            # Images the backend starts for each project (pi) and for the
-            # global skill library (skillmgr). kustomize's images: does not
-            # reach these, so set the registry and tag here.
+            # The image the backend starts for each project. kustomize's
+            # images: does not reach it, so set the registry and tag here.
             - name: PI_IMAGE
               value: registry.example.com/cattery-pi:latest
-            - name: SKILLMGR_IMAGE
-              value: registry.example.com/cattery-skillmgr:latest
+            - name: SKILLS_DIR
+              value: /var/lib/cattery/skills
           # JWT_SECRET and DATABASE_URL.
           envFrom:
             - secretRef: {name: cattery-env}
@@ -83,6 +96,8 @@ spec:
             - name: models
               mountPath: /etc/cattery
               readOnly: true
+            - name: skills
+              mountPath: /var/lib/cattery/skills
         - name: web
           image: cattery-web
           ports:
@@ -98,3 +113,6 @@ spec:
         - name: models
           secret:
             secretName: cattery-models
+        - name: skills
+          persistentVolumeClaim:
+            claimName: cattery-skills-work

@@ -4,9 +4,8 @@ backend/bin/
 *.test
 *.out
 
-# Pod binaries (produced by `go build` inside each pod dir; the Docker
-# build does its own multi-stage compile and doesn't need these).
-pods/*/skillmgr
+# Local skill library (SKILLS_DIR under `make dev`).
+backend/data/
 
 # Node / bun
 web/node_modules/

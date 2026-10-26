@@ -1,5 +1,5 @@
 # Namespace that holds the Cattery backend and everything it creates
-# (Sandbox CRs, the skillmgr Pod, workspace/skills PVCs).
+# (Sandbox CRs, workspace PVCs, the skill library PVC).
 # Must match the backend's K8S_NAMESPACE env var.
 apiVersion: v1
 kind: Namespace

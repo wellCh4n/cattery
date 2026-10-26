@@ -187,7 +187,7 @@ func NewRouter(
 	sessions.PATCH("/:session_id", sessionH.Update)
 	sessions.DELETE("/:session_id", sessionH.Delete)
 
-	// Global skill library, proxied to the single cluster-wide skillmgr Pod.
+	// Global skill library, served from the backend's SKILLS_DIR.
 	// Not project-scoped. Everyone can browse it; only admins change it.
 	// Kept intentionally narrower than /files: skills are managed as
 	// top-level folders uploaded from ZIP archives.

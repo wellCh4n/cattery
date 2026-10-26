@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"time"
 
 	"github.com/wellch4n/cattery/internal/api"
 	"github.com/wellch4n/cattery/internal/auth"
@@ -11,6 +12,7 @@ import (
 	"github.com/wellch4n/cattery/internal/harness"
 	k8sclient "github.com/wellch4n/cattery/internal/k8s"
 	"github.com/wellch4n/cattery/internal/sandbox"
+	"github.com/wellch4n/cattery/internal/skills"
 	"github.com/wellch4n/cattery/internal/usage"
 )
 
@@ -43,6 +45,21 @@ func main() {
 		log.Fatalf("k8s client: %v", err)
 	}
 
+	library, err := skills.Open(cfg.SkillsDir)
+	if err != nil {
+		log.Fatalf("skill library: %v", err)
+	}
+	log.Printf("skill library at %s", library.Root())
+	// The library used to live in its own Pod; drop it so its PVC is left to
+	// this backend.
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := k8s.DeletePod(ctx, sandbox.LegacySkillMgrPodName); err != nil {
+			log.Printf("delete legacy %s pod: %v", sandbox.LegacySkillMgrPodName, err)
+		}
+	}()
+
 	projectStore := db.NewProjectStore(database)
 	memberStore := db.NewMemberStore(database)
 	sessionStore := db.NewSessionStore(database)
@@ -58,7 +75,7 @@ func main() {
 	sessionH := api.NewSessionHandler(sessionStore, projectStore, harnessClient, sandboxMgr, models, usageCollector)
 	filesH := api.NewFilesHandler(projectStore, sandboxMgr)
 	terminalH := api.NewTerminalHandler(projectStore, terminalStore, sandboxMgr)
-	skillsH := api.NewSkillsHandler(k8s, projectStore, sandboxMgr, cfg.SkillMgrImage)
+	skillsH := api.NewSkillsHandler(library, projectStore, sandboxMgr)
 	authH := api.NewAuthHandler(userStore, signer)
 	adminH := api.NewAdminHandler(userStore, projectStore, sandboxMgr)
 	usersH := api.NewUsersHandler(userStore)

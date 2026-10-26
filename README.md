@@ -13,18 +13,19 @@ graph TD
         Router["Router /api/v1"]
         SandboxMgr["sandbox.Manager\nEnsureReady / Stop"]
         K8sClient["k8s.Client\nRunTask, EnsurePVC, ResolveContainerURL"]
+        Library["skills.Library\nglobal skill library"]
         DB["PostgreSQL\nusers, projects, sessions"]
     end
+
+    SkillDir["SKILLS_DIR\n(local dir, or PVC cattery-skills-work)"]
 
     subgraph K8s["Kubernetes Cluster"]
         SandboxCR["Sandbox CR\nagents.x-k8s.io/v1beta1\n(one per Project)"]
         subgraph ProjectPod["Project Pod (one per Project)"]
             Pi["pi container\nsessions + transcripts\nfiles + LaTeX + app previews"]
         end
-        SkillMgr["skillmgr Pod\n(cluster-wide)"]
 
         WorkPVC["workspace PVC\ncattery-project-&lt;id&gt;-work"]
-        SkillPVC["skills PVC\ncattery-skills-work"]
     end
 
     ModelAPI["Model providers\n(models.toml: endpoint + key per provider)"]
@@ -34,16 +35,15 @@ graph TD
     Router -->|"session/message"| SandboxMgr
     Router -->|"handlers → stores"| DB
     Router -->|"proxy /files/*"| Pi
-    Router -->|"proxy /skills/*"| SkillMgr
-    SkillMgr -.->|"install: tar → ~/.agents/skills"| Pi
+    Router -->|"/skills/*"| Library
+    Library -.->|"install: tar → ~/.agents/skills"| Pi
+    Library -->|"read/write"| SkillDir
     SandboxMgr --> K8sClient
     K8sClient -->|"create/delete Sandbox CR"| SandboxCR
-    K8sClient -->|"create Pod"| SkillMgr
     SandboxCR --> ProjectPod
     Pi -->|"platform events (SSE)"| Router
     Pi --> ModelAPI
     Pi -->|"mount rw"| WorkPVC
-    SkillMgr -->|"mount rw"| SkillPVC
 ```
 
 ## Prerequisites
@@ -133,7 +133,6 @@ automatically by the backend on startup using `goose`.
 | `make build`        | Compile the Go server to `backend/bin/server`                      |
 | `make stop`         | Kill processes on `:8080` and `:3000`                              |
 | `make build-harness`| Build the pi agent image (`cattery-pi:dev`), which also serves project files and previews |
-| `make build-pod`    | Build the skill library image (`cattery-skillmgr:dev`)             |
 
 ## Configuration
 
@@ -148,7 +147,7 @@ Backend env vars (file: `backend/.env`, gitignored):
 | `JWT_SECRET`         | —                                                                | **Required.** Signing key for login tokens. Use `openssl rand -hex 32`. Rotating it invalidates every issued token. |
 | `PREVIEW_URL`        | `http://*.localhost:<PORT>`                                      | Where app previews are served, each on its own host: `<port>-<project id>.<domain>`. A URL with a wildcard host. The default works on one machine (browsers resolve `*.localhost` to it). In production set e.g. `https://*.preview.example.com`, with a wildcard DNS record and TLS certificate pointing at the backend. |
 | `PI_IMAGE`           | `cattery-pi:dev`                                                 | Agent image the backend starts in every project Pod (`harnesses/pi`); it also serves the project's files, LaTeX previews and app previews. Point it at a registry in a cluster. Running project Pods keep their image until recreated. |
-| `SKILLMGR_IMAGE`     | `cattery-skillmgr:dev`                                           | Global skill library Pod (`pods/skillmgr`). |
+| `SKILLS_DIR`         | `data/skills`                                                    | Directory of the global skill library, one `<slug>/SKILL.md` folder per skill, created if missing. Relative to the working directory: `make dev` keeps it in `backend/data/skills` (gitignored). In a cluster, mount a volume (`deploy/` mounts PVC `cattery-skills-work`). |
 
 To run Cattery itself in the cluster, see `deploy/` (`kubectl apply -k deploy/`).
 
@@ -200,7 +199,7 @@ Deleting a user cascades to their projects and sessions, and stops their K8s san
 - **Project** — a shared workspace owned by one user with optional members at `owner` / `member` roles. Each project has its own PVC-backed file workspace, mounted at `/home/cattery` by the pi container of the project Pod.
 - **Sandbox** — one Kubernetes `agents.x-k8s.io/v1beta1` Sandbox CR per Project, named `cattery-sandbox-<project_id>`, running one pi container with `restartPolicy: Always`; pi also serves the project's files and previews. It is provisioned on project creation, with lazy recovery on file/session access. `projects.sandbox_status` tracks agent activation; stopping the agent releases sessions while the Pod and file browser remain available.
 - **Session** — a conversation with the agent, with its own model. All sessions of a project share the sandbox and the workspace. Transcripts are stored on the workspace PVC (`/home/cattery/.cattery/sessions/`), so they survive sandbox restarts.
-- **Skill** — a `<slug>/SKILL.md (+assets)` directory in the global skills library. The library is cluster-wide, independent of Projects, and served by a single `skillmgr` Pod. Only admins change the library (Settings → Skill management). Agents do not load it: a member installs a skill into a project from the Skills view, which copies it into the project's `~/.agents/skills/<slug>`, or uploads a skill `.zip` straight into the project; that project's agent lists its skills in its system prompt.
+- **Skill** — a `<slug>/SKILL.md (+assets)` directory in the global skills library. The library is platform-wide, independent of Projects, and served by the backend from `SKILLS_DIR`. Only admins change the library (Settings → Skill management). Agents do not load it: a member installs a skill into a project from the Skills view, which copies it into the project's `~/.agents/skills/<slug>`, or uploads a skill `.zip` straight into the project; that project's agent lists its skills in its system prompt.
 
 Project members see all of the project's files and sessions; their access role gates which mutations they can perform. Deleting a project tears down its shared Sandbox Pod and the workspace PVC.
 
@@ -341,6 +340,31 @@ terminal shells, so finish their commands before deployment.
 Installations still running the older standalone `cattery-filemgr-<project_id>`
 Pods delete them in the same window; the backend also removes them once a
 project's new Sandbox is provisioned.
+
+### Moving the skill library into the backend
+
+The backend serves the skill library itself from `SKILLS_DIR`; there is no
+`cattery-skillmgr` Pod or image, and `SKILLMGR_IMAGE` is no longer read. The
+library stays on the `cattery-skills-work` PVC, which `deploy/` now mounts into
+the backend at `/var/lib/cattery/skills`. Delete the old Pod before deploying, so
+a ReadWriteOnce volume is free for the backend to attach:
+
+```bash
+kubectl delete pod -n cattery cattery-skillmgr
+```
+
+The backend also deletes it on startup. A backend running outside the cluster
+(`make dev`) keeps the library in a local directory instead. Copy an existing
+library out of the PVC through a temporary Pod (the skillmgr image has no
+`tar` for `kubectl cp`), in the backend's `K8S_NAMESPACE`:
+
+```bash
+kubectl run skills-copy --image=busybox --restart=Never --overrides='{"spec":{"volumes":[{"name":"skills","persistentVolumeClaim":{"claimName":"cattery-skills-work"}}],"containers":[{"name":"skills-copy","image":"busybox","command":["sleep","600"],"volumeMounts":[{"name":"skills","mountPath":"/skills"}]}]}}'
+```
+
+```bash
+kubectl wait --for=condition=Ready pod/skills-copy && kubectl cp skills-copy:/skills backend/data/skills && kubectl delete pod skills-copy
+```
 
 Projects using the previous `/work` workspace also need their Sandbox resources
 recreated during deployment. Keep their existing `cattery-project-<id>-work`
