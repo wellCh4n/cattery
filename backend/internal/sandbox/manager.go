@@ -1,5 +1,5 @@
 // Package sandbox 负责 project agent sandbox 的生命周期（启动 / 等待就绪 / 停止）。
-// 每个 project 一个常驻 Pod，agent 和 filemgr 共享工作区。
+// 每个 project 一个常驻 Pod，agent 容器同时提供工作区文件和应用预览。
 package sandbox
 
 import (
@@ -19,14 +19,13 @@ import (
 // Port 是 agent sandbox 容器对外暴露的端口。
 const Port = 1114
 
-// FileMgrPort is the filemgr container port in the shared project Pod.
-const FileMgrPort = 1115
-
+// FileMgrPodNameForProject names the standalone file service Pods of the
+// oldest layout, still deleted when a project is provisioned or destroyed.
 func FileMgrPodNameForProject(projectID uuid.UUID) string {
 	return fmt.Sprintf("cattery-filemgr-%s", projectID.String())
 }
 
-// SkillMgrPort 是全局 skillmgr Pod 监听的端口。与 filemgr 不同，整个集群只有
+// SkillMgrPort 是全局 skillmgr Pod 监听的端口。与 project Pod 不同，整个集群只有
 // 一个 skillmgr，挂载全局 skills PVC 暴露 skill 库，后端把 /skills 请求代理过去。
 const SkillMgrPort = 1116
 
@@ -111,7 +110,6 @@ func (m *Manager) ensureProject(ctx context.Context, projectID uuid.UUID) error 
 	}
 	if err := m.k8sClient.RunTask(ctx, k8s.SandboxSpec{
 		Name: NameFor(projectID), ProjectID: projectID.String(), Image: m.cfg.PiImage, ContainerPort: Port,
-		FileMgrImage: m.cfg.FileMgrImage, FileMgrPort: FileMgrPort,
 		Env:          map[string]string{"PORT": fmt.Sprint(Port), "PROJECT_ID": projectID.String()},
 		WorkspacePVC: pvcName, WorkVolumeMount: WorkspaceMountPath,
 	}); err != nil {
@@ -121,8 +119,10 @@ func (m *Manager) ensureProject(ctx context.Context, projectID uuid.UUID) error 
 	return m.k8sClient.DeletePod(ctx, FileMgrPodNameForProject(projectID))
 }
 
+// FileURL answers the agent's URL for file operations and app previews once
+// its container is ready, without activating agent sessions.
 func (m *Manager) FileURL(ctx context.Context, projectID uuid.UUID) (string, error) {
-	if url, ok := m.k8sClient.ResolveContainerURL(ctx, NameFor(projectID), "filemgr", FileMgrPort); ok {
+	if url, ok := m.k8sClient.ResolveContainerURL(ctx, NameFor(projectID), "agent", Port); ok {
 		return url, nil
 	}
 	if err := m.EnsureProject(ctx, projectID); err != nil {
@@ -130,7 +130,7 @@ func (m *Manager) FileURL(ctx context.Context, projectID uuid.UUID) (string, err
 	}
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancel()
-	return m.k8sClient.WaitContainerReady(ctx, NameFor(projectID), "filemgr", FileMgrPort)
+	return m.k8sClient.WaitContainerReady(ctx, NameFor(projectID), "agent", Port)
 }
 
 func (m *Manager) EnsureReady(ctx context.Context, projectID uuid.UUID) (string, error) {

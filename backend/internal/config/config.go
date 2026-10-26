@@ -18,7 +18,7 @@ type Config struct {
 	K8sStorageClass string
 	// K8sPVCAccessMode is the access mode for every PVC. Defaults to
 	// ReadWriteMany — the mode the shared-PVC architecture actually wants
-	// (filemgr/sandbox/skillmgr mount the same volume). Set to ReadWriteOnce
+	// (sandbox/skillmgr mount the same volume). Set to ReadWriteOnce
 	// when the chosen StorageClass is block-backed (most single-SC clusters).
 	K8sPVCAccessMode string
 
@@ -31,12 +31,10 @@ type Config struct {
 	// wildcard DNS and TLS pointing at the backend.
 	PreviewURL string
 
-	// PiImage, FileMgrImage and SkillMgrImage are the images the backend
-	// starts: pi and filemgr in every project Pod, skillmgr in the global
-	// skill library Pod. Default to the local :dev tags that `make
+	// PiImage and SkillMgrImage are the images the backend starts: pi in
+	// every project Pod, skillmgr in the global skill library Pod. Default to the local :dev tags that `make
 	// build-harness build-pod` builds; deployments point them at a registry.
 	PiImage       string
-	FileMgrImage  string
 	SkillMgrImage string
 }
 
@@ -54,7 +52,6 @@ func Load() *Config {
 		K8sPVCAccessMode: getEnv("K8S_PVC_ACCESS_MODE", "ReadWriteMany"),
 		PreviewURL:       getEnv("PREVIEW_URL", "http://*.localhost:"+port),
 		PiImage:          getEnv("PI_IMAGE", "cattery-pi:dev"),
-		FileMgrImage:     getEnv("FILEMGR_IMAGE", "cattery-filemgr:dev"),
 		SkillMgrImage:    getEnv("SKILLMGR_IMAGE", "cattery-skillmgr:dev"),
 	}
 }

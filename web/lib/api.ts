@@ -284,7 +284,7 @@ export async function getHistory(sessionId: string): Promise<PlatformHistoryItem
   return res.json()
 }
 
-// ---- filemgr (standalone per-project Pod, proxied through backend) ----
+// ---- project files (served by the project's agent, proxied through backend) ----
 
 export interface FileEntry {
   name: string

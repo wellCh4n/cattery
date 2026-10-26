@@ -51,7 +51,7 @@ func isMacJunkPath(rel string) bool {
 }
 
 // skillZipToTar rewrites a skill archive as a tar of the skill folder's
-// contents (filemgr's /extract format). It requires a SKILL.md at the top and
+// contents (the agent's /extract format). It requires a SKILL.md at the top and
 // refuses symlinks and other special entries.
 func skillZipToTar(zr *zip.Reader, slug string, w io.Writer) error {
 	type entry struct {

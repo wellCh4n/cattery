@@ -23,6 +23,8 @@
  *                                                     holding each when visible)
  *   DELETE /ports/:port                    → { forced }  (SIGTERM the process holding the port,
  *                                                     SIGKILL if it still listens after 3s)
+ *   /list /read /save /raw /download /upload /delete /rename /move /mkdir /extract /latex /proxy/<port>/
+ *                                          → the workspace files and app previews (see files.ts)
  *
  * One sandbox serves every session of a project; each session carries its own
  * model. The backend sends the model's endpoint and key with every POST
@@ -53,6 +55,7 @@ import { Questionnaire, prepareQuestionnaireArguments } from './questionnaire.ts
 import { TITLE_FORMAT, TITLE_PROMPT, titleInput, parseTitle } from './title.ts'
 import { listeningApps, stopApp, StopError } from './ports.ts'
 import { UsageLedger } from './usage.ts'
+import { filesRouter, proxyUpgrade } from './files.ts'
 
 // ── Config ───────────────────────────────────────────────────────────────────
 
@@ -645,6 +648,8 @@ const app = express()
 const asyncRoute = (handler: RequestHandler): RequestHandler => (req, res, next) => {
   Promise.resolve(handler(req, res, next)).catch(next)
 }
+// File routes read their bodies raw, so they come before the JSON parser.
+app.use(filesRouter(WORKDIR))
 app.use(express.json({ limit: '10mb' }))
 
 let stopping: Promise<void> | undefined
@@ -898,6 +903,8 @@ const errorHandler: ErrorRequestHandler = (error, _req, res, _next) => {
 }
 app.use(errorHandler)
 
-app.listen(PORT, '0.0.0.0', () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`[pi-harness] listening on :${PORT}`)
 })
+// App previews' WebSockets (dev servers' HMR) under /proxy/<port>/.
+server.on('upgrade', (req, socket, head) => void proxyUpgrade(req, socket, head))

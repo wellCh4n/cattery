@@ -19,8 +19,7 @@ graph TD
     subgraph K8s["Kubernetes Cluster"]
         SandboxCR["Sandbox CR\nagents.x-k8s.io/v1beta1\n(one per Project)"]
         subgraph ProjectPod["Project Pod (one per Project)"]
-            Pi["pi container\nsessions + transcripts"]
-            FileMgr["filemgr container\nfiles + LaTeX previews"]
+            Pi["pi container\nsessions + transcripts\nfiles + LaTeX + app previews"]
         end
         SkillMgr["skillmgr Pod\n(cluster-wide)"]
 
@@ -34,9 +33,9 @@ graph TD
     Auth --> Router
     Router -->|"session/message"| SandboxMgr
     Router -->|"handlers → stores"| DB
-    Router -->|"proxy /files/*"| FileMgr
+    Router -->|"proxy /files/*"| Pi
     Router -->|"proxy /skills/*"| SkillMgr
-    SkillMgr -.->|"install: tar → ~/.agents/skills"| FileMgr
+    SkillMgr -.->|"install: tar → ~/.agents/skills"| Pi
     SandboxMgr --> K8sClient
     K8sClient -->|"create/delete Sandbox CR"| SandboxCR
     K8sClient -->|"create Pod"| SkillMgr
@@ -44,7 +43,6 @@ graph TD
     Pi -->|"platform events (SSE)"| Router
     Pi --> ModelAPI
     Pi -->|"mount rw"| WorkPVC
-    FileMgr -->|"mount rw"| WorkPVC
     SkillMgr -->|"mount rw"| SkillPVC
 ```
 
@@ -134,8 +132,8 @@ automatically by the backend on startup using `goose`.
 | `make dev-front`    | Frontend dev server (`bun dev`)                                    |
 | `make build`        | Compile the Go server to `backend/bin/server`                      |
 | `make stop`         | Kill processes on `:8080` and `:3000`                              |
-| `make build-harness`| Build the pi agent image (`cattery-pi:dev`)                         |
-| `make build-pod`    | Build filemgr and skillmgr images (`filemgr`, `skillmgr`); pass `POD=<name>` to build one |
+| `make build-harness`| Build the pi agent image (`cattery-pi:dev`), which also serves project files and previews |
+| `make build-pod`    | Build the skill library image (`cattery-skillmgr:dev`)             |
 
 ## Configuration
 
@@ -149,8 +147,7 @@ Backend env vars (file: `backend/.env`, gitignored):
 | `MODELS_CONFIG`      | `models.toml`                                                    | Path of the model catalog: one `[[providers]]` entry per provider with its `endpoint`, `key` and `models` (see `backend/models.example.toml`). Read at startup; users can only pick these models. |
 | `JWT_SECRET`         | —                                                                | **Required.** Signing key for login tokens. Use `openssl rand -hex 32`. Rotating it invalidates every issued token. |
 | `PREVIEW_URL`        | `http://*.localhost:<PORT>`                                      | Where app previews are served, each on its own host: `<port>-<project id>.<domain>`. A URL with a wildcard host. The default works on one machine (browsers resolve `*.localhost` to it). In production set e.g. `https://*.preview.example.com`, with a wildcard DNS record and TLS certificate pointing at the backend. |
-| `PI_IMAGE`           | `cattery-pi:dev`                                                 | Agent image the backend starts in every project Pod (`harnesses/pi`). Point it at a registry in a cluster. Running project Pods keep their image until recreated. |
-| `FILEMGR_IMAGE`      | `cattery-filemgr:dev`                                            | File manager container in every project Pod (`pods/filemgr`). |
+| `PI_IMAGE`           | `cattery-pi:dev`                                                 | Agent image the backend starts in every project Pod (`harnesses/pi`); it also serves the project's files, LaTeX previews and app previews. Point it at a registry in a cluster. Running project Pods keep their image until recreated. |
 | `SKILLMGR_IMAGE`     | `cattery-skillmgr:dev`                                           | Global skill library Pod (`pods/skillmgr`). |
 
 To run Cattery itself in the cluster, see `deploy/` (`kubectl apply -k deploy/`).
@@ -200,8 +197,8 @@ Deleting a user cascades to their projects and sessions, and stops their K8s san
 
 ## Resource model
 
-- **Project** — a shared workspace owned by one user with optional members at `owner` / `member` roles. Each project has its own PVC-backed file workspace, mounted at `/home/cattery` by the pi and filemgr containers in one project Pod.
-- **Sandbox** — one Kubernetes `agents.x-k8s.io/v1beta1` Sandbox CR per Project, named `cattery-sandbox-<project_id>`, running pi and filemgr containers with `restartPolicy: Always`. It is provisioned on project creation, with lazy recovery on file/session access. `projects.sandbox_status` tracks agent activation; stopping the agent releases sessions while the Pod and file browser remain available.
+- **Project** — a shared workspace owned by one user with optional members at `owner` / `member` roles. Each project has its own PVC-backed file workspace, mounted at `/home/cattery` by the pi container of the project Pod.
+- **Sandbox** — one Kubernetes `agents.x-k8s.io/v1beta1` Sandbox CR per Project, named `cattery-sandbox-<project_id>`, running one pi container with `restartPolicy: Always`; pi also serves the project's files and previews. It is provisioned on project creation, with lazy recovery on file/session access. `projects.sandbox_status` tracks agent activation; stopping the agent releases sessions while the Pod and file browser remain available.
 - **Session** — a conversation with the agent, with its own model. All sessions of a project share the sandbox and the workspace. Transcripts are stored on the workspace PVC (`/home/cattery/.cattery/sessions/`), so they survive sandbox restarts.
 - **Skill** — a `<slug>/SKILL.md (+assets)` directory in the global skills library. The library is cluster-wide, independent of Projects, and served by a single `skillmgr` Pod. Only admins change the library (Settings → Skill management). Agents do not load it: a member installs a skill into a project from the Skills view, which copies it into the project's `~/.agents/skills/<slug>`, or uploads a skill `.zip` straight into the project; that project's agent lists its skills in its system prompt.
 
@@ -294,10 +291,10 @@ workspace dependency changes mark the preview as needing an update; status is
 checked on focus and every 30 seconds while the preview is visible. An imported
 sibling PDF is marked as needing an update because its dependencies are unknown.
 
-The filemgr image includes XeLaTeX, Chinese packages, common scientific and
+The pi image includes XeLaTeX, Chinese packages, common scientific and
 algorithm packages, BibLaTeX, the recommended TeX fonts, and a curated subset
 of the extra font collection. The full extra-font archive is downloaded only
-in a separate build stage; `pods/filemgr/select-fonts.py` copies complete common
+in a separate build stage; `harnesses/pi/latex/select-fonts.py` copies complete common
 families (font binaries, metrics, encodings, LaTeX support, and maps) into the
 runtime image and retains the package copyright information. This preserves
 NewTX/NewPX, Libertinus/Libertine, XCharter, Font Awesome, New Computer Modern,
@@ -307,36 +304,43 @@ these are not part of the deployed image.
 System fonts include Noto CJK, Noto, DejaVu, Liberation, Fira Code, TeX Gyre
 (including math fonts), Linux Libertine, and FreeFont. `latexmk`, BibTeX, Biber,
 and Pygments are installed for explicit tool use. Each image build runs
-`pods/filemgr/check-latex.py` as the runtime user, checking package/font presence
+`harnesses/pi/latex/check-latex.py` as the runtime user, checking package/font presence
 and compiling scientific Chinese text, NewTX/NewPX, XCharter, Libertinus,
 STIX, KP Fonts, Inconsolata, Unicode math, slides, algorithms, and a Biber bibliography. A failing check prevents image publication.
+TeX Live comes from Debian trixie (2024). Its LaTeX first aid for cleveref
+breaks `\cref` in ctex documents; the image patches it (see the Dockerfile) and
+rebuilds the formats.
 Custom document classes or host-specific fonts still need to be supplied by the
 project or added to the image. The preview compiler does not automatically run
 Biber/latexmk or enable shell escape for packages such as minted.
 
-Compilation runs two passes with shell execution disabled, one build at a time per project, and a
-60-second timeout. The filemgr container has a 1 CPU / 1 GiB memory limit. Successful
+Compilation runs in the pi container: two passes with shell execution disabled, one build at a time per project, and a
+60-second timeout, with `HOME` outside the workspace so TeX caches stay out of it. Successful
 PDFs and dependency fingerprints are stored in `.cattery/latex/` on the workspace
 volume; temporary build files are removed after each request. Open the document's
 main `.tex` file to compile it. Bibliography tools, shell-escape packages, and
 custom build scripts are not run automatically.
 
-### Deploying shared project Pods
+### Deploying single-container project Pods
 
-Build and deploy the backend, frontend, pi image (`make build-harness`) and
-filemgr image (`make build-pod POD=filemgr`) together. The pi image must expose
-`POST /stop` before enabling the new backend's Stop agent action.
+pi serves the project's files, LaTeX previews, skill installs and app previews
+itself (`harnesses/pi/src/files.ts`); there is no filemgr container or image, and
+`FILEMGR_IMAGE` is no longer read. Build and deploy the backend, frontend and pi
+image (`make build-harness`) together: the backend sends file requests to pi's
+port 1114, which older pi images don't serve.
 
-Existing Sandbox Pod templates cannot gain a container in place. During a
-maintenance window, finish or abort running turns, stop backend traffic, delete
-the old `cattery-sandbox-<project_id>` Sandbox resources and
-`cattery-filemgr-<project_id>` standalone Pods, and wait for their Pods to finish
-terminating. **Keep all workspace and skills PVCs.** Deploy the new images and
-restart the backend. Opening files or starting a session recreates each project
-as one Pod with both containers. Legacy single-container Sandbox resources are
-rejected with an explicit migration error rather than silently reused or deleted
-by a file read. Old standalone filemgr Pods are also cleaned up when the shared
-Sandbox is successfully provisioned.
+Sandboxes created with a separate filemgr container are rejected with a
+migration error rather than silently reused. During a maintenance window, finish
+or abort running turns, stop backend traffic, delete their
+`cattery-sandbox-<project_id>` Sandbox resources and wait for their Pods to
+finish terminating. **Keep all workspace and skills PVCs.** Deploy the new
+images and restart the backend; opening files or starting a session recreates
+each project as one Pod with one container. Recreating the Pod ends running
+terminal shells, so finish their commands before deployment.
+
+Installations still running the older standalone `cattery-filemgr-<project_id>`
+Pods delete them in the same window; the backend also removes them once a
+project's new Sandbox is provisioned.
 
 Projects using the previous `/work` workspace also need their Sandbox resources
 recreated during deployment. Keep their existing `cattery-project-<id>-work`
@@ -344,18 +348,17 @@ PVCs: mounting the same volume at `/home/cattery` preserves the project files
 without copying them. Rebuild and deploy the pi image together with the backend
 before recreating Pods, because the pi startup command now uses absolute paths.
 The new Pod sets `HOME`, `WORK_DIR` and the agent container's working directory to
-`/home/cattery`, sets `FILEMGR_ROOT` to the same path, and moves global skills out
-of home. The backend rejects legacy mount layouts during provisioning with a
-migration error. There is no `/work` alias or conversation path rewriting;
+`/home/cattery` and moves global skills out of home. The backend rejects legacy
+mount layouts during provisioning with a migration error. There is no `/work` alias or conversation path rewriting;
 delete obsolete conversations and start new ones after migration. Recreating the
 Pod ends running terminal shells, so finish their commands before deployment.
 
 Stop agent aborts active turns, persists transcripts and clears loaded sessions
 and credentials. The lightweight pi HTTP process remains available; a new message
 registers and restores the session. File operations and LaTeX previews continue
-through the filemgr container. Deleting a project or its owning account tears down
-the shared Sandbox and workspace PVC. Container-specific readiness allows file
-access while pi is restarting, provided the Pod itself is running.
+through the same process. Deleting a project or its owning account tears down
+the shared Sandbox and workspace PVC. Files are unavailable while the pi
+container restarts, since the same process serves them.
 
 Session titles are synchronized through pi's native `AgentSession.setSessionName()`
 and stored as `session_info` entries in its JSONL transcript. The database keeps

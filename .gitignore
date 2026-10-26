@@ -6,7 +6,6 @@ backend/bin/
 
 # Pod binaries (produced by `go build` inside each pod dir; the Docker
 # build does its own multi-stage compile and doesn't need these).
-pods/*/filemgr
 pods/*/skillmgr
 
 # Node / bun

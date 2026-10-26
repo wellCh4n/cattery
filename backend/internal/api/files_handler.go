@@ -1,4 +1,4 @@
-// File operations proxy to the filemgr container in the shared project Pod.
+// File operations proxy to the project's agent, which serves the workspace.
 package api
 
 import (
@@ -22,8 +22,8 @@ func NewFilesHandler(projects *db.ProjectStore, sandboxMgr *sandbox.Manager) *Fi
 	return &FilesHandler{projects: projects, sandbox: sandboxMgr}
 }
 
-// File requests wait only for the filemgr container in the shared project Pod.
-func (h *FilesHandler) requireFileMgrURL(c echo.Context, write bool) (string, error) {
+// File requests wait for the agent container, not for agent sessions.
+func (h *FilesHandler) requireFilesURL(c echo.Context, write bool) (string, error) {
 	var access *model.ProjectAccess
 	var err error
 	if write {
@@ -58,7 +58,7 @@ func (h *FilesHandler) Download(c echo.Context) error {
 }
 
 // Raw proxies GET /projects/:id/files/raw?path=... for inline media preview
-// (images, etc.). Same as Download except filemgr sets a sniffed
+// (images, etc.). Same as Download except the agent sets a sniffed
 // Content-Type and omits Content-Disposition.
 func (h *FilesHandler) Raw(c echo.Context) error {
 	return h.proxyGET(c, "/raw")
@@ -89,34 +89,48 @@ func (h *FilesHandler) RawPath(c echo.Context) error {
 	return h.proxyGETRawQuery(c, "/raw", query.Encode())
 }
 
-// Upload proxies POST /projects/:id/files/upload?path=... with the original
-// multipart body. We forward Content-Type so filemgr can parse the
-// multipart boundary the client picked.
+// Upload handles POST /projects/:id/files/upload?path=... with a multipart
+// "file" field. The file is streamed, as it arrives, as the raw body of the
+// agent's /upload?path=...&name=<file name>; nothing is buffered here.
 func (h *FilesHandler) Upload(c echo.Context) error {
-	base, err := h.requireFileMgrURL(c, true)
+	base, err := h.requireFilesURL(c, true)
 	if err != nil {
 		return err
 	}
-	target := base + "/upload?" + c.Request().URL.RawQuery
-	req, err := http.NewRequestWithContext(c.Request().Context(), http.MethodPost, target, c.Request().Body)
+	parts, err := c.Request().MultipartReader()
 	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
-	if ct := c.Request().Header.Get("Content-Type"); ct != "" {
-		req.Header.Set("Content-Type", ct)
+	for {
+		part, err := parts.NextPart()
+		if err == io.EOF {
+			return echo.NewHTTPError(http.StatusBadRequest, "missing file field")
+		}
+		if err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		}
+		if part.FormName() != "file" {
+			part.Close()
+			continue
+		}
+		defer part.Close()
+		query := c.Request().URL.Query()
+		// FileName drops any directory the browser sent.
+		query.Set("name", part.FileName())
+		req, err := http.NewRequestWithContext(c.Request().Context(), http.MethodPost, base+"/upload?"+query.Encode(), part)
+		if err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+		}
+		req.Header.Set("Content-Type", "application/octet-stream")
+		return forward(c, req)
 	}
-	if cl := c.Request().Header.Get("Content-Length"); cl != "" {
-		req.Header.Set("Content-Length", cl)
-	}
-	req.ContentLength = c.Request().ContentLength
-	return forward(c, req)
 }
 
 // Save proxies PUT /projects/:id/files/save?path=...&mtime=... with the
-// new file contents as the raw body. filemgr answers 409 when the file
+// new file contents as the raw body. The agent answers 409 when the file
 // changed after `mtime`. Writers only.
 func (h *FilesHandler) Save(c echo.Context) error {
-	base, err := h.requireFileMgrURL(c, true)
+	base, err := h.requireFilesURL(c, true)
 	if err != nil {
 		return err
 	}
@@ -132,7 +146,7 @@ func (h *FilesHandler) Save(c echo.Context) error {
 // Delete proxies DELETE /projects/:id/files/delete?path=... — hard delete,
 // no trash. Recursive for directories. Writers only.
 func (h *FilesHandler) Delete(c echo.Context) error {
-	base, err := h.requireFileMgrURL(c, true)
+	base, err := h.requireFilesURL(c, true)
 	if err != nil {
 		return err
 	}
@@ -147,7 +161,7 @@ func (h *FilesHandler) Delete(c echo.Context) error {
 // Rename proxies POST /projects/:id/files/rename?from=...&to=... where `to`
 // is a base name in the same parent directory. Writers only.
 func (h *FilesHandler) Rename(c echo.Context) error {
-	base, err := h.requireFileMgrURL(c, true)
+	base, err := h.requireFilesURL(c, true)
 	if err != nil {
 		return err
 	}
@@ -163,7 +177,7 @@ func (h *FilesHandler) Rename(c echo.Context) error {
 // destination *directory* under root. The source keeps its base name in the
 // new parent. Writers only.
 func (h *FilesHandler) Move(c echo.Context) error {
-	base, err := h.requireFileMgrURL(c, true)
+	base, err := h.requireFilesURL(c, true)
 	if err != nil {
 		return err
 	}
@@ -178,7 +192,7 @@ func (h *FilesHandler) Move(c echo.Context) error {
 // Mkdir proxies POST /projects/:id/files/mkdir?path=...&name=... where `name`
 // is a base name created inside the parent dir `path`. Writers only.
 func (h *FilesHandler) Mkdir(c echo.Context) error {
-	base, err := h.requireFileMgrURL(c, true)
+	base, err := h.requireFilesURL(c, true)
 	if err != nil {
 		return err
 	}
@@ -195,7 +209,7 @@ func (h *FilesHandler) proxyGET(c echo.Context, mgrPath string) error {
 }
 
 func (h *FilesHandler) proxyGETRawQuery(c echo.Context, mgrPath string, rawQuery string) error {
-	base, err := h.requireFileMgrURL(c, false)
+	base, err := h.requireFilesURL(c, false)
 	if err != nil {
 		return err
 	}
@@ -239,7 +253,7 @@ func (h *FilesHandler) Latex(c echo.Context) error {
 	if c.Request().Method == http.MethodGet {
 		return h.proxyGET(c, "/latex")
 	}
-	base, err := h.requireFileMgrURL(c, true)
+	base, err := h.requireFilesURL(c, true)
 	if err != nil {
 		return err
 	}

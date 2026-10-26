@@ -60,13 +60,11 @@ spec:
             # Secure, so production previews need https.
             - name: PREVIEW_URL
               value: https://*.preview.example.com
-            # Images the backend starts for each project (pi + filemgr) and for
-            # the global skill library (skillmgr). kustomize's images: does not
+            # Images the backend starts for each project (pi) and for the
+            # global skill library (skillmgr). kustomize's images: does not
             # reach these, so set the registry and tag here.
             - name: PI_IMAGE
               value: registry.example.com/cattery-pi:latest
-            - name: FILEMGR_IMAGE
-              value: registry.example.com/cattery-filemgr:latest
             - name: SKILLMGR_IMAGE
               value: registry.example.com/cattery-skillmgr:latest
           # JWT_SECRET and DATABASE_URL.

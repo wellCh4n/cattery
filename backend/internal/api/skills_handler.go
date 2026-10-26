@@ -3,8 +3,7 @@
 // Unlike files_handler this is NOT per-project:
 // skills are a global resource managed independently of any project selection,
 // so there is one skillmgr for the whole cluster and no :project_id in the
-// path. The Pod is lazy-created on the first /skills request (mirroring
-// filemgr's fallback) and the frontend reaches it only through this proxy.
+// path. The Pod is lazy-created on the first /skills request and the frontend reaches it only through this proxy.
 //
 // Skills are not loaded into sandboxes from the library: a project member
 // installs one, which copies it into the project's ~/.agents/skills (Install),
@@ -164,7 +163,8 @@ func (h *SkillsHandler) Mkdir(c echo.Context) error {
 // Install handles POST /projects/:project_id/skills/:slug: it copies the
 // library's <slug>/ folder into the project's ~/.agents/skills/<slug>,
 // replacing an installed copy. skillmgr's tar stream is piped straight into
-// filemgr, which swaps the folder in only once the archive is complete.
+// the project's agent, which swaps the folder in only once the archive is
+// complete.
 func (h *SkillsHandler) Install(c echo.Context) error {
 	slug := c.Param("slug")
 	if slug == "" || strings.HasPrefix(slug, ".") || strings.ContainsAny(slug, `/\`) {

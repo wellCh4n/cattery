@@ -50,25 +50,13 @@ docker-reset-db:
 	@$(COMPOSE) down -v
 	@$(COMPOSE) up -d postgres
 
-# make build-harness — build the pi agent sandbox image
+# make build-harness — build the project sandbox image: the pi agent, which
+# also serves the workspace files, LaTeX previews and app previews
 build-harness:
 	@echo "→ building cattery-pi:dev"
 	@docker build -t cattery-pi:dev harnesses/pi/
 
-# Service images: filemgr shares the project Pod; skillmgr runs independently.
-# make build-pod              — build all pod images
-# make build-pod POD=filemgr  — build one
-# make build-pod POD=skillmgr — build one
-POD ?=
+# make build-pod — build the global skill library image (skillmgr)
 build-pod:
-	$(if $(POD), \
-		$(MAKE) _build-pod-$(POD), \
-		$(MAKE) _build-pod-filemgr _build-pod-skillmgr)
-
-_build-pod-filemgr:
-	@echo "→ building cattery-filemgr:dev"
-	@docker build -t cattery-filemgr:dev pods/filemgr/
-
-_build-pod-skillmgr:
 	@echo "→ building cattery-skillmgr:dev"
 	@docker build -t cattery-skillmgr:dev pods/skillmgr/

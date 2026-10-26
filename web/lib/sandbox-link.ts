@@ -2,8 +2,8 @@
 // mean nothing in the user's browser; they open as port previews instead.
 
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "0.0.0.0", "[::1]"])
-// The agent and file manager ports are the platform's own, never previews.
-const RESERVED_PORTS = new Set([1114, 1115])
+// The agent's port is the platform's own, never a preview.
+const RESERVED_PORTS = new Set([1114])
 
 export interface SandboxLink {
   port: number

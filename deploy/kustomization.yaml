@@ -22,11 +22,10 @@
 #   docker build -t registry.example.com/cattery-backend:latest backend
 #   docker build -t registry.example.com/cattery-web:latest web
 #   docker build -t registry.example.com/cattery-pi:latest harnesses/pi
-#   docker build -t registry.example.com/cattery-filemgr:latest pods/filemgr
 #   docker build -t registry.example.com/cattery-skillmgr:latest pods/skillmgr
-# The last three are the images the backend starts for project Pods and the
-# skill library; their names are the PI_IMAGE / FILEMGR_IMAGE / SKILLMGR_IMAGE
-# env vars in cattery.yaml, not the images: list below.
+# The last two are the images the backend starts for project Pods and the
+# skill library; their names are the PI_IMAGE / SKILLMGR_IMAGE env vars in
+# cattery.yaml, not the images: list below.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 

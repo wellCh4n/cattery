@@ -226,7 +226,7 @@ func handleRead(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleArchive streams one skill folder as a tar of its contents, with paths
-// relative to the folder. The backend pipes it into a project's filemgr to
+// relative to the folder. The backend pipes it into a project's agent to
 // install the skill under ~/.agents/skills/<slug>. Only regular files and
 // directories are archived; symlinks and macOS junk are skipped.
 func handleArchive(w http.ResponseWriter, r *http.Request) {

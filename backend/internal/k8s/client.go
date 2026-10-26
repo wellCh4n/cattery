@@ -60,7 +60,6 @@ const (
 // Component values for LabelComponent — the role a resource plays.
 const (
 	ComponentSandbox   = "sandbox"
-	ComponentFileMgr   = "filemgr"
 	ComponentSkillMgr  = "skillmgr"
 	ComponentWorkspace = "workspace"
 	ComponentSkills    = "skills"
@@ -124,17 +123,17 @@ func NewClient(namespace, storageClass, pvcAccessMode string) (*Client, error) {
 	}, nil
 }
 
+// SandboxSpec describes a project's Sandbox: one agent container, which also
+// serves the workspace files and app previews.
 type SandboxSpec struct {
 	Name          string
 	ProjectID     string
 	Image         string
 	ContainerPort int
-	FileMgrImage  string
-	FileMgrPort   int
 	Env           map[string]string
 	WorkspacePVC  string
 	// WorkVolumeMount is the path the workspace volume is mounted at in the
-	// agent and filemgr containers. Defaults to the agent user's home directory
+	// agent container. Defaults to the agent user's home directory
 	// when zero, so the project workspace is also `~` inside the Pod.
 	WorkVolumeMount string
 }
@@ -174,21 +173,12 @@ func (c *Client) RunTask(ctx context.Context, spec SandboxSpec) error {
 			"env":          envList,
 			"workingDir":   workMount,
 			"volumeMounts": volumeMounts,
+			"readinessProbe": map[string]interface{}{
+				"httpGet":       map[string]interface{}{"path": "/session", "port": int64(spec.ContainerPort)},
+				"periodSeconds": int64(2),
+			},
 		},
 	}
-
-	containers = append(containers, map[string]interface{}{
-		"name": "filemgr", "image": spec.FileMgrImage,
-		"ports":        []interface{}{map[string]interface{}{"containerPort": int64(spec.FileMgrPort)}},
-		"env":          []interface{}{map[string]interface{}{"name": "FILEMGR_ROOT", "value": workMount}, map[string]interface{}{"name": "PORT", "value": fmt.Sprint(spec.FileMgrPort)}},
-		"volumeMounts": []interface{}{map[string]interface{}{"name": workVolumeName, "mountPath": workMount}},
-		"resources": map[string]interface{}{
-			"requests": map[string]interface{}{"cpu": "50m", "memory": "64Mi"},
-			"limits":   map[string]interface{}{"cpu": "1", "memory": "1Gi"},
-		},
-		"readinessProbe": map[string]interface{}{"httpGet": map[string]interface{}{"path": "/healthz", "port": int64(spec.FileMgrPort)}, "periodSeconds": int64(2)},
-	})
-	containers[0].(map[string]interface{})["readinessProbe"] = map[string]interface{}{"httpGet": map[string]interface{}{"path": "/session", "port": int64(spec.ContainerPort)}, "periodSeconds": int64(2)}
 
 	labels := commonLabels(ComponentSandbox, spec.Name)
 	labels[LabelProjectID] = spec.ProjectID
@@ -248,6 +238,11 @@ func (c *Client) RunTask(ctx context.Context, spec SandboxSpec) error {
 			return getErr
 		}
 		items, _, _ := unstructured.NestedSlice(existing.Object, "spec", "podTemplate", "spec", "containers")
+		// The agent now serves files itself; a separate filemgr container
+		// would hold the workspace with an image the backend no longer starts.
+		if len(items) != len(containers) {
+			return fmt.Errorf("project %s uses a legacy sandbox layout with a separate filemgr container; recreate its Sandbox during deployment (keep all workspace and skills PVCs)", spec.ProjectID)
+		}
 		// Mount changes require Pod recreation. Never silently reuse a legacy
 		// layout or destroy running shells and turns during a read request.
 		for _, desiredItem := range containers {
@@ -372,8 +367,8 @@ type SkillMgrPodSpec struct {
 
 // EnsureSkillMgrPod creates the global skillmgr Pod with the global skills PVC
 // mounted at /skills. Idempotent: returns nil if a Pod with
-// the same name already exists. Unlike filemgr there is exactly one of these
-// cluster-wide, so it carries no project label.
+// the same name already exists. Unlike project Pods there is exactly one of
+// these cluster-wide, so it carries no project label.
 func (c *Client) EnsureSkillMgrPod(ctx context.Context, spec SkillMgrPodSpec) error {
 	if _, err := c.dynamic.Resource(podGVR).Namespace(c.namespace).Get(ctx, spec.Name, metav1.GetOptions{}); err == nil {
 		return nil
@@ -426,7 +421,7 @@ func (c *Client) EnsureSkillMgrPod(ctx context.Context, spec SkillMgrPodSpec) er
 }
 
 // WaitPodReady polls until status.podIP is set and the Ready condition is
-// True, then returns the Pod IP. Used for filemgr — sandbox readiness flows
+// True, then returns the Pod IP. Used for skillmgr — sandbox readiness flows
 // through the Sandbox CR instead.
 func (c *Client) WaitPodReady(ctx context.Context, name string, timeout time.Duration) (string, error) {
 	deadline := time.Now().Add(timeout)
@@ -476,8 +471,7 @@ func (c *Client) DeletePVC(ctx context.Context, name string) error {
 	return nil
 }
 
-// ResolveContainerURL checks only the requested container, so a restarting agent
-// does not make the healthy file manager unavailable.
+// ResolveContainerURL answers the URL of the named container once it is ready.
 func (c *Client) ResolveContainerURL(ctx context.Context, name, container string, port int) (string, bool) {
 	pods, err := c.dynamic.Resource(podGVR).Namespace(c.namespace).List(ctx, metav1.ListOptions{LabelSelector: LabelInstance + "=" + name + "," + LabelComponent + "=" + ComponentSandbox})
 	if err != nil {

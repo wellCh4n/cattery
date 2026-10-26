@@ -48,7 +48,7 @@ func TestPreviewTokenExpiry(t *testing.T) {
 }
 
 func TestReservedPorts(t *testing.T) {
-	for _, p := range []int{1114, 1115} {
+	for _, p := range []int{1114} {
 		if !reservedPort(p) {
 			t.Errorf("port %d should be reserved", p)
 		}

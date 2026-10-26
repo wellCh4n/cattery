@@ -1,8 +1,8 @@
 // Web servers running in a project sandbox. GET /projects/:id/apps lists the
 // listening apps (from the agent harness) and DELETE /projects/:id/apps/:port
 // stops one. Each app is previewed on its own host, <port>-<project id>.<domain>
-// (preview_host.go), proxied through filemgr, which shares the Pod network and
-// so also reaches servers bound to localhost. There the app owns every path,
+// (preview_host.go), proxied through the agent, which shares the Pod network
+// and so also reaches servers bound to localhost. There the app owns every path,
 // so its router, reloads and dev-server sockets need no rewriting. Preview
 // pages load their own assets and can't send the bearer header, so the first
 // request exchanges ?cattery_token= for a cookie (not ?token=, which Vite's
@@ -45,10 +45,10 @@ func NewPortsHandler(projects *db.ProjectStore, sandboxMgr *sandbox.Manager, sig
 	return &PortsHandler{projects: projects, sandbox: sandboxMgr, signer: signer, hosts: hosts}
 }
 
-// The agent and filemgr APIs are internal: a preview of them would let any
-// member drive other members' sessions.
+// The agent API is internal: a preview of it would let any member drive
+// other members' sessions.
 func reservedPort(port int) bool {
-	return port == sandbox.Port || port == sandbox.FileMgrPort
+	return port == sandbox.Port
 }
 
 // listeningApp is one entry of GET /projects/:id/apps.
