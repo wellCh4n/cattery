@@ -149,6 +149,11 @@ Backend env vars (file: `backend/.env`, gitignored):
 | `MODELS_CONFIG`      | `models.toml`                                                    | Path of the model catalog: one `[[providers]]` entry per provider with its `endpoint`, `key` and `models` (see `backend/models.example.toml`). Read at startup; users can only pick these models. |
 | `JWT_SECRET`         | —                                                                | **Required.** Signing key for login tokens. Use `openssl rand -hex 32`. Rotating it invalidates every issued token. |
 | `PREVIEW_URL`        | `http://*.localhost:<PORT>`                                      | Where app previews are served, each on its own host: `<port>-<project id>.<domain>`. A URL with a wildcard host. The default works on one machine (browsers resolve `*.localhost` to it). In production set e.g. `https://*.preview.example.com`, with a wildcard DNS record and TLS certificate pointing at the backend. |
+| `PI_IMAGE`           | `cattery-pi:dev`                                                 | Agent image the backend starts in every project Pod (`harnesses/pi`). Point it at a registry in a cluster. Running project Pods keep their image until recreated. |
+| `FILEMGR_IMAGE`      | `cattery-filemgr:dev`                                            | File manager container in every project Pod (`pods/filemgr`). |
+| `SKILLMGR_IMAGE`     | `cattery-skillmgr:dev`                                           | Global skill library Pod (`pods/skillmgr`). |
+
+To run Cattery itself in the cluster, see `deploy/` (`kubectl apply -k deploy/`).
 
 The backend uses `clientcmd.RecommendedHomeFile` (`~/.kube/config`) when not running in-cluster.
 

@@ -30,6 +30,14 @@ type Config struct {
 	// this machine; production sets e.g. https://*.preview.example.com, with
 	// wildcard DNS and TLS pointing at the backend.
 	PreviewURL string
+
+	// PiImage, FileMgrImage and SkillMgrImage are the images the backend
+	// starts: pi and filemgr in every project Pod, skillmgr in the global
+	// skill library Pod. Default to the local :dev tags that `make
+	// build-harness build-pod` builds; deployments point them at a registry.
+	PiImage       string
+	FileMgrImage  string
+	SkillMgrImage string
 }
 
 func Load() *Config {
@@ -45,6 +53,9 @@ func Load() *Config {
 		K8sStorageClass:  getEnv("K8S_STORAGE_CLASS", ""),
 		K8sPVCAccessMode: getEnv("K8S_PVC_ACCESS_MODE", "ReadWriteMany"),
 		PreviewURL:       getEnv("PREVIEW_URL", "http://*.localhost:"+port),
+		PiImage:          getEnv("PI_IMAGE", "cattery-pi:dev"),
+		FileMgrImage:     getEnv("FILEMGR_IMAGE", "cattery-filemgr:dev"),
+		SkillMgrImage:    getEnv("SKILLMGR_IMAGE", "cattery-skillmgr:dev"),
 	}
 }
 

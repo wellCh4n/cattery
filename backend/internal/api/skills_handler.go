@@ -30,13 +30,14 @@ import (
 )
 
 type SkillsHandler struct {
-	k8s      *k8s.Client
-	projects *db.ProjectStore
-	sandbox  *sandbox.Manager
+	k8s           *k8s.Client
+	projects      *db.ProjectStore
+	sandbox       *sandbox.Manager
+	skillMgrImage string
 }
 
-func NewSkillsHandler(k8sClient *k8s.Client, projects *db.ProjectStore, sandboxMgr *sandbox.Manager) *SkillsHandler {
-	return &SkillsHandler{k8s: k8sClient, projects: projects, sandbox: sandboxMgr}
+func NewSkillsHandler(k8sClient *k8s.Client, projects *db.ProjectStore, sandboxMgr *sandbox.Manager, skillMgrImage string) *SkillsHandler {
+	return &SkillsHandler{k8s: k8sClient, projects: projects, sandbox: sandboxMgr, skillMgrImage: skillMgrImage}
 }
 
 // ProjectSkillsDir is where installed skills live, relative to the project
@@ -62,7 +63,7 @@ func (h *SkillsHandler) requireSkillMgrURL(c echo.Context) (string, error) {
 	if err := h.k8s.EnsureSkillMgrPod(ctx, k8s.SkillMgrPodSpec{
 		Name:    sandbox.SkillMgrPodName,
 		PVCName: sandbox.SkillsPVCName,
-		Image:   sandbox.SkillMgrImage,
+		Image:   h.skillMgrImage,
 		Port:    sandbox.SkillMgrPort,
 	}); err != nil {
 		return "", echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("ensure skillmgr: %v", err))

@@ -22,9 +22,6 @@ const Port = 1114
 // FileMgrPort is the filemgr container port in the shared project Pod.
 const FileMgrPort = 1115
 
-// FileMgrImage 是 filemgr 镜像。`make build-pod` 构建。
-const FileMgrImage = "cattery-filemgr:dev"
-
 func FileMgrPodNameForProject(projectID uuid.UUID) string {
 	return fmt.Sprintf("cattery-filemgr-%s", projectID.String())
 }
@@ -33,9 +30,6 @@ func FileMgrPodNameForProject(projectID uuid.UUID) string {
 // 一个 skillmgr，挂载全局 skills PVC 暴露 skill 库，后端把 /skills 请求代理过去。
 const SkillMgrPort = 1116
 
-// SkillMgrImage 是 skillmgr 镜像。它只暴露 skill 库需要的窄接口。
-const SkillMgrImage = "cattery-skillmgr:dev"
-
 // SkillMgrPodName 是全局唯一的 skillmgr Pod 名。skill 是全局资源，独立于任何
 // project 管理，所以这里不是 per-project。
 const SkillMgrPodName = "cattery-skillmgr"
@@ -43,9 +37,6 @@ const SkillMgrPodName = "cattery-skillmgr"
 // SkillsPVCName 是存放 skill 库的全局 PVC，只由 skillmgr 挂载。sandbox 不挂载它：
 // skill 按需安装（复制）到项目的 ~/.agents/skills。
 const SkillsPVCName = "cattery-skills-work"
-
-// Image is the agent sandbox image (harnesses/pi). `make build-harness` builds it.
-const Image = "cattery-pi:dev"
 
 // WorkspaceMountPath is the project workspace and the agent's working
 // directory. HOME is /home/cattery in the pi image, so this makes the project
@@ -119,8 +110,8 @@ func (m *Manager) ensureProject(ctx context.Context, projectID uuid.UUID) error 
 		return err
 	}
 	if err := m.k8sClient.RunTask(ctx, k8s.SandboxSpec{
-		Name: NameFor(projectID), ProjectID: projectID.String(), Image: Image, ContainerPort: Port,
-		FileMgrImage: FileMgrImage, FileMgrPort: FileMgrPort,
+		Name: NameFor(projectID), ProjectID: projectID.String(), Image: m.cfg.PiImage, ContainerPort: Port,
+		FileMgrImage: m.cfg.FileMgrImage, FileMgrPort: FileMgrPort,
 		Env:          map[string]string{"PORT": fmt.Sprint(Port), "PROJECT_ID": projectID.String()},
 		WorkspacePVC: pvcName, WorkVolumeMount: WorkspaceMountPath,
 	}); err != nil {
