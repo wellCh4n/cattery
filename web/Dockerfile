@@ -8,10 +8,11 @@ FROM oven/bun:1 AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-# Bake the public API base URL at build time. Override on `docker compose build`
-# via `--build-arg NEXT_PUBLIC_API_URL=...` if the browser will reach the
-# backend at a non-default origin.
-ARG NEXT_PUBLIC_API_URL=http://localhost:8080
+# By default the browser calls the API on the page's own origin, so one image
+# serves any domain as long as /api reaches the backend there (e.g. an Ingress
+# routing /api to it). Pass `--build-arg NEXT_PUBLIC_API_URL=http://host:8080`
+# only when the backend sits on another origin, as in docker-compose.
+ARG NEXT_PUBLIC_API_URL=""
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 RUN bun run build
 

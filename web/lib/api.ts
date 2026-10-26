@@ -20,7 +20,11 @@ async function readErrorMessage(res: Response, fallback: string): Promise<string
   }
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080"
+// API_BASE is the backend's origin. Production builds default to the page's
+// own origin (""), for deployments that route /api to the backend on the web's
+// host; dev and tests default to the backend on :8080.
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ??
+  (process.env.NODE_ENV === "production" ? "" : "http://localhost:8080")
 
 export interface ProfileFields {
   name?: string
@@ -605,8 +609,9 @@ export async function adminDeleteUser(userId: string): Promise<void> {
 // project's agent container. WebSockets can't carry an Authorization header,
 // so the token rides in the query like the file URLs above.
 export function terminalURL(projectId: string, terminalId: string): string {
-  const http = `${API_BASE}/api/v1/projects/${projectId}/terminal?terminal=${terminalId}`
-  return appendToken(http.replace(/^http/, "ws"))
+  const url = new URL(`${API_BASE}/api/v1/projects/${projectId}/terminal?terminal=${terminalId}`, window.location.href)
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:"
+  return appendToken(url.toString())
 }
 
 export interface Terminal {
