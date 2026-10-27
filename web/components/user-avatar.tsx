@@ -8,12 +8,12 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
 import { UserCircle2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
-// avatarHue maps a username to a hue (0–359) with 32-bit FNV-1a, so a given
-// name gets the same color everywhere and across reloads. Case and surrounding
-// spaces don't change it.
-export function avatarHue(username: string): number {
+// avatarHue maps a display name to a hue (0–359) with 32-bit FNV-1a, so a given
+// name gets the same color everywhere and across reloads, and renaming changes
+// it. Case and surrounding spaces don't change it.
+export function avatarHue(name: string): number {
   let hash = 0x811c9dc5
-  for (const ch of username.trim().toLowerCase()) {
+  for (const ch of name.trim().toLowerCase()) {
     hash ^= ch.codePointAt(0)!
     hash = Math.imul(hash, 0x01000193)
   }
@@ -41,7 +41,7 @@ export function UserAvatar({ className, ...identity }: UserIdentity & { classNam
   const hasName = Boolean(profile.name?.trim() || profile.username?.trim())
   const initial = Array.from(name)[0]?.toUpperCase()
   return (
-    <Avatar aria-label={name} style={{ "--avatar-hue": avatarHue(profile.username || name) } as CSSProperties} className={cn("size-4 text-[9px] font-semibold leading-none", className)}>
+    <Avatar aria-label={name} style={{ "--avatar-hue": avatarHue(name) } as CSSProperties} className={cn("size-4 text-[9px] font-semibold leading-none", className)}>
       {loaded?.key === key && version && <AvatarImage src={loaded.url} alt={name} />}
       <AvatarFallback className={cn(
         "text-[length:inherit]",
