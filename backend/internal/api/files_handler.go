@@ -192,11 +192,20 @@ func (h *FilesHandler) Move(c echo.Context) error {
 // Mkdir proxies POST /projects/:id/files/mkdir?path=...&name=... where `name`
 // is a base name created inside the parent dir `path`. Writers only.
 func (h *FilesHandler) Mkdir(c echo.Context) error {
+	return h.proxyCreate(c, "/mkdir")
+}
+
+// Touch creates an empty file, refusing an existing name (409).
+func (h *FilesHandler) Touch(c echo.Context) error {
+	return h.proxyCreate(c, "/touch")
+}
+
+func (h *FilesHandler) proxyCreate(c echo.Context, mgrPath string) error {
 	base, err := h.requireFilesURL(c, true)
 	if err != nil {
 		return err
 	}
-	target := base + "/mkdir?" + c.Request().URL.RawQuery
+	target := base + mgrPath + "?" + c.Request().URL.RawQuery
 	req, err := http.NewRequestWithContext(c.Request().Context(), http.MethodPost, target, nil)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())

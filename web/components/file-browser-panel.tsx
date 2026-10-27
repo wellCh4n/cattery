@@ -4,9 +4,9 @@
 // comes from the project's agent via the backend proxy. Folders expand/collapse
 // in place (children fetched on first expand); clicking a file opens it in a
 // large modal viewer (uses the existing FileViewer with shiki highlighting).
-// Per-row hover actions: folders reveal rename/upload/delete (upload writes
-// directly into that folder), files reveal rename/delete. Rename and new-folder
-// both go through dialogs for consistency. Two drag flows: dropping OS files
+// Per-row hover actions: folders reveal rename/new folder/new file/upload/delete
+// (upload writes directly into that folder), files reveal rename/delete. Rename,
+// new-folder and new-file all go through dialogs for consistency. Two drag flows: dropping OS files
 // on a folder (or on blank space, for root) uploads; dragging an existing
 // entry onto another folder moves it there.
 
@@ -16,6 +16,7 @@ import {
   Eye,
   EyeOff,
   File as FileIcon,
+  FilePlus,
   Folder,
   FolderPlus,
   Loader2,
@@ -93,7 +94,7 @@ export function FileBrowserPanel({ projectId, active }: Props) {
   const error = actionError ?? loadError
   const [uploading, setUploading] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
-  const [newFolderDir, setNewFolderDir] = useState<string | null>(null)
+  const [newEntry, setNewEntry] = useState<{ kind: EntryKind; dir: string } | null>(null)
   const [renameTarget, setRenameTarget] = useState<{ entry: FileEntry; path: string } | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<{ entry: FileEntry; path: string } | null>(null)
   const dragDepthRef = useRef(0)
@@ -227,9 +228,10 @@ export function FileBrowserPanel({ projectId, active }: Props) {
     }
   }
 
-  async function afterFolderCreated(dir: string) {
+  async function afterEntryCreated(kind: EntryKind, dir: string, path: string) {
     setExpanded(prev => dir === "/" ? prev : new Set(prev).add(dir))
     await loadDir(dir)
+    if (kind === "file") openFile(path)
   }
 
   async function refresh() {
@@ -324,10 +326,18 @@ export function FileBrowserPanel({ projectId, active }: Props) {
           </TreeRowAction>
           {isDir && (
             <TreeRowAction
-              onClick={e => { e.stopPropagation(); setNewFolderDir(path) }}
+              onClick={e => { e.stopPropagation(); setNewEntry({ kind: "folder", dir: path }) }}
               aria-label="New folder"
             >
               <FolderPlus className="size-4" />
+            </TreeRowAction>
+          )}
+          {isDir && (
+            <TreeRowAction
+              onClick={e => { e.stopPropagation(); setNewEntry({ kind: "file", dir: path }) }}
+              aria-label="New file"
+            >
+              <FilePlus className="size-4" />
             </TreeRowAction>
           )}
           {isDir && (
@@ -365,6 +375,7 @@ export function FileBrowserPanel({ projectId, active }: Props) {
           onChange={onUpload}
         />
         <div className="flex items-center gap-1">
+          <RefreshButton onClick={() => void refresh()} refreshing={refreshing} aria-label="Refresh files" />
           <Button
             variant="ghost"
             size="icon-sm"
@@ -377,7 +388,6 @@ export function FileBrowserPanel({ projectId, active }: Props) {
           >
             {showHidden ? <Eye /> : <EyeOff />}
           </Button>
-          <RefreshButton onClick={() => void refresh()} refreshing={refreshing} aria-label="Refresh files" />
           <Button
             variant="ghost"
             size="icon-sm"
@@ -390,10 +400,18 @@ export function FileBrowserPanel({ projectId, active }: Props) {
           <Button
             variant="ghost"
             size="icon-sm"
-            onClick={() => setNewFolderDir("/")}
+            onClick={() => setNewEntry({ kind: "folder", dir: "/" })}
             aria-label="New folder in /"
           >
             <FolderPlus />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => setNewEntry({ kind: "file", dir: "/" })}
+            aria-label="New file in /"
+          >
+            <FilePlus />
           </Button>
         </div>
       </div>
@@ -439,7 +457,16 @@ export function FileBrowserPanel({ projectId, active }: Props) {
                 variant="outline"
                 size="sm"
                 className="w-full"
-                onClick={() => setNewFolderDir("/")}
+                onClick={() => setNewEntry({ kind: "file", dir: "/" })}
+              >
+                <FilePlus />
+                New file
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full"
+                onClick={() => setNewEntry({ kind: "folder", dir: "/" })}
               >
                 <FolderPlus />
                 New folder
@@ -452,11 +479,11 @@ export function FileBrowserPanel({ projectId, active }: Props) {
         )}
       </div>
 
-      <NewFolderDialog
+      <NewEntryDialog
         projectId={projectId}
-        dir={newFolderDir}
-        onOpenChange={open => { if (!open) setNewFolderDir(null) }}
-        onCreated={afterFolderCreated}
+        target={newEntry}
+        onOpenChange={open => { if (!open) setNewEntry(null) }}
+        onCreated={afterEntryCreated}
       />
 
       <RenameDialog
@@ -491,20 +518,36 @@ export function FileBrowserPanel({ projectId, active }: Props) {
   )
 }
 
-function NewFolderDialog({
+type EntryKind = "folder" | "file"
+
+// NewEntryDialog creates a folder or an empty file in `target.dir`.
+function NewEntryDialog({
   projectId,
-  dir,
+  target,
   onOpenChange,
   onCreated,
 }: {
   projectId: string
-  dir: string | null
+  target: { kind: EntryKind; dir: string } | null
   onOpenChange: (open: boolean) => void
-  onCreated: (dir: string) => void | Promise<void>
+  onCreated: (kind: EntryKind, dir: string, path: string) => void | Promise<void>
 }) {
+  const dir = target?.dir ?? null
+  const isFile = target?.kind === "file"
   const [name, setName] = useState("")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!target) return
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
+      setName("")
+      setError(null)
+    })
+    return () => { cancelled = true }
+  }, [target])
 
   async function commit() {
     const trimmed = name.trim()
@@ -512,11 +555,13 @@ function NewFolderDialog({
     setBusy(true)
     setError(null)
     try {
-      await fileActions.createFolder(projectId, dir, trimmed)
-      await onCreated(dir)
+      const kind = isFile ? "file" : "folder"
+      if (isFile) await fileActions.createFile(projectId, dir, trimmed)
+      else await fileActions.createFolder(projectId, dir, trimmed)
       onOpenChange(false)
+      await onCreated(kind, dir, joinPath(dir, trimmed))
     } catch (e) {
-      setError(e instanceof Error ? e.message : "create folder failed")
+      setError(e instanceof Error ? e.message : `create ${isFile ? "file" : "folder"} failed`)
     } finally {
       setBusy(false)
     }
@@ -527,15 +572,14 @@ function NewFolderDialog({
       open={dir !== null}
       onOpenChange={o => {
         if (busy) return
-        if (o) { setName(""); setError(null) }
         onOpenChange(o)
       }}
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>New folder</DialogTitle>
+          <DialogTitle>{isFile ? "New file" : "New folder"}</DialogTitle>
           <DialogDescription>
-            Create a folder in <span className="font-mono text-foreground">{dir ?? ""}</span>.
+            Create {isFile ? "a file" : "a folder"} in <span className="font-mono text-foreground">{dir ?? ""}</span>.
           </DialogDescription>
         </DialogHeader>
         <Input
@@ -546,7 +590,7 @@ function NewFolderDialog({
           autoFocus
           autoComplete="off"
           spellCheck={false}
-          placeholder="Folder name"
+          placeholder={isFile ? "File name" : "Folder name"}
         />
         {error && <div className="text-xs text-destructive">{error}</div>}
         <DialogFooter>
@@ -564,7 +608,7 @@ function NewFolderDialog({
 }
 
 // RenameDialog — dialog-based rename for files and folders. Mirrors
-// NewFolderDialog's shape so the two stay visually consistent.
+// NewEntryDialog's shape so the two stay visually consistent.
 function RenameDialog({
   target,
   onOpenChange,

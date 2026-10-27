@@ -401,6 +401,16 @@ export async function createFolder(projectId: string, dir: string, name: string)
   return res.json()
 }
 
+// createFile makes an empty file; the backend refuses an existing name.
+export async function createFile(projectId: string, dir: string, name: string): Promise<{ path: string; name: string }> {
+  const url = `${API_BASE}/api/v1/projects/${projectId}/files/touch?path=${encodeURIComponent(dir)}&name=${encodeURIComponent(name)}`
+  const res = await authedFetch(url, { method: "POST" })
+  if (!res.ok) {
+    throw new Error(await readErrorMessage(res, `create file failed (${res.status})`))
+  }
+  return res.json()
+}
+
 // ---- global skill library (served by the backend) ----
 //
 // Narrow API for the global skill library. Skills are managed as folders under

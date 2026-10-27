@@ -101,6 +101,11 @@ test('file operations stay inside the workspace', async () => {
     const upload = await (await post('/upload?path=/src&name=main.ts', 'hello')).json()
     assert.deepEqual(upload, { path: '/src/main.ts', name: 'main.ts', size: 5 })
     assert.equal((await post('/upload?path=/src&name=..', 'x')).status, 400)
+    assert.deepEqual(await (await post('/touch?path=/src&name=new.md')).json(), { path: '/src/new.md', name: 'new.md' })
+    assert.equal((await post('/touch?path=/src&name=main.ts')).status, 409)
+    assert.equal((await post('/touch?path=/src&name=a/b')).status, 400)
+    assert.equal((await fetch(`${base}/raw?path=/src/main.ts`)).status, 200)
+    assert.equal((await post('/delete?path=/src/new.md')).status, 204)
 
     const list = await (await fetch(`${base}/list?path=/`)).json() as { name: string, type: string }[]
     assert.deepEqual(list.map(e => [e.name, e.type]), [['src', 'dir']])

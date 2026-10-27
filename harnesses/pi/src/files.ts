@@ -644,6 +644,22 @@ export function filesRouter(workspace: string): Router {
     res.json({ path: relOf(root, dest), name })
   }))
 
+  // Creates an empty file; refuses an existing name, unlike /upload.
+  router.post('/touch', route(async (req, res) => {
+    const parent = resolve('path', req)
+    await directory(parent)
+    const name = baseName(param(req, 'name'))
+    if (!name || name === '..') throw new HttpError(400, "invalid 'name'")
+    const dest = path.join(parent, name)
+    try {
+      await fs.writeFile(dest, '', { flag: 'wx', mode: 0o644 })
+    } catch (err) {
+      if (code(err) === 'EEXIST') throw new HttpError(409, 'destination already exists')
+      throw err
+    }
+    res.json({ path: relOf(root, dest), name })
+  }))
+
   // Replaces the directory at path with the tar archive in the body. It is
   // unpacked beside the target and swapped in only once complete, so a broken
   // upload leaves the old directory untouched. Installs skills.

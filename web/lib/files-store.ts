@@ -1,6 +1,6 @@
 "use client"
 
-import { createFolder, deleteFile, listFiles, moveFile, renameFile, uploadFile, type FileEntry } from "@/lib/api"
+import { createFile, createFolder, deleteFile, listFiles, moveFile, renameFile, uploadFile, type FileEntry } from "@/lib/api"
 import { createResourceStore } from "@/lib/resource-store"
 
 export const fileKey = (projectId: string, path: string) => JSON.stringify([projectId, path])
@@ -80,6 +80,11 @@ export const fileActions = {
   async createFolder(projectId: string, dir: string, name: string) {
     await createFolder(projectId, dir, name)
     await refreshFiles(projectId, [dir])
+  },
+  async createFile(projectId: string, dir: string, name: string) {
+    const result = await createFile(projectId, dir, name)
+    await refreshFiles(projectId, [dir])
+    return result
   },
   reset() { epoch++; refreshing.clear(); useFilesStore.getState().reset() },
 }

@@ -157,6 +157,7 @@ func NewRouter(
 	projects.POST("/:project_id/files/rename", filesH.Rename)
 	projects.POST("/:project_id/files/move", filesH.Move)
 	projects.POST("/:project_id/files/mkdir", filesH.Mkdir)
+	projects.POST("/:project_id/files/touch", filesH.Touch)
 	// WebSocket; browsers can't set headers on it, so it authenticates via ?token=.
 	projects.GET("/:project_id/terminal", terminalH.Connect)
 	projects.GET("/:project_id/terminals", terminalH.List)
