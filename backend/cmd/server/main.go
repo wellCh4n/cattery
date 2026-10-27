@@ -5,12 +5,14 @@ import (
 	"log"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/wellch4n/cattery/internal/api"
 	"github.com/wellch4n/cattery/internal/auth"
 	"github.com/wellch4n/cattery/internal/config"
 	"github.com/wellch4n/cattery/internal/db"
 	"github.com/wellch4n/cattery/internal/harness"
 	k8sclient "github.com/wellch4n/cattery/internal/k8s"
+	"github.com/wellch4n/cattery/internal/live"
 	"github.com/wellch4n/cattery/internal/sandbox"
 	"github.com/wellch4n/cattery/internal/skills"
 	"github.com/wellch4n/cattery/internal/usage"
@@ -69,6 +71,10 @@ func main() {
 	sandboxMgr := sandbox.NewManager(projectStore, k8s, harnessClient, cfg)
 	usageCollector := usage.NewCollector(usageStore, harnessClient, sandboxMgr)
 	sandboxMgr.OnRelease(usageCollector.Sync)
+	hub := live.NewHub()
+	sandboxMgr.OnStatus(func(projectID uuid.UUID, status string) {
+		hub.Publish(projectID, live.Event{Type: "sandbox", Data: map[string]string{"sandbox_status": status}})
+	})
 	go usageCollector.Run(context.Background())
 
 	projectH := api.NewProjectHandler(projectStore, memberStore, userStore, sandboxMgr, k8s)
@@ -85,8 +91,9 @@ func main() {
 	}
 	portsH := api.NewPortsHandler(projectStore, sandboxMgr, signer, previewHosts)
 	usageH := api.NewUsageHandler(usageStore)
+	liveH := api.NewLiveHandler(hub, userStore, projectStore)
 
-	router := api.NewRouter(database, projectH, sessionH, filesH, terminalH, skillsH, authH, adminH, usersH, portsH, usageH, signer)
+	router := api.NewRouter(database, projectH, sessionH, filesH, terminalH, skillsH, authH, adminH, usersH, portsH, usageH, liveH, signer)
 	log.Printf("starting server on :%s", cfg.Port)
 	log.Fatal(router.Start(":" + cfg.Port))
 }

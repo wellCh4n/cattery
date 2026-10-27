@@ -49,6 +49,8 @@ type Manager struct {
 	// beforeRelease runs while the agent is still reachable, just before its
 	// sessions are released or its resources destroyed.
 	beforeRelease func(context.Context, uuid.UUID)
+	// onStatus hears every sandbox_status write, to tell open browsers.
+	onStatus func(uuid.UUID, string)
 }
 
 func NewManager(store *db.ProjectStore, k8sClient *k8s.Client, harnessClient *harness.Client, cfg *config.Config) *Manager {
@@ -59,6 +61,20 @@ func NewManager(store *db.ProjectStore, k8sClient *k8s.Client, harnessClient *ha
 // releases its sessions and before Destroy deletes the sandbox — for
 // collecting what the agent recorded on its workspace. It gets a few seconds.
 func (m *Manager) OnRelease(hook func(context.Context, uuid.UUID)) { m.beforeRelease = hook }
+
+// OnStatus sets a hook run after each sandbox_status update.
+func (m *Manager) OnStatus(hook func(projectID uuid.UUID, status string)) { m.onStatus = hook }
+
+// setStatus records the sandbox status and announces it.
+func (m *Manager) setStatus(ctx context.Context, projectID uuid.UUID, status string) error {
+	if err := m.store.UpdateSandboxStatus(ctx, projectID, status); err != nil {
+		return err
+	}
+	if m.onStatus != nil {
+		m.onStatus(projectID, status)
+	}
+	return nil
+}
 
 // releaseTimeout bounds the hook so it never stalls a stop or delete.
 const releaseTimeout = 3 * time.Second
@@ -130,14 +146,14 @@ func (m *Manager) EnsureReady(ctx context.Context, projectID uuid.UUID) (string,
 	unlock := m.lock(projectID)
 	defer unlock()
 	if err := m.EnsureProject(ctx, projectID); err != nil {
-		_ = m.store.UpdateSandboxStatus(ctx, projectID, "failed")
+		_ = m.setStatus(ctx, projectID, "failed")
 		return "", err
 	}
 	if url, ok := m.URL(ctx, projectID); ok {
-		_ = m.store.UpdateSandboxStatus(ctx, projectID, "ready")
+		_ = m.setStatus(ctx, projectID, "ready")
 		return url, nil
 	}
-	_ = m.store.UpdateSandboxStatus(ctx, projectID, "starting")
+	_ = m.setStatus(ctx, projectID, "starting")
 	readyCtx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancel()
 	url, err := m.k8sClient.WaitContainerReady(readyCtx, NameFor(projectID), "agent", Port)
@@ -146,10 +162,10 @@ func (m *Manager) EnsureReady(ctx context.Context, projectID uuid.UUID) (string,
 	}
 	if err != nil {
 		// Keep the shared Pod and file service alive when the agent is unhealthy.
-		_ = m.store.UpdateSandboxStatus(context.Background(), projectID, "failed")
+		_ = m.setStatus(context.Background(), projectID, "failed")
 		return "", err
 	}
-	_ = m.store.UpdateSandboxStatus(ctx, projectID, "ready")
+	_ = m.setStatus(ctx, projectID, "ready")
 	return url, nil
 }
 
@@ -227,7 +243,7 @@ func (m *Manager) Stop(ctx context.Context, projectID uuid.UUID) error {
 		// After Stop, so usage of the runs it aborted is counted too.
 		m.release(ctx, projectID)
 	}
-	return m.store.UpdateSandboxStatus(ctx, projectID, "idle")
+	return m.setStatus(ctx, projectID, "idle")
 }
 
 // Destroy is reserved for project/account deletion, never the Stop agent action.

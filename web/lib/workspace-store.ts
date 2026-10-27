@@ -67,6 +67,7 @@ interface WorkspaceStore {
   // Polls a creating session until it is ready or failed. One watcher per session.
   watchSession: (sessionId: string) => void
   refreshProject: (projectId: string) => Promise<void>
+  applySandboxStatus: (projectId: string, status: string) => void
   setSessionBusy: (sessionId: string, busy: boolean) => void
   markSessionActivity: (sessionId: string) => void
 }
@@ -288,6 +289,14 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
         p.project_id === projectId && p.sandbox_status !== project.sandbox_status
           ? { ...p, sandbox_status: project.sandbox_status }
           : p
+      ),
+    }))
+  },
+
+  applySandboxStatus: (projectId: string, status: string) => {
+    set(state => ({
+      projects: state.projects.map(p =>
+        p.project_id === projectId && p.sandbox_status !== status ? { ...p, sandbox_status: status } : p,
       ),
     }))
   },

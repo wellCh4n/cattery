@@ -624,6 +624,14 @@ export function terminalURL(projectId: string, terminalId: string): string {
   return appendToken(url.toString())
 }
 
+// liveURL — the user's live WebSocket (presence and project events). Like the
+// terminal, the token rides in the query.
+export function liveURL(): string {
+  const url = new URL(`${API_BASE}/api/v1/live`, window.location.href)
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:"
+  return appendToken(url.toString())
+}
+
 export interface Terminal {
   terminal_id: string
   project_id: string

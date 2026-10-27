@@ -36,6 +36,7 @@ func NewRouter(
 	usersH *UsersHandler,
 	portsH *PortsHandler,
 	usageH *UsageHandler,
+	liveH *LiveHandler,
 	signer *auth.Signer,
 ) *echo.Echo {
 	e := echo.New()
@@ -130,6 +131,8 @@ func NewRouter(
 
 	protected.GET("/users/search", usersH.Search)
 	protected.GET("/usage", usageH.Mine)
+	// WebSocket for presence and project events; authenticates via ?token=.
+	protected.GET("/live", liveH.Connect)
 
 	projects := protected.Group("/projects")
 	projects.POST("", projectH.Create)

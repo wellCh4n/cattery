@@ -34,6 +34,7 @@ import { NewProjectDialog } from "@/components/new-project-dialog"
 import { AppListPanel } from "@/components/app-list-panel"
 import { AppWatcher } from "@/components/app-watcher"
 import { ProjectMembersPanel } from "@/components/project-members-panel"
+import { PresenceAvatars } from "@/components/presence-avatars"
 import { RenameProjectDialog } from "@/components/rename-project-dialog"
 import { RenameSessionDialog } from "@/components/rename-session-dialog"
 import { SkillBrowserPanel } from "@/components/skill-browser-panel"
@@ -306,7 +307,9 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
             </div>
           )}
         </div>
-        <div ref={userMenuRef} className="relative ml-auto shrink-0">
+        <div className="ml-auto" />
+        {currentProject && <PresenceAvatars key={currentProject.project_id} projectId={currentProject.project_id} />}
+        <div ref={userMenuRef} className="relative shrink-0">
           {userMenuOpen && (
             <div className="absolute right-0 top-full z-30 mt-2 w-max min-w-44 max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border bg-popover text-sm shadow-md">
               <div className="max-w-xs border-b px-2.5 py-2">
