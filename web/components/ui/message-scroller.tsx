@@ -12,10 +12,16 @@ import { cn } from "cn"
 import { Button } from "@/components/ui/button"
 import { ArrowDownIcon } from "lucide-react"
 
-function MessageScrollerProvider(
-  props: React.ComponentProps<typeof MessageScrollerPrimitive.Provider>
-) {
-  return <MessageScrollerPrimitive.Provider {...props} />
+// How close to the end counts as at the end, to resume following (the
+// primitive's default is 8). Larger forgives a scroll back down that stops
+// short, but an upward scroll smaller than this snaps back while streaming.
+const END_THRESHOLD = 24
+
+function MessageScrollerProvider({
+  scrollEdgeThreshold = END_THRESHOLD,
+  ...props
+}: React.ComponentProps<typeof MessageScrollerPrimitive.Provider>) {
+  return <MessageScrollerPrimitive.Provider scrollEdgeThreshold={scrollEdgeThreshold} {...props} />
 }
 
 function MessageScroller({
@@ -34,13 +40,40 @@ function MessageScroller({
   )
 }
 
+// The primitive stops following on every wheel or scroll key, and resumes only
+// on a scroll event that lands at the end. Scrolling down while already there
+// moves nothing, so no scroll event comes and following never resumes; resume
+// it here instead. Only downward input: jumping to the end would cut off an
+// upward smooth scroll that hasn't left the edge yet.
+const DOWN_KEYS = new Set(["ArrowDown", "PageDown", "End"])
+
+function useResumeAtEnd() {
+  const { scrollToEnd } = useMessageScroller()
+  return React.useCallback((el: HTMLElement) => {
+    requestAnimationFrame(() => {
+      if (el.scrollHeight - el.clientHeight - el.scrollTop <= END_THRESHOLD) scrollToEnd({ behavior: "auto" })
+    })
+  }, [scrollToEnd])
+}
+
 function MessageScrollerViewport({
   className,
+  onWheel,
+  onKeyDown,
   ...props
 }: React.ComponentProps<typeof MessageScrollerPrimitive.Viewport>) {
+  const resumeAtEnd = useResumeAtEnd()
   return (
     <MessageScrollerPrimitive.Viewport
       data-slot="message-scroller-viewport"
+      onWheel={e => {
+        onWheel?.(e)
+        if (e.deltaY > 0) resumeAtEnd(e.currentTarget)
+      }}
+      onKeyDown={e => {
+        onKeyDown?.(e)
+        if (DOWN_KEYS.has(e.key) || (e.key === " " && !e.shiftKey)) resumeAtEnd(e.currentTarget)
+      }}
       className={cn(
         "size-full min-h-0 min-w-0 scroll-fade-b scrollbar-thin scrollbar-gutter-stable overflow-y-auto overscroll-contain contain-content data-autoscrolling:scrollbar-thumb-transparent data-autoscrolling:scrollbar-track-transparent data-pending-scroll:invisible",
         className

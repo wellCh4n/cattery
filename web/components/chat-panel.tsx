@@ -298,10 +298,15 @@ function ChatPanelContent({ session }: Props) {
           <MessageScroller>
             <MessageScrollerViewport>
               <MessageScrollerContent aria-busy={sending} className="mx-auto max-w-4xl px-4 py-6 md:px-8">
+                {/* Keyed by position: the history reload after a reply renames
+                    the turns to their saved ids, and remounted items lay out at
+                    their content-visibility placeholder size for a frame. In a
+                    short transcript that clamps the scroll to the top, which the
+                    scroller takes for a user scroll and stops following. */}
                 {turns.map((turn, i) =>
                   turn.role === "user" ? (
                     <MessageScrollerItem
-                      key={turn.id}
+                      key={i}
                       messageId={turn.id}
                     >
                       <Message align="end">
@@ -318,7 +323,7 @@ function ChatPanelContent({ session }: Props) {
                       </Message>
                     </MessageScrollerItem>
                   ) : (
-                    <MessageScrollerItem key={turn.id} messageId={turn.id}>
+                    <MessageScrollerItem key={i} messageId={turn.id}>
                       <AgentTurn
                         sessionId={session.session_id}
                         readOnly={!writable}
