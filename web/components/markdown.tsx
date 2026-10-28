@@ -43,7 +43,7 @@ const components: Components = {
     <ul className={cn("list-disc pl-5 space-y-1 [&:not(:last-child)]:mb-3", className)} {...props} />
   ),
   ol: ({ className, ...props }) => (
-    <ol className={cn("list-decimal pl-5 space-y-1 [&:not(:last-child)]:mb-3", className)} {...props} />
+    <ol className={cn("list-decimal pl-7 space-y-1 [&:not(:last-child)]:mb-3", className)} {...props} />
   ),
   li: ({ className, ...props }) => (
     <li className={cn("leading-relaxed", className)} {...props} />
