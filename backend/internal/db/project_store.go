@@ -125,12 +125,18 @@ func (s *ProjectStore) DeleteForOwner(ctx context.Context, id, ownerID uuid.UUID
 	return nil
 }
 
-func (s *ProjectStore) UpdateSandboxStatus(ctx context.Context, id uuid.UUID, status string) error {
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE projects SET sandbox_status=$1 WHERE project_id=$2`,
+// UpdateSandboxStatus writes the status only when it differs, and reports
+// whether it did, so callers announce real changes only.
+func (s *ProjectStore) UpdateSandboxStatus(ctx context.Context, id uuid.UUID, status string) (bool, error) {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE projects SET sandbox_status=$1 WHERE project_id=$2 AND sandbox_status IS DISTINCT FROM $1`,
 		status, id,
 	)
-	return err
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
 }
 
 type scanner interface {

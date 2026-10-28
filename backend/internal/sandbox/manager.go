@@ -62,15 +62,18 @@ func NewManager(store *db.ProjectStore, k8sClient *k8s.Client, harnessClient *ha
 // collecting what the agent recorded on its workspace. It gets a few seconds.
 func (m *Manager) OnRelease(hook func(context.Context, uuid.UUID)) { m.beforeRelease = hook }
 
-// OnStatus sets a hook run after each sandbox_status update.
+// OnStatus sets a hook run when sandbox_status changes.
 func (m *Manager) OnStatus(hook func(projectID uuid.UUID, status string)) { m.onStatus = hook }
 
-// setStatus records the sandbox status and announces it.
+// setStatus records the sandbox status and announces it if it changed.
+// EnsureReady rewrites "ready" on every request that needs the agent, so
+// unchanged writes must stay silent.
 func (m *Manager) setStatus(ctx context.Context, projectID uuid.UUID, status string) error {
-	if err := m.store.UpdateSandboxStatus(ctx, projectID, status); err != nil {
+	changed, err := m.store.UpdateSandboxStatus(ctx, projectID, status)
+	if err != nil {
 		return err
 	}
-	if m.onStatus != nil {
+	if changed && m.onStatus != nil {
 		m.onStatus(projectID, status)
 	}
 	return nil
