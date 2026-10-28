@@ -24,7 +24,7 @@ export function PresenceAvatars({ projectId }: { projectId: string }) {
   return (
     <div className="flex shrink-0 items-center -space-x-1.5" aria-label="Online in this project">
       {shown.map(user => (
-        <Hint key={user.user_id} label={profileName(user)} side="bottom">
+        <Hint key={user.user_id} label={`${profileName(user)} is here`} side="bottom">
           <span className="flex cursor-pointer rounded-full ring-2 ring-background">
             <UserAvatar {...user} className="size-7 text-[11px]" />
           </span>
