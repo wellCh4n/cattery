@@ -33,11 +33,19 @@ function sessionIconColor(status: string): string {
   return "text-muted-foreground"
 }
 
+// The last title seen for each session, so the tab of one deleted elsewhere
+// keeps its name. Memory only: a reload has nothing to remember it from.
+const lastSessionTitles = new Map<string, string>()
+
 function resolveTab(tab: Tab, projects: ProjectWithSessions[], terminals: Terminal[]): ResolvedTab {
   if (tab.kind === "session") {
     const found = findSession(projects, tab.id)
     if (!found) {
-      return { title: "Session", exists: false, icon: <MessageSquare className="size-3.5 shrink-0 text-muted-foreground" /> }
+      return {
+        title: lastSessionTitles.get(tab.id) ?? "Session",
+        exists: false,
+        icon: <MessageSquare className="size-3.5 shrink-0 text-muted-foreground" />,
+      }
     }
     return {
       title: found.session.title ?? "New Session",
@@ -115,15 +123,27 @@ export function TabBar() {
   const previousContext = useRef<{ projectId: string | null; pathname: string } | null>(null)
   const pendingPath = useRef<string | null>(null)
   const openedRoute = useRef<string | null>(null)
+  const active = tabForPath(pathname ?? "")
+  const activeKey = active ? tabKey(active) : null
   const tabs = useMemo(() => allTabs.filter(tab => {
-    if (tab.kind === "session") return findSession(projects, tab.id)?.project.project_id === currentProjectId
+    if (tab.kind === "session") {
+      const found = findSession(projects, tab.id)
+      // A session deleted elsewhere is gone from the store; keep its tab while it
+      // is the open one, so the pane can say it was deleted.
+      return found ? found.project.project_id === currentProjectId : tabKey(tab) === activeKey
+    }
     return (tab.projectId ?? null) === currentProjectId
-  }), [allTabs, projects, currentProjectId])
+  }), [allTabs, projects, currentProjectId, activeKey])
   const busySessions = useWorkspaceStore(s => s.busySessions)
   const activeTabRef = useRef<HTMLDivElement | null>(null)
 
-  const active = tabForPath(pathname ?? "")
-  const activeKey = active ? tabKey(active) : null
+  // Runs after the render that first lacks a deleted session, so the map still
+  // holds its last title when that render resolves the tab.
+  useEffect(() => {
+    for (const project of projects) {
+      for (const session of project.sessions) lastSessionTitles.set(session.session_id, session.title ?? "New Session")
+    }
+  }, [projects])
 
   // Keep the active tab in view — scroll the strip to it when it changes (e.g.
   // the tab is off-screen, or a freshly-opened one was appended at the end).

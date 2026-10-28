@@ -186,8 +186,15 @@ export async function createSession(projectId: string, model: string, effort: st
   return res.json()
 }
 
+// A session that no longer exists (deleted, or never visible to this user), as
+// opposed to one that could not be read right now.
+export class SessionNotFoundError extends Error {
+  constructor() { super("session not found") }
+}
+
 export async function getSession(sessionId: string): Promise<Session> {
   const res = await authedFetch(`${API_BASE}/api/v1/sessions/${sessionId}`, { cache: "no-store" })
+  if (res.status === 404) throw new SessionNotFoundError()
   if (!res.ok) throw new Error("failed to get session")
   return res.json()
 }

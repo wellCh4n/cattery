@@ -1,8 +1,9 @@
 "use client"
 
 import { use, useEffect, useState } from "react"
-import { AlertTriangle, Loader2 } from "lucide-react"
+import { AlertTriangle, Loader2, Trash2 } from "lucide-react"
 import { ChatPanel } from "@/components/chat-panel"
+import { SessionNotFoundError } from "@/lib/api"
 import { useDocumentTitle } from "@/lib/use-document-title"
 import { findSession, useWorkspaceStore } from "@/lib/workspace-store"
 
@@ -15,6 +16,10 @@ export default function SessionPage({ params }: { params: Promise<PageParams> })
   const session = useWorkspaceStore(state => findSession(state.projects, session_id)?.session ?? null)
   const refreshSession = useWorkspaceStore(state => state.refreshSession)
   const [error, setError] = useState<string | null>(null)
+  // Which session was found deleted, so the notice does not follow this page
+  // component over to another session.
+  const [deletedId, setDeletedId] = useState<string | null>(null)
+  const deleted = deletedId === session_id
   const missing = session === null
 
   useDocumentTitle(session ? (session.title ?? "New Session") : null)
@@ -25,10 +30,23 @@ export default function SessionPage({ params }: { params: Promise<PageParams> })
     if (!missing) return
     let cancelled = false
     refreshSession(session_id).catch(e => {
-      if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load session")
+      if (cancelled) return
+      // Deleted, here or by another member: the tab stays where it is and the
+      // pane shows only a notice.
+      if (e instanceof SessionNotFoundError) setDeletedId(session_id)
+      else setError(e instanceof Error ? e.message : "Failed to load session")
     })
     return () => { cancelled = true }
   }, [missing, refreshSession, session_id])
+
+  if (deleted) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center px-4 text-center">
+        <Trash2 className="size-8 text-muted-foreground/50" />
+        <p className="mt-2 text-sm text-muted-foreground">This session has been deleted</p>
+      </div>
+    )
+  }
 
   if (error) {
     return (
