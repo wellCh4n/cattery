@@ -48,9 +48,11 @@ export const useLiveStore = create<LiveState>(() => ({ presence: {} }))
 
 const RETRY_MIN_MS = 1000
 const RETRY_MAX_MS = 15_000
-// Refreshes that events trigger wait this long, so a burst of events (a new
-// session's created → handshake → ready) costs one list request.
-const COALESCE_MS = 300
+// Refreshes that events trigger wait this long after the last event for the
+// key, so a burst (a new session's created → handshake → ready) costs one
+// request that already sees the final state. A leading window would still send
+// the first event's request and then a second one for the rest.
+const COALESCE_MS = 500
 
 // Projects this tab watches, with how many callers watch each.
 const watched = new Map<string, number>()
@@ -140,10 +142,10 @@ function disconnect() {
   for (const key of [...pending.keys()]) cancel(key)
 }
 
-// later runs refresh once, COALESCE_MS after the first event for key; events
-// for key arriving meanwhile join it. Anything after it schedules another.
+// later runs refresh once, COALESCE_MS after the last event for key; every
+// event that arrives meanwhile restarts the wait.
 function later(key: string, refresh: () => void) {
-  if (pending.has(key)) return
+  cancel(key)
   pending.set(key, setTimeout(() => {
     pending.delete(key)
     refresh()
@@ -174,10 +176,19 @@ function handle(ev: LiveEvent) {
     case "sandbox":
       useWorkspaceStore.getState().applySandboxStatus(ev.project_id, ev.data.sandbox_status)
       break
-    // Like the other lists, any session change rereads the project's list.
-    case "session":
-      later(`sessions:${ev.project_id}`, () => void useWorkspaceStore.getState().refreshSessions(ev.project_id).catch(() => {}))
+    // A session change touches one row: a deletion drops it locally, anything
+    // else refetches just that session (refreshSession inserts it when new).
+    case "session": {
+      const { session_id, change } = ev.data
+      const key = `session:${session_id}`
+      if (change === "deleted") {
+        cancel(key)
+        useWorkspaceStore.getState().dropSession(session_id)
+      } else {
+        later(key, () => void useWorkspaceStore.getState().refreshSession(session_id).catch(() => {}))
+      }
       break
+    }
     case "apps":
       useAppsStore.getState().apply(ev.project_id, ev.data.apps)
       break
