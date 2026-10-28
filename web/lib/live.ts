@@ -1,7 +1,8 @@
 "use client"
 
 import { create } from "zustand"
-import { liveURL } from "@/lib/api"
+import { liveURL, type SandboxApp } from "@/lib/api"
+import { useAppsStore } from "@/lib/apps-store"
 import { useMembersStore } from "@/lib/members-store"
 import { useInstalledSkillsStore } from "@/lib/skills-store"
 import { useProjectTerminalsStore } from "@/lib/terminal-store"
@@ -24,6 +25,8 @@ export type LiveEvent =
   | { type: "sandbox"; project_id: string; data: { sandbox_status: string } }
   | { type: "session"; project_id: string; data: SessionChange }
   | { type: "terminals" | "members" | "skills"; project_id: string }
+  // The project's listening apps, whole, sent when they change.
+  | { type: "apps"; project_id: string; data: { apps: SandboxApp[] } }
   // The user lost access to the project; the server already unsubscribed them.
   | { type: "removed"; project_id: string }
 
@@ -87,6 +90,8 @@ function subscribe(ws: WebSocket, projectId: string) {
   void workspace.refreshProject(projectId).catch(() => {})
   void workspace.refreshSessions(projectId).catch(() => {})
   for (const store of [useProjectTerminalsStore, useMembersStore, useInstalledSkillsStore]) reload(store, projectId)
+  // The server only sends apps when they change, so a later subscriber reads them.
+  if (useAppsStore.getState().projectId === projectId) void useAppsStore.getState().load(projectId)
 }
 
 // reload refetches a resource only if this tab has loaded it; the rest load
@@ -172,6 +177,9 @@ function handle(ev: LiveEvent) {
     // Like the other lists, any session change rereads the project's list.
     case "session":
       later(`sessions:${ev.project_id}`, () => void useWorkspaceStore.getState().refreshSessions(ev.project_id).catch(() => {}))
+      break
+    case "apps":
+      useAppsStore.getState().apply(ev.project_id, ev.data.apps)
       break
     case "terminals":
       later(`terminals:${ev.project_id}`, () => reload(useProjectTerminalsStore, ev.project_id))

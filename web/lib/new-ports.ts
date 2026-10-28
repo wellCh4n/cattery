@@ -4,9 +4,10 @@ import type { SandboxApp } from "@/lib/api"
 // its config), not a new app.
 const RESTART_MS = 30_000
 
-// Tracks which ports a project's polls have seen and reports the ones that
+// Tracks which ports a project's lists have shown and reports the ones that
 // appear. The first list is the baseline: apps already running when the
-// project opens don't count as new.
+// project opens don't count as new. Lists arrive only when something changed,
+// so a port that vanishes counts as last seen at that moment.
 export class NewPortDetector {
   private lastSeen = new Map<number, number>()
   private previous: Set<number> | null = null
@@ -17,7 +18,9 @@ export class NewPortDetector {
       const seen = this.lastSeen.get(app.port)
       return seen === undefined || now - seen > RESTART_MS
     })
-    this.previous = new Set(apps.map(app => app.port))
+    const current = new Set(apps.map(app => app.port))
+    for (const port of this.previous ?? []) if (!current.has(port)) this.lastSeen.set(port, now)
+    this.previous = current
     for (const app of apps) this.lastSeen.set(app.port, now)
     return fresh
   }

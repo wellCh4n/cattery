@@ -72,10 +72,6 @@ func main() {
 	usageCollector := usage.NewCollector(usageStore, harnessClient, sandboxMgr)
 	sandboxMgr.OnRelease(usageCollector.Sync)
 	hub := live.NewHub()
-	sandboxMgr.OnStatus(func(projectID uuid.UUID, status string) {
-		hub.Publish(projectID, live.Event{Type: "sandbox", Data: map[string]string{"sandbox_status": status}})
-	})
-	go usageCollector.Run(context.Background())
 
 	projectH := api.NewProjectHandler(projectStore, memberStore, userStore, sandboxMgr, k8s, hub)
 	sessionH := api.NewSessionHandler(sessionStore, projectStore, harnessClient, sandboxMgr, models, usageCollector, hub)
@@ -89,7 +85,14 @@ func main() {
 	if err != nil {
 		log.Fatalf("PREVIEW_URL: %v", err)
 	}
-	portsH := api.NewPortsHandler(projectStore, sandboxMgr, signer, previewHosts)
+	portsH := api.NewPortsHandler(projectStore, sandboxMgr, signer, previewHosts, hub)
+	hub.OnWatch(portsH.WatchApps)
+	sandboxMgr.OnStatus(func(projectID uuid.UUID, status string) {
+		hub.Publish(projectID, live.Event{Type: "sandbox", Data: map[string]string{"sandbox_status": status}})
+		// A sandbox that started or stopped has different apps.
+		portsH.PokeApps(projectID)
+	})
+	go usageCollector.Run(context.Background())
 	usageH := api.NewUsageHandler(usageStore)
 	liveH := api.NewLiveHandler(hub, userStore, projectStore)
 

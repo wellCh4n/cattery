@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { usePathname, useRouter } from "next/navigation"
 import { ExternalLink, Globe, Loader2, Power } from "lucide-react"
 import { RefreshButton } from "@/components/refresh-button"
@@ -15,15 +15,20 @@ import { formatUptime } from "@/lib/uptime"
 
 // Servers listening in the project sandbox, each opening a preview tab. They
 // come from the sandbox's socket table, so servers started by the agent, a
-// terminal or anything else show up within a few seconds. AppWatcher polls
-// the list; this view only reads it.
+// terminal or anything else show up within a few seconds. The live channel
+// pushes the list; this view only reads it.
 export function AppListPanel({ projectId }: { projectId: string }) {
   const router = useRouter()
   const pathname = usePathname()
   const previewTemplate = usePreviewTemplate()
   const loaded = useAppsStore(s => s.projectId === projectId)
   const apps = useAppsStore(s => (loaded ? s.apps : null))
-  const now = useAppsStore(s => s.readAt)
+  // Running times tick here; the list itself changes only when pushed.
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [])
   const listError = useAppsStore(s => (loaded ? s.error : null))
   const refreshing = useAppsStore(s => loaded && s.refreshing)
   const loadApps = useAppsStore(s => s.load)

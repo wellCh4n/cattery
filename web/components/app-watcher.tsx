@@ -6,12 +6,9 @@ import { useAppsStore } from "@/lib/apps-store"
 import { NewPortDetector } from "@/lib/new-ports"
 import { notify } from "@/lib/notify"
 
-// How often the open project's listening servers are re-read.
-const POLL_MS = 3000
-
-// Polls the open project's sandbox servers whatever the sidebar shows, and
-// toasts when one starts listening. Keyed by project, so switching projects
-// starts a fresh baseline.
+// Loads the open project's sandbox servers whatever the sidebar shows (the live
+// channel pushes later changes), and toasts when one starts listening. Keyed
+// by project, so switching projects starts a fresh baseline.
 export function AppWatcher({ projectId }: { projectId: string }) {
   const router = useRouter()
   const load = useAppsStore(s => s.load)
@@ -20,14 +17,7 @@ export function AppWatcher({ projectId }: { projectId: string }) {
   const detector = useRef(new NewPortDetector())
 
   useEffect(() => {
-    const tick = () => { if (document.visibilityState === "visible") void load(projectId) }
-    tick()
-    const timer = window.setInterval(tick, POLL_MS)
-    document.addEventListener("visibilitychange", tick)
-    return () => {
-      window.clearInterval(timer)
-      document.removeEventListener("visibilitychange", tick)
-    }
+    void load(projectId)
   }, [projectId, load])
 
   useEffect(() => {
@@ -35,8 +25,10 @@ export function AppWatcher({ projectId }: { projectId: string }) {
     for (const app of detector.current.next(apps, readAt)) {
       notify(`Port ${app.port} is running`, {
         id: `app-${projectId}-${app.port}`,
-        // Stays until closed, so a server started while away isn't missed.
-        persistent: true,
+        // Sonner holds the timer while the tab is hidden, so a server started
+        // while away still shows for the full 5 s on return.
+        duration: 5000,
+        closeButton: true,
         description: app.command,
         action: { label: "Open", onClick: () => router.push(`/ports/${projectId}/${app.port}`) },
       })

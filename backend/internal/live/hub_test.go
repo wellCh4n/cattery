@@ -172,3 +172,27 @@ func TestEvictUnsubscribesEveryTabOfTheUser(t *testing.T) {
 	nilHub.Publish(project, Event{Type: "terminals"})
 	nilHub.Evict(project, alice.UserID)
 }
+
+func TestOnWatchReportsFirstAndLastSubscriber(t *testing.T) {
+	hub := NewHub()
+	project := uuid.New()
+	var got []bool
+	hub.OnWatch(func(p uuid.UUID, watching bool) {
+		if p == project {
+			got = append(got, watching)
+		}
+	})
+	alice := User{UserID: uuid.New()}
+	a1, a2, b := hub.Add(alice), hub.Add(alice), hub.Add(User{UserID: uuid.New()})
+	hub.Subscribe(a1, project)
+	hub.Subscribe(a2, project)
+	hub.Subscribe(b, project)
+	hub.Remove(a1)
+	hub.Evict(project, alice.UserID)
+	hub.Unsubscribe(b, project)
+	hub.Subscribe(b, project)
+	hub.Remove(b)
+	if want := []bool{true, false, true, false}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] || got[2] != want[2] || got[3] != want[3] {
+		t.Fatalf("watch = %v, want %v", got, want)
+	}
+}

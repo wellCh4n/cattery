@@ -27,3 +27,12 @@ test("a quick restart is not new, a later start is", () => {
   d.next(apps(), 12_000)
   assert.deepEqual(ports(d.next(apps(5173), 60_000)), [5173])
 })
+
+test("lists sent only on change still tell a restart from a new start", () => {
+  const d = new NewPortDetector()
+  d.next(apps(), 0)
+  assert.deepEqual(ports(d.next(apps(5173), 1_000)), [5173])
+  // Nothing changes for a long while, then the dev server restarts.
+  d.next(apps(), 100_000)
+  assert.deepEqual(ports(d.next(apps(5173), 103_000)), [])
+})

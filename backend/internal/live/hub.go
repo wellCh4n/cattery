@@ -53,6 +53,10 @@ type Hub struct {
 	// arrived orders presence: when each user's first connection still in
 	// the project subscribed.
 	arrived map[uuid.UUID]map[uuid.UUID]time.Time
+	// onWatch hears when a project gains its first subscriber (true) and
+	// loses its last (false). It runs under the hub's lock, so it must not
+	// block or call back into the hub.
+	onWatch func(projectID uuid.UUID, watching bool)
 }
 
 func NewHub() *Hub {
@@ -60,6 +64,18 @@ func NewHub() *Hub {
 		clients: map[*Client]struct{}{},
 		subs:    map[uuid.UUID]map[*Client]struct{}{},
 		arrived: map[uuid.UUID]map[uuid.UUID]time.Time{},
+	}
+}
+
+// OnWatch registers hook for when projects start and stop being watched; set
+// it before serving.
+func (h *Hub) OnWatch(hook func(projectID uuid.UUID, watching bool)) {
+	h.onWatch = hook
+}
+
+func (h *Hub) watchLocked(projectID uuid.UUID, watching bool) {
+	if h.onWatch != nil {
+		h.onWatch(projectID, watching)
 	}
 }
 
@@ -110,6 +126,7 @@ func (h *Hub) Subscribe(c *Client, projectID uuid.UUID) {
 	if h.subs[projectID] == nil {
 		h.subs[projectID] = map[*Client]struct{}{}
 		h.arrived[projectID] = map[uuid.UUID]time.Time{}
+		h.watchLocked(projectID, true)
 	}
 	h.subs[projectID][c] = struct{}{}
 	if _, ok := h.arrived[projectID][c.User.UserID]; !ok {
@@ -134,6 +151,7 @@ func (h *Hub) unsubscribeLocked(c *Client, projectID uuid.UUID) {
 	if len(h.subs[projectID]) == 0 {
 		delete(h.subs, projectID)
 		delete(h.arrived, projectID)
+		h.watchLocked(projectID, false)
 		return
 	}
 	if !h.hasUserLocked(projectID, c.User.UserID) {
@@ -177,6 +195,7 @@ func (h *Hub) Evict(projectID, userID uuid.UUID) {
 	if len(h.subs[projectID]) == 0 {
 		delete(h.subs, projectID)
 		delete(h.arrived, projectID)
+		h.watchLocked(projectID, false)
 	} else {
 		delete(h.arrived[projectID], userID)
 		h.publishLocked(projectID, h.presenceLocked(projectID))

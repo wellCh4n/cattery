@@ -10,11 +10,13 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -22,6 +24,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/wellch4n/cattery/internal/auth"
 	"github.com/wellch4n/cattery/internal/db"
+	"github.com/wellch4n/cattery/internal/live"
 	"github.com/wellch4n/cattery/internal/sandbox"
 )
 
@@ -39,10 +42,24 @@ type PortsHandler struct {
 	signer   *auth.Signer
 	// hosts names each preview's own host (PREVIEW_URL).
 	hosts *PreviewHosts
+	apps  *appsWatcher
 }
 
-func NewPortsHandler(projects *db.ProjectStore, sandboxMgr *sandbox.Manager, signer *auth.Signer, hosts *PreviewHosts) *PortsHandler {
-	return &PortsHandler{projects: projects, sandbox: sandboxMgr, signer: signer, hosts: hosts}
+func NewPortsHandler(projects *db.ProjectStore, sandboxMgr *sandbox.Manager, signer *auth.Signer, hosts *PreviewHosts, hub *live.Hub) *PortsHandler {
+	h := &PortsHandler{projects: projects, sandbox: sandboxMgr, signer: signer, hosts: hosts}
+	h.apps = newAppsWatcher(h.readApps, hub)
+	return h
+}
+
+// WatchApps is the live hub's OnWatch hook: while a project has subscribers,
+// its listening apps are pushed to them as they change.
+func (h *PortsHandler) WatchApps(projectID uuid.UUID, watching bool) {
+	h.apps.watch(projectID, watching)
+}
+
+// PokeApps rereads a watched project's apps now instead of at the next poll.
+func (h *PortsHandler) PokeApps(projectID uuid.UUID) {
+	h.apps.poke(projectID)
 }
 
 // The agent API is internal: a preview of it would let any member drive
@@ -63,28 +80,37 @@ type listeningApp struct {
 // List returns the servers listening in the sandbox, without the platform's
 // own ports. The agent harness reads them: it shares the PID namespace of
 // everything started in the agent container, so it can name each process.
-// A sandbox whose agent isn't up runs no apps.
 func (h *PortsHandler) List(c echo.Context) error {
 	access, err := requireReadableProject(c, h.projects)
 	if err != nil {
 		return err
 	}
-	out := []listeningApp{}
-	base, ok := h.sandbox.URL(c.Request().Context(), access.Project.ProjectID)
-	if !ok {
-		return c.JSON(http.StatusOK, out)
-	}
-	req, err := http.NewRequestWithContext(c.Request().Context(), http.MethodGet, base+"/ports", nil)
-	if err != nil {
-		return err
-	}
-	resp, err := http.DefaultClient.Do(req)
+	apps, err := h.readApps(c.Request().Context(), access.Project.ProjectID)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadGateway, err.Error())
 	}
+	return c.JSON(http.StatusOK, apps)
+}
+
+// readApps asks the agent for the project's listening apps, sorted by port.
+// A sandbox whose agent isn't up runs no apps.
+func (h *PortsHandler) readApps(ctx context.Context, projectID uuid.UUID) ([]listeningApp, error) {
+	out := []listeningApp{}
+	base, ok := h.sandbox.URL(ctx, projectID)
+	if !ok {
+		return out, nil
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/ports", nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return echo.NewHTTPError(http.StatusBadGateway, fmt.Sprintf("agent ports status %d", resp.StatusCode))
+		return nil, fmt.Errorf("agent ports status %d", resp.StatusCode)
 	}
 	var apps []struct {
 		Port      int    `json:"port"`
@@ -93,14 +119,15 @@ func (h *PortsHandler) List(c echo.Context) error {
 		StartedAt string `json:"startedAt"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&apps); err != nil {
-		return echo.NewHTTPError(http.StatusBadGateway, err.Error())
+		return nil, err
 	}
 	for _, a := range apps {
 		if !reservedPort(a.Port) {
 			out = append(out, listeningApp{Port: a.Port, PID: a.PID, Command: a.Command, StartedAt: a.StartedAt})
 		}
 	}
-	return c.JSON(http.StatusOK, out)
+	slices.SortFunc(out, func(a, b listeningApp) int { return a.Port - b.Port })
+	return out, nil
 }
 
 // Stop ends the process serving :port in the sandbox. The agent looks the
@@ -134,6 +161,7 @@ func (h *PortsHandler) Stop(c echo.Context) error {
 	_ = json.NewDecoder(resp.Body).Decode(&body)
 	switch {
 	case resp.StatusCode == http.StatusOK:
+		h.apps.poke(access.Project.ProjectID)
 		return c.JSON(http.StatusOK, echo.Map{"forced": body.Forced})
 	case resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusForbidden:
 		return echo.NewHTTPError(resp.StatusCode, body.Error)
