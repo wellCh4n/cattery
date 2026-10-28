@@ -1,7 +1,7 @@
 "use client"
 
 import { use, useState } from "react"
-import { ExternalLink, Globe, RotateCw } from "lucide-react"
+import { AppWindow, ExternalLink, RotateCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Hint } from "@/components/ui/hint"
 import { previewBase, previewURL } from "@/lib/api"
@@ -53,7 +53,7 @@ export default function PortPage({ params, searchParams }: {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex h-9 shrink-0 items-center gap-1.5 border-b px-2">
-        <Globe className="size-4 shrink-0 text-muted-foreground" />
+        <AppWindow className="size-4 shrink-0 text-muted-foreground" />
         <form
           className="flex min-w-0 flex-1 items-center rounded-md border bg-muted/30 px-2 font-mono text-xs focus-within:ring-1 focus-within:ring-ring"
           onSubmit={e => { e.preventDefault(); go(draft.trim() || "/") }}

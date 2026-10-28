@@ -8,7 +8,7 @@ import {
   ChevronDown,
   FolderOpen,
   GitFork,
-  Globe,
+  AppWindow,
   UserRound,
   Loader2,
   LogOut,
@@ -382,7 +382,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
               onClick={() => switchView("files")}
             />
             <ActivityButton
-              icon={<Globe className="size-6" />}
+              icon={<AppWindow className="size-6" />}
               label="Apps"
               active={view === "apps"}
               onClick={() => switchView("apps")}

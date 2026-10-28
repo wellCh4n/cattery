@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { usePathname, useRouter } from "next/navigation"
-import { ExternalLink, Globe, Loader2, Power } from "lucide-react"
+import { ExternalLink, AppWindow, Loader2, Power } from "lucide-react"
 import { RefreshButton } from "@/components/refresh-button"
 import { Tree, type TreeNode } from "@/components/tree"
 import { TreeRowAction } from "@/components/tree-row"
@@ -65,7 +65,7 @@ export function AppListPanel({ projectId }: { projectId: string }) {
       body: (
         <span className="flex min-w-0 flex-1 flex-col gap-1">
           <span className="flex h-6 min-w-0 items-center gap-1.5">
-            <span className="flex size-4 shrink-0 items-center justify-center"><Globe className="size-4 text-muted-foreground" /></span>
+            <span className="flex size-4 shrink-0 items-center justify-center"><AppWindow className="size-4 text-muted-foreground" /></span>
             <span className="min-w-0 flex-1 truncate">Port {app.port}</span>
             {uptime && (
               <time className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground/70 group-hover/treerow:hidden" dateTime={app.started_at}>
@@ -117,7 +117,7 @@ export function AppListPanel({ projectId }: { projectId: string }) {
           <Tree items={items} />
         ) : (
           <div className="flex h-full flex-col items-center justify-center px-4 text-center">
-            <Globe className="size-8 text-muted-foreground/50" />
+            <AppWindow className="size-8 text-muted-foreground/50" />
             <p className="mt-2 text-xs text-muted-foreground">No apps running</p>
             <p className="mt-1 text-xs text-muted-foreground/70">Start a web server in the sandbox and it shows up here.</p>
           </div>
