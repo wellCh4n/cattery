@@ -64,8 +64,11 @@ interface WorkspaceStore {
   applySessionUpdate: (updated: Session) => void
   deleteSession: (sessionId: string) => Promise<void>
   refreshSession: (sessionId: string) => Promise<Session>
-  // Polls a creating session until it is ready or failed. One watcher per session.
-  watchSession: (sessionId: string) => void
+  // Rereads a project's session list, for changes missed while not watching it.
+  refreshSessions: (projectId: string) => Promise<void>
+  // Forgets a session or project deleted elsewhere (or no longer accessible).
+  dropSession: (sessionId: string) => void
+  dropProject: (projectId: string) => void
   refreshProject: (projectId: string) => Promise<void>
   applySandboxStatus: (projectId: string, status: string) => void
   setSessionBusy: (sessionId: string, busy: boolean) => void
@@ -136,9 +139,16 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   deleteProject: async (projectId: string) => {
     const removed = get().projects.find(p => p.project_id === projectId)
     await apiDeleteProject(projectId)
+    get().dropProject(projectId)
+    return removed
+  },
+
+  dropProject: (projectId: string) => {
     set(state => {
+      const removed = state.projects.find(p => p.project_id === projectId)
+      if (!removed) return state
       const nextBusy = new Set(state.busySessions)
-      for (const session of removed?.sessions ?? []) nextBusy.delete(session.session_id)
+      for (const session of removed.sessions) nextBusy.delete(session.session_id)
       const nextProjects = state.projects.filter(p => p.project_id !== projectId)
       const nextCurrent = state.currentProjectId === projectId
         ? (nextProjects[0]?.project_id ?? null)
@@ -150,7 +160,6 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
         currentProjectId: nextCurrent,
       }
     })
-    return removed
   },
 
   updateSessionTitle: (sessionId: string, title: string) => {
@@ -213,23 +222,32 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
     const last = readLastModel()
     const catalog = await useModelsStore.getState().load().catch(() => null)
     const session = await apiCreateSession(projectId, catalog && catalogHas(catalog, last) ? last : "", readLastEffort())
+    // Live "session" events carry it on from creating to ready or failed.
     set(state => ({
-      projects: mapSessions(state.projects, projectId, sessions => [session, ...sessions]),
+      projects: mapSessions(state.projects, projectId, sessions =>
+        sessions.some(s => s.session_id === session.session_id) ? sessions : [session, ...sessions],
+      ),
     }))
-    get().watchSession(session.session_id)
     return session
   },
 
   forkSession: async (sessionId: string, before?: string) => {
     const session = await apiForkSession(sessionId, before)
     set(state => ({
-      projects: mapSessions(state.projects, session.project_id, sessions => [session, ...sessions]),
+      projects: mapSessions(state.projects, session.project_id, sessions =>
+        sessions.some(s => s.session_id === session.session_id) ? sessions : [session, ...sessions],
+      ),
     }))
     return session
   },
 
   deleteSession: async (sessionId: string) => {
     await apiDeleteSession(sessionId)
+    get().dropSession(sessionId)
+  },
+
+  dropSession: (sessionId: string) => {
+    if (!findSession(get().projects, sessionId)) return
     set(state => {
       const nextBusy = new Set(state.busySessions)
       nextBusy.delete(sessionId)
@@ -255,30 +273,23 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
     return session
   },
 
-  watchSession: (sessionId: string) => {
-    if (watchedSessions.has(sessionId)) return
-    watchedSessions.add(sessionId)
-    let delay = 1000
-    const poll = async () => {
-      try {
-        // Stop if the session was deleted meanwhile.
-        if (!findSession(get().projects, sessionId)) {
-          watchedSessions.delete(sessionId)
-          return
-        }
-        const session = await get().refreshSession(sessionId)
-        if (session.status !== "creating") {
-          watchedSessions.delete(sessionId)
-          // Creating the session may have started the project's sandbox.
-          void get().refreshProject(session.project_id).catch(() => {})
-          return
-        }
-      } catch { /* transient; retry below */ }
-      // A cold sandbox can take a while; back off instead of hammering it.
-      delay = Math.min(delay * 1.5, 5000)
-      setTimeout(poll, delay)
-    }
-    setTimeout(poll, delay)
+  refreshSessions: async (projectId: string) => {
+    const request = (sessionListRequests.get(projectId) ?? 0) + 1
+    sessionListRequests.set(projectId, request)
+    const sessions = await listSessions(projectId)
+    // A later request answers with newer state; this one is superseded.
+    if (sessionListRequests.get(projectId) !== request) return
+    set(state => {
+      const kept = new Set(sessions.map(s => s.session_id))
+      const removed = state.projects.find(p => p.project_id === projectId)?.sessions
+        .filter(s => !kept.has(s.session_id) && state.busySessions.has(s.session_id)) ?? []
+      let busySessions = state.busySessions
+      if (removed.length) {
+        busySessions = new Set(busySessions)
+        for (const s of removed) busySessions.delete(s.session_id)
+      }
+      return { busySessions, projects: mapSessions(state.projects, projectId, () => sessions) }
+    })
   },
 
   // refreshProject re-reads a project's sandbox status (sessions untouched).
@@ -311,7 +322,8 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   },
 }))
 
-const watchedSessions = new Set<string>()
+// The latest session list request per project, so out-of-order answers are dropped.
+const sessionListRequests = new Map<string, number>()
 
 // Sessions are private to their creator; other members follow them read-only.
 // Sessions without a creator fall to the project owner. Mirrors the backend's

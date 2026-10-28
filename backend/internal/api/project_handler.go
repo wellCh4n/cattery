@@ -10,6 +10,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/wellch4n/cattery/internal/db"
 	"github.com/wellch4n/cattery/internal/k8s"
+	"github.com/wellch4n/cattery/internal/live"
 	"github.com/wellch4n/cattery/internal/model"
 	"github.com/wellch4n/cattery/internal/sandbox"
 )
@@ -20,10 +21,11 @@ type ProjectHandler struct {
 	users    *db.UserStore
 	sandbox  *sandbox.Manager
 	k8s      *k8s.Client
+	live     *live.Hub
 }
 
-func NewProjectHandler(projects *db.ProjectStore, members *db.MemberStore, users *db.UserStore, sandboxMgr *sandbox.Manager, k8sClient *k8s.Client) *ProjectHandler {
-	return &ProjectHandler{projects: projects, members: members, users: users, sandbox: sandboxMgr, k8s: k8sClient}
+func NewProjectHandler(projects *db.ProjectStore, members *db.MemberStore, users *db.UserStore, sandboxMgr *sandbox.Manager, k8sClient *k8s.Client, hub *live.Hub) *ProjectHandler {
+	return &ProjectHandler{projects: projects, members: members, users: users, sandbox: sandboxMgr, k8s: k8sClient, live: hub}
 }
 
 type projectDTO struct {
@@ -216,6 +218,7 @@ func (h *ProjectHandler) CreateMember(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
+	h.live.Publish(access.Project.ProjectID, live.Event{Type: "members"})
 	return c.JSON(http.StatusCreated, member)
 }
 
@@ -234,5 +237,8 @@ func (h *ProjectHandler) DeleteMember(c echo.Context) error {
 		}
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
+	// The removed member stops receiving the project's events at once.
+	h.live.Evict(access.Project.ProjectID, userID)
+	h.live.Publish(access.Project.ProjectID, live.Event{Type: "members"})
 	return c.NoContent(http.StatusNoContent)
 }

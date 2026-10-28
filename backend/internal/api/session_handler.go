@@ -17,6 +17,7 @@ import (
 	"github.com/wellch4n/cattery/internal/config"
 	"github.com/wellch4n/cattery/internal/db"
 	"github.com/wellch4n/cattery/internal/harness"
+	"github.com/wellch4n/cattery/internal/live"
 	"github.com/wellch4n/cattery/internal/model"
 	"github.com/wellch4n/cattery/internal/sandbox"
 	"github.com/wellch4n/cattery/internal/usage"
@@ -39,6 +40,7 @@ type SessionHandler struct {
 	sandbox       sessionSandbox
 	models        *config.Models
 	usage         usageSyncer
+	live          *live.Hub
 }
 
 func NewSessionHandler(
@@ -48,8 +50,34 @@ func NewSessionHandler(
 	sandboxMgr *sandbox.Manager,
 	models *config.Models,
 	usage usageSyncer,
+	hub *live.Hub,
 ) *SessionHandler {
-	return &SessionHandler{sessionStore, projectStore, harnessClient, sandboxMgr, models, usage}
+	return &SessionHandler{sessionStore, projectStore, harnessClient, sandboxMgr, models, usage, hub}
+}
+
+// What a live "session" frame reports about the session.
+const (
+	sessionCreated  = "created"
+	sessionForked   = "forked"
+	sessionStatus   = "status"   // bringUp moved it on; carries status and phase
+	sessionTitle    = "title"    // renamed by hand or by its automatic title
+	sessionSettings = "settings" // model or effort switched
+	sessionUpdated  = "updated"  // title and settings in one request
+	sessionActivity = "activity" // a message was sent
+	sessionDeleted  = "deleted"
+)
+
+// sessionEvent is the live "session" frame: the session changed, so the
+// project's members reread it, or it was deleted.
+type sessionEvent struct {
+	SessionID uuid.UUID `json:"session_id"`
+	Change    string    `json:"change"`
+	Status    string    `json:"status,omitempty"`
+	Phase     string    `json:"phase,omitempty"`
+}
+
+func (h *SessionHandler) publish(projectID uuid.UUID, ev sessionEvent) {
+	h.live.Publish(projectID, live.Event{Type: "session", Data: ev})
 }
 
 // syncUsage collects the project's token usage in the background.
@@ -136,31 +164,36 @@ func (h *SessionHandler) Create(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
+	h.publish(sess.ProjectID, sessionEvent{SessionID: sess.SessionID, Change: sessionCreated, Status: sess.Status})
 	go h.bringUp(sess)
 
 	return c.JSON(http.StatusCreated, sess)
 }
 
 // bringUp 确保 project 的 sandbox 在线（必要时拉起），然后在 agent 里登记 session。
-// 前端轮询 session.status：creating → ready / failed。
+// session.status 走 creating → ready / failed，每一步都通过 live 通知前端。
 func (h *SessionHandler) bringUp(sess *model.Session) {
 	ctx := context.Background()
+	setStatus := func(status, phase string) {
+		_ = h.sessionStore.UpdateStatus(ctx, sess.SessionID, status, phase)
+		h.publish(sess.ProjectID, sessionEvent{SessionID: sess.SessionID, Change: sessionStatus, Status: status, Phase: phase})
+	}
 
 	sandboxURL, err := h.sandbox.EnsureReady(ctx, sess.ProjectID)
 	if err != nil {
 		log.Printf("warn: bring up sandbox for project %s: %v", sess.ProjectID, err)
-		_ = h.sessionStore.UpdateStatus(ctx, sess.SessionID, "failed", "sandbox_error")
+		setStatus("failed", "sandbox_error")
 		return
 	}
 
-	_ = h.sessionStore.UpdateStatus(ctx, sess.SessionID, "creating", "handshake")
+	setStatus("creating", "handshake")
 	if err := h.ensureAgentSession(ctx, sandboxURL, sess); err != nil {
 		log.Printf("warn: handshake session %s: %v", sess.SessionID, err)
-		_ = h.sessionStore.UpdateStatus(ctx, sess.SessionID, "failed", "handshake_error")
+		setStatus("failed", "handshake_error")
 		return
 	}
 
-	_ = h.sessionStore.UpdateStatus(ctx, sess.SessionID, "ready", "")
+	setStatus("ready", "")
 }
 
 // ensureAgentSession registers the session with the agent, along with its
@@ -250,6 +283,7 @@ func (h *SessionHandler) Fork(c echo.Context) error {
 	if err := h.ensureAgentSession(ctx, sandboxURL, sess); err != nil {
 		log.Printf("warn: register fork %s: %v", sess.SessionID, err)
 	}
+	h.publish(sess.ProjectID, sessionEvent{SessionID: sess.SessionID, Change: sessionForked, Status: sess.Status})
 	return c.JSON(http.StatusCreated, sess)
 }
 
@@ -337,6 +371,7 @@ func (h *SessionHandler) SendMessage(c echo.Context) error {
 		})
 		if err == nil && updated {
 			ev.Data, _ = json.Marshal(harness.SessionTitleData{Title: name})
+			h.publish(sess.ProjectID, sessionEvent{SessionID: sessionID, Change: sessionTitle})
 		}
 		if err != nil {
 			log.Printf("warn: save title for %s: %v", sessionID, err)
@@ -360,6 +395,7 @@ func (h *SessionHandler) SendMessage(c echo.Context) error {
 			log.Printf("warn: save activity for %s: %v", sessionID, err)
 		}
 		cancelActivity()
+		h.publish(sess.ProjectID, sessionEvent{SessionID: sessionID, Change: sessionActivity})
 
 		c.Response().Header().Set("Content-Type", "text/event-stream")
 		c.Response().Header().Set("Cache-Control", "no-cache")
@@ -515,6 +551,14 @@ func (h *SessionHandler) Update(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusNotFound, "session not found")
 	}
+	change := sessionSettings
+	switch {
+	case req.Title != nil && req.Model == nil && req.Effort == nil:
+		change = sessionTitle
+	case req.Title != nil:
+		change = sessionUpdated
+	}
+	h.publish(sess.ProjectID, sessionEvent{SessionID: sess.SessionID, Change: change})
 	return c.JSON(http.StatusOK, sess)
 }
 
@@ -539,6 +583,7 @@ func (h *SessionHandler) Delete(c echo.Context) error {
 	if err := h.sessionStore.HardDelete(c.Request().Context(), sess.SessionID); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
+	h.publish(sess.ProjectID, sessionEvent{SessionID: sess.SessionID, Change: sessionDeleted})
 	return c.NoContent(http.StatusNoContent)
 }
 

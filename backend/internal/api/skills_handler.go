@@ -19,10 +19,13 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"path"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/wellch4n/cattery/internal/db"
+	"github.com/wellch4n/cattery/internal/live"
 	"github.com/wellch4n/cattery/internal/sandbox"
 	"github.com/wellch4n/cattery/internal/skills"
 )
@@ -31,10 +34,11 @@ type SkillsHandler struct {
 	library  *skills.Library
 	projects *db.ProjectStore
 	sandbox  *sandbox.Manager
+	live     *live.Hub
 }
 
-func NewSkillsHandler(library *skills.Library, projects *db.ProjectStore, sandboxMgr *sandbox.Manager) *SkillsHandler {
-	return &SkillsHandler{library: library, projects: projects, sandbox: sandboxMgr}
+func NewSkillsHandler(library *skills.Library, projects *db.ProjectStore, sandboxMgr *sandbox.Manager, hub *live.Hub) *SkillsHandler {
+	return &SkillsHandler{library: library, projects: projects, sandbox: sandboxMgr, live: hub}
 }
 
 // ProjectSkillsDir is where installed skills live, relative to the project
@@ -122,7 +126,28 @@ func (h *SkillsHandler) Install(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	extractReq.Header.Set("Content-Type", "application/x-tar")
-	return forward(c, extractReq)
+	err = forward(c, extractReq)
+	publishSkills(c, h.live, access.Project.ProjectID)
+	return err
+}
+
+// publishSkills tells the project's members to reread its installed skills,
+// once a forwarded change succeeded.
+func publishSkills(c echo.Context, hub *live.Hub, projectID uuid.UUID) {
+	if c.Response().Committed && c.Response().Status < http.StatusMultipleChoices {
+		hub.Publish(projectID, live.Event{Type: "skills"})
+	}
+}
+
+// touchesSkills reports whether changing the workspace path p can change the
+// installed skills: p is ~/.agents/skills, inside it, or one of its parents.
+func touchesSkills(p string) bool {
+	if p == "" {
+		return false
+	}
+	p = path.Clean("/" + p)
+	return p == ProjectSkillsDir || p == "/" ||
+		strings.HasPrefix(p, ProjectSkillsDir+"/") || strings.HasPrefix(ProjectSkillsDir, p+"/")
 }
 
 // maxProjectSkillZip caps a project skill upload. The archive is converted
@@ -174,5 +199,7 @@ func (h *SkillsHandler) UploadToProject(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	req.Header.Set("Content-Type", "application/x-tar")
-	return forward(c, req)
+	err = forward(c, req)
+	publishSkills(c, h.live, access.Project.ProjectID)
+	return err
 }

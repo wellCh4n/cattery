@@ -142,12 +142,48 @@ func (h *Hub) unsubscribeLocked(c *Client, projectID uuid.UUID) {
 	h.publishLocked(projectID, h.presenceLocked(projectID))
 }
 
-// Publish sends ev to every client subscribed to projectID.
+// Publish sends ev to every client subscribed to projectID. A nil hub drops
+// it, so handlers built without one (tests) need no checks.
 func (h *Hub) Publish(projectID uuid.UUID, ev Event) {
+	if h == nil {
+		return
+	}
 	ev.ProjectID = &projectID
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.publishLocked(projectID, ev)
+}
+
+// Evict unsubscribes userID's connections from projectID after the user lost
+// access, telling each with a "removed" frame. The rest of the project sees
+// them leave through presence.
+func (h *Hub) Evict(projectID, userID uuid.UUID) {
+	if h == nil {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	var evicted []*Client
+	for c := range h.subs[projectID] {
+		if c.User.UserID == userID {
+			evicted = append(evicted, c)
+			delete(c.projects, projectID)
+			delete(h.subs[projectID], c)
+		}
+	}
+	if len(evicted) == 0 {
+		return
+	}
+	if len(h.subs[projectID]) == 0 {
+		delete(h.subs, projectID)
+		delete(h.arrived, projectID)
+	} else {
+		delete(h.arrived[projectID], userID)
+		h.publishLocked(projectID, h.presenceLocked(projectID))
+	}
+	for _, c := range evicted {
+		h.sendLocked(c, Event{Type: "removed", ProjectID: &projectID})
+	}
 }
 
 func (h *Hub) publishLocked(projectID uuid.UUID, ev Event) {

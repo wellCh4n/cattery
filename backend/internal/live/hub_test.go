@@ -138,3 +138,37 @@ func TestSlowClientIsDropped(t *testing.T) {
 	}
 	hub.Remove(slow) // already gone: must not panic
 }
+
+func TestEvictUnsubscribesEveryTabOfTheUser(t *testing.T) {
+	hub := NewHub()
+	project := uuid.New()
+	alice := User{UserID: uuid.New(), Username: "alice"}
+	bob := User{UserID: uuid.New(), Username: "bob"}
+	a1, a2, b := hub.Add(alice), hub.Add(alice), hub.Add(bob)
+	for _, c := range []*Client{a1, a2, b} {
+		hub.Subscribe(c, project)
+	}
+	for _, c := range []*Client{a1, a2, b} {
+		for len(c.Send) > 0 {
+			next(t, c)
+		}
+	}
+
+	hub.Evict(project, alice.UserID)
+	if got := names(next(t, b)); !equal(got, []string{"bob"}) {
+		t.Fatalf("presence = %v", got)
+	}
+	for _, c := range []*Client{a1, a2} {
+		if f := next(t, c); f.Type != "removed" || f.ProjectID == nil || *f.ProjectID != project {
+			t.Fatalf("frame = %+v", f)
+		}
+	}
+	hub.Publish(project, Event{Type: "terminals"})
+	next(t, b)
+	none(t, a1)
+	none(t, a2)
+
+	var nilHub *Hub
+	nilHub.Publish(project, Event{Type: "terminals"})
+	nilHub.Evict(project, alice.UserID)
+}

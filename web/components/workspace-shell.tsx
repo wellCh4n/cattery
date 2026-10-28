@@ -59,6 +59,7 @@ import { type Session } from "@/lib/api"
 import { canWriteSession, type ProjectWithSessions, useWorkspaceStore } from "@/lib/workspace-store"
 import { useAuthStore } from "@/lib/auth-store"
 import { useForkSession } from "@/lib/use-fork-session"
+import { watchProject } from "@/lib/live"
 import { compareSessionActivity, sessionActivityTime } from "@/lib/session-activity"
 import { RefreshButton } from "@/components/refresh-button"
 
@@ -111,9 +112,6 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
   }, [view])
 
   function switchView(next: SidebarView) {
-    // Like the other views, which reload when shown. The first load happens
-    // with the workspace, so only switching back refreshes.
-    if (next === "sessions" && view !== "sessions") void refreshSessions()
     setView(next)
     setVisitedViews(prev => prev.has(next) ? prev : new Set(prev).add(next))
   }
@@ -182,6 +180,11 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
     [projects, currentProjectId],
   )
   const sessions = useMemo(() => [...(currentProject?.sessions ?? [])].sort(compareSessionActivity), [currentProject?.sessions])
+
+  // The live channel follows the open project: presence, and its sessions,
+  // terminals, members and skills as other members change them.
+  const liveProjectId = currentProject?.project_id
+  useEffect(() => liveProjectId ? watchProject(liveProjectId) : undefined, [liveProjectId])
 
   // Starts on the last-picked model; it can be switched from the chat.
   const handleCreateSession = useCallback(async () => {

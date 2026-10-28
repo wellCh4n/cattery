@@ -27,10 +27,9 @@ export function TerminalListPanel({ projectId, active }: { projectId: string; ac
   const [error, setError] = useState<string | null>(null)
   const loading = !resource?.data && !resource?.error
 
-  // Refetched each time the view is shown, so terminals other members added or
-  // removed appear; there is no background polling.
+  // Other members' changes arrive as live "terminals" events.
   useEffect(() => {
-    if (active) void useProjectTerminalsStore.getState().invalidate(projectId)
+    if (active) void useProjectTerminalsStore.getState().load(projectId)
   }, [active, projectId])
   const terminals = useMemo(() => allTerminals.filter(t => t.project_id === projectId), [allTerminals, projectId])
   const route = tabForPath(pathname ?? "")

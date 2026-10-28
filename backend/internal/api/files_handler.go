@@ -5,10 +5,13 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"path"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/wellch4n/cattery/internal/db"
+	"github.com/wellch4n/cattery/internal/live"
 	"github.com/wellch4n/cattery/internal/model"
 	"github.com/wellch4n/cattery/internal/sandbox"
 )
@@ -16,10 +19,28 @@ import (
 type FilesHandler struct {
 	projects *db.ProjectStore
 	sandbox  *sandbox.Manager
+	live     *live.Hub
 }
 
-func NewFilesHandler(projects *db.ProjectStore, sandboxMgr *sandbox.Manager) *FilesHandler {
-	return &FilesHandler{projects: projects, sandbox: sandboxMgr}
+func NewFilesHandler(projects *db.ProjectStore, sandboxMgr *sandbox.Manager, hub *live.Hub) *FilesHandler {
+	return &FilesHandler{projects: projects, sandbox: sandboxMgr, live: hub}
+}
+
+// forwardChange forwards a request that creates, removes or moves the
+// workspace paths given. Installed skills are the folders in ~/.agents/skills,
+// so a change there (or to a parent) tells the project's members to reread
+// them. Writing files never changes that list.
+func (h *FilesHandler) forwardChange(c echo.Context, req *http.Request, paths ...string) error {
+	err := forward(c, req)
+	for _, p := range paths {
+		if touchesSkills(p) {
+			if projectID, perr := uuid.Parse(c.Param("project_id")); perr == nil {
+				publishSkills(c, h.live, projectID)
+			}
+			break
+		}
+	}
+	return err
 }
 
 // File requests wait for the agent container, not for agent sessions.
@@ -155,7 +176,7 @@ func (h *FilesHandler) Delete(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
-	return forward(c, req)
+	return h.forwardChange(c, req, c.QueryParam("path"))
 }
 
 // Rename proxies POST /projects/:id/files/rename?from=...&to=... where `to`
@@ -170,7 +191,8 @@ func (h *FilesHandler) Rename(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
-	return forward(c, req)
+	from := c.QueryParam("from")
+	return h.forwardChange(c, req, from, path.Join(path.Dir(from), c.QueryParam("to")))
 }
 
 // Move proxies POST /projects/:id/files/move?from=...&to=... where `to` is a
@@ -186,7 +208,8 @@ func (h *FilesHandler) Move(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
-	return forward(c, req)
+	from := c.QueryParam("from")
+	return h.forwardChange(c, req, from, path.Join(c.QueryParam("to"), path.Base(from)))
 }
 
 // Mkdir proxies POST /projects/:id/files/mkdir?path=...&name=... where `name`
@@ -209,6 +232,9 @@ func (h *FilesHandler) proxyCreate(c echo.Context, mgrPath string) error {
 	req, err := http.NewRequestWithContext(c.Request().Context(), http.MethodPost, target, nil)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	if mgrPath == "/mkdir" {
+		return h.forwardChange(c, req, path.Join(c.QueryParam("path"), c.QueryParam("name")))
 	}
 	return forward(c, req)
 }

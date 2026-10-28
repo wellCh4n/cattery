@@ -14,10 +14,8 @@ export default function SessionPage({ params }: { params: Promise<PageParams> })
   const { session_id } = use(params)
   const session = useWorkspaceStore(state => findSession(state.projects, session_id)?.session ?? null)
   const refreshSession = useWorkspaceStore(state => state.refreshSession)
-  const watchSession = useWorkspaceStore(state => state.watchSession)
   const [error, setError] = useState<string | null>(null)
   const missing = session === null
-  const status = session?.status
 
   useDocumentTitle(session ? (session.title ?? "New Session") : null)
 
@@ -31,10 +29,6 @@ export default function SessionPage({ params }: { params: Promise<PageParams> })
     })
     return () => { cancelled = true }
   }, [missing, refreshSession, session_id])
-
-  useEffect(() => {
-    if (status === "creating") watchSession(session_id)
-  }, [status, watchSession, session_id])
 
   if (error) {
     return (

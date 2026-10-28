@@ -27,6 +27,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/wellch4n/cattery/internal/db"
 	"github.com/wellch4n/cattery/internal/k8s"
+	"github.com/wellch4n/cattery/internal/live"
 	"github.com/wellch4n/cattery/internal/model"
 	"github.com/wellch4n/cattery/internal/sandbox"
 	"k8s.io/client-go/tools/remotecommand"
@@ -65,10 +66,16 @@ type TerminalHandler struct {
 	projects  *db.ProjectStore
 	terminals *db.TerminalStore
 	sandbox   terminalSandbox
+	live      *live.Hub
 }
 
-func NewTerminalHandler(projects *db.ProjectStore, terminals *db.TerminalStore, sandboxMgr *sandbox.Manager) *TerminalHandler {
-	return &TerminalHandler{projects: projects, terminals: terminals, sandbox: sandboxMgr}
+func NewTerminalHandler(projects *db.ProjectStore, terminals *db.TerminalStore, sandboxMgr *sandbox.Manager, hub *live.Hub) *TerminalHandler {
+	return &TerminalHandler{projects: projects, terminals: terminals, sandbox: sandboxMgr, live: hub}
+}
+
+// changed tells the project's members to reread its terminal list.
+func (h *TerminalHandler) changed(projectID uuid.UUID) {
+	h.live.Publish(projectID, live.Event{Type: "terminals"})
 }
 
 func (h *TerminalHandler) List(c echo.Context) error {
@@ -96,6 +103,7 @@ func (h *TerminalHandler) Create(c echo.Context) error {
 		}
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
+	h.changed(access.Project.ProjectID)
 	return c.JSON(http.StatusCreated, terminal)
 }
 
@@ -125,6 +133,7 @@ func (h *TerminalHandler) Rename(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
+	h.changed(access.Project.ProjectID)
 	return c.JSON(http.StatusOK, terminal)
 }
 
@@ -159,6 +168,9 @@ func (h *TerminalHandler) Import(c echo.Context) error {
 	}
 	if err := h.terminals.Import(c.Request().Context(), access.Project.ProjectID, terminals); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	if len(terminals) > 0 {
+		h.changed(access.Project.ProjectID)
 	}
 	return c.NoContent(http.StatusNoContent)
 }
@@ -313,6 +325,7 @@ func (h *TerminalHandler) Delete(c echo.Context) error {
 	if err := h.terminals.Delete(ctx, access.Project.ProjectID, terminalID); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
+	h.changed(access.Project.ProjectID)
 	return c.NoContent(http.StatusNoContent)
 }
 

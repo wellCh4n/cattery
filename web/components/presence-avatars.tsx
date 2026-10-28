@@ -1,10 +1,9 @@
 "use client"
 
-import { useEffect } from "react"
 import { UserAvatar } from "@/components/user-avatar"
 import { Hint } from "@/components/ui/hint"
 import { useAuthStore } from "@/lib/auth-store"
-import { type PresenceUser, useLiveStore, watchProject } from "@/lib/live"
+import { type PresenceUser, useLiveStore } from "@/lib/live"
 import { profileName } from "@/lib/profile"
 
 // Shown before an overflow count.
@@ -12,12 +11,11 @@ const MAX_SHOWN = 5
 const EMPTY: PresenceUser[] = []
 
 // The other members who have the project open right now, beside the user's
-// own avatar. Watching the project is what announces this user to them.
+// own avatar. The workspace shell watches the project, which is also what
+// announces this user to them.
 export function PresenceAvatars({ projectId }: { projectId: string }) {
   const selfId = useAuthStore(s => s.user?.user_id)
   const users = useLiveStore(s => s.presence[projectId] ?? EMPTY)
-
-  useEffect(() => watchProject(projectId), [projectId])
 
   const others = users.filter(u => u.user_id !== selfId)
   if (others.length === 0) return null

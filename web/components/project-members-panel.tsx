@@ -59,8 +59,9 @@ export function ProjectMembersPanel({ project, canManage, active }: Props) {
     await useMembersStore.getState().invalidate(project.project_id)
   }
 
+  // Loaded once; other members' changes arrive as live "members" events.
   useEffect(() => {
-    if (active) void useMembersStore.getState().invalidate(project.project_id)
+    if (active) void useMembersStore.getState().load(project.project_id)
   }, [active, project.project_id])
 
   async function removeMember(member: ProjectMember) {

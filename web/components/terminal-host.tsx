@@ -42,13 +42,6 @@ export function TerminalHost() {
     for (const id of ids) void useProjectTerminalsStore.getState().load(id)
   }, [loaded, projectIds, pruneProjects])
 
-  // Switching to a terminal tab refetches its project's list, so a terminal
-  // another member deleted closes; there is no background polling.
-  const activeProjectId = route?.kind === "terminal" ? route.projectId : null
-  useEffect(() => {
-    if (loaded && activeProjectId) void useProjectTerminalsStore.getState().invalidate(activeProjectId)
-  }, [loaded, activeProjectId, activeId])
-
   // Capture phase, so the shortcut works even while xterm has focus.
   useEffect(() => {
     let opening = false

@@ -2,12 +2,15 @@
 
 import { create } from "zustand"
 import { liveURL } from "@/lib/api"
+import { useMembersStore } from "@/lib/members-store"
+import { useInstalledSkillsStore } from "@/lib/skills-store"
+import { useProjectTerminalsStore } from "@/lib/terminal-store"
 import { useWorkspaceStore } from "@/lib/workspace-store"
 
 // The user's live channel: one WebSocket to /api/v1/live carrying presence and
 // project events for the projects this tab watches. Events are current state
-// or invalidations, so after a reconnect the client resubscribes and refetches
-// instead of replaying anything.
+// or invalidations, so on every (re)subscribe the client refetches what it
+// holds instead of replaying anything.
 
 export interface PresenceUser {
   user_id: string
@@ -19,6 +22,19 @@ export interface PresenceUser {
 export type LiveEvent =
   | { type: "presence"; project_id: string; data: { users: PresenceUser[] } }
   | { type: "sandbox"; project_id: string; data: { sandbox_status: string } }
+  | { type: "session"; project_id: string; data: SessionChange }
+  | { type: "terminals" | "members" | "skills"; project_id: string }
+  // The user lost access to the project; the server already unsubscribed them.
+  | { type: "removed"; project_id: string }
+
+// What happened to a session; "status" (its bringUp progress) also carries the
+// new status and phase.
+export interface SessionChange {
+  session_id: string
+  change: "created" | "forked" | "status" | "title" | "settings" | "updated" | "activity" | "deleted"
+  status?: string
+  phase?: string
+}
 
 interface LiveState {
   // Online users per watched project, in arrival order, the caller included.
@@ -29,12 +45,17 @@ export const useLiveStore = create<LiveState>(() => ({ presence: {} }))
 
 const RETRY_MIN_MS = 1000
 const RETRY_MAX_MS = 15_000
+// Refreshes that events trigger wait this long, so a burst of events (a new
+// session's created → handshake → ready) costs one list request.
+const COALESCE_MS = 300
 
 // Projects this tab watches, with how many callers watch each.
 const watched = new Map<string, number>()
 let socket: WebSocket | null = null
 let retryTimer: ReturnType<typeof setTimeout> | null = null
 let retryDelay = RETRY_MIN_MS
+// Event-triggered refreshes not yet run, by what they refresh.
+const pending = new Map<string, ReturnType<typeof setTimeout>>()
 
 // watchProject subscribes to a project's events until the returned function is
 // called. The connection opens with the first watcher and closes with the last.
@@ -42,7 +63,7 @@ export function watchProject(projectId: string): () => void {
   const count = watched.get(projectId) ?? 0
   watched.set(projectId, count + 1)
   if (count === 0) {
-    send({ type: "subscribe", project_id: projectId })
+    if (socket?.readyState === WebSocket.OPEN) subscribe(socket, projectId)
     connect()
   }
   return () => {
@@ -58,6 +79,26 @@ export function watchProject(projectId: string): () => void {
   }
 }
 
+// subscribe starts a project's events, then refetches what this tab holds of
+// it: anything that changed while it was not subscribed was missed.
+function subscribe(ws: WebSocket, projectId: string) {
+  ws.send(JSON.stringify({ type: "subscribe", project_id: projectId }))
+  const workspace = useWorkspaceStore.getState()
+  void workspace.refreshProject(projectId).catch(() => {})
+  void workspace.refreshSessions(projectId).catch(() => {})
+  for (const store of [useProjectTerminalsStore, useMembersStore, useInstalledSkillsStore]) reload(store, projectId)
+}
+
+// reload refetches a resource only if this tab has loaded it; the rest load
+// fresh when first shown.
+interface Reloadable {
+  getState(): { entries: Record<string, unknown>; invalidate: (key: string) => Promise<unknown> }
+}
+
+function reload(store: Reloadable, key: string) {
+  if (store.getState().entries[key]) void store.getState().invalidate(key)
+}
+
 function send(msg: object) {
   if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(msg))
 }
@@ -68,11 +109,7 @@ function connect() {
   socket = ws
   ws.onopen = () => {
     retryDelay = RETRY_MIN_MS
-    for (const projectId of watched.keys()) {
-      ws.send(JSON.stringify({ type: "subscribe", project_id: projectId }))
-      // Status changes while disconnected were missed.
-      void useWorkspaceStore.getState().refreshProject(projectId).catch(() => {})
-    }
+    for (const projectId of watched.keys()) subscribe(ws, projectId)
   }
   ws.onmessage = e => {
     try { handle(JSON.parse(e.data) as LiveEvent) } catch { /* ignore malformed frames */ }
@@ -95,6 +132,23 @@ function disconnect() {
   socket = null
   ws?.close()
   useLiveStore.setState({ presence: {} })
+  for (const key of [...pending.keys()]) cancel(key)
+}
+
+// later runs refresh once, COALESCE_MS after the first event for key; events
+// for key arriving meanwhile join it. Anything after it schedules another.
+function later(key: string, refresh: () => void) {
+  if (pending.has(key)) return
+  pending.set(key, setTimeout(() => {
+    pending.delete(key)
+    refresh()
+  }, COALESCE_MS))
+}
+
+function cancel(key: string) {
+  const timer = pending.get(key)
+  if (timer) clearTimeout(timer)
+  pending.delete(key)
 }
 
 function dropPresence(projectId: string) {
@@ -114,6 +168,23 @@ function handle(ev: LiveEvent) {
       break
     case "sandbox":
       useWorkspaceStore.getState().applySandboxStatus(ev.project_id, ev.data.sandbox_status)
+      break
+    // Like the other lists, any session change rereads the project's list.
+    case "session":
+      later(`sessions:${ev.project_id}`, () => void useWorkspaceStore.getState().refreshSessions(ev.project_id).catch(() => {}))
+      break
+    case "terminals":
+      later(`terminals:${ev.project_id}`, () => reload(useProjectTerminalsStore, ev.project_id))
+      break
+    case "members":
+      later(`members:${ev.project_id}`, () => reload(useMembersStore, ev.project_id))
+      break
+    case "skills":
+      later(`skills:${ev.project_id}`, () => reload(useInstalledSkillsStore, ev.project_id))
+      break
+    case "removed":
+      dropPresence(ev.project_id)
+      useWorkspaceStore.getState().dropProject(ev.project_id)
       break
   }
 }
