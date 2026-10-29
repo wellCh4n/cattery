@@ -26,13 +26,13 @@ export function PresenceAvatars({ projectId }: { projectId: string }) {
       {shown.map(user => (
         <Hint key={user.user_id} label={`${profileName(user)} is here`} side="bottom">
           <span className="flex cursor-pointer rounded-full ring-2 ring-background">
-            <UserAvatar {...user} className="size-7 text-[11px]" />
+            <UserAvatar {...user} className="size-7 text-2xs" />
           </span>
         </Hint>
       ))}
       {hidden.length > 0 && (
         <Hint label={hidden.map(u => profileName(u)).join(", ")} side="bottom">
-          <span className="flex size-7 cursor-pointer items-center justify-center rounded-full bg-muted text-[11px] font-medium text-muted-foreground ring-2 ring-background">
+          <span className="flex size-7 cursor-pointer items-center justify-center rounded-full bg-muted text-2xs font-medium text-muted-foreground ring-2 ring-background">
             +{hidden.length}
           </span>
         </Hint>

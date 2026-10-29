@@ -36,7 +36,7 @@ export function WorkspaceItemBody({ icon, title, accessory, actions, creator, ti
         <span className="min-w-0 flex-1 truncate">
           {profileName(profile)}
         </span>
-        <time className="shrink-0 font-mono tabular-nums text-muted-foreground/70" dateTime={timestamp}>
+        <time className="shrink-0 font-mono tabular-nums" dateTime={timestamp}>
           {formatItemTime(timestamp)}
         </time>
       </span>

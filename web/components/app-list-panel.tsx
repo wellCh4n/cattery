@@ -68,7 +68,7 @@ export function AppListPanel({ projectId }: { projectId: string }) {
             <span className="flex size-4 shrink-0 items-center justify-center"><AppWindow className="size-4 text-muted-foreground" /></span>
             <span className="min-w-0 flex-1 truncate">Port {app.port}</span>
             {uptime && (
-              <time className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground/70 group-hover/treerow:hidden" dateTime={app.started_at}>
+              <time className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground group-hover/treerow:hidden" dateTime={app.started_at}>
                 {uptime}
               </time>
             )}
@@ -95,7 +95,7 @@ export function AppListPanel({ projectId }: { projectId: string }) {
               <span className="min-w-0 flex-1 truncate font-mono">{app.command}</span>
             </Hint>
             {app.pid !== undefined && (
-              <span className="shrink-0 font-mono tabular-nums text-muted-foreground/70">PID {app.pid}</span>
+              <span className="shrink-0 font-mono tabular-nums text-muted-foreground">PID {app.pid}</span>
             )}
           </span>
         </span>
@@ -119,7 +119,7 @@ export function AppListPanel({ projectId }: { projectId: string }) {
           <div className="flex h-full flex-col items-center justify-center px-4 text-center">
             <AppWindow className="size-8 text-muted-foreground/50" />
             <p className="mt-2 text-xs text-muted-foreground">No apps running</p>
-            <p className="mt-1 text-xs text-muted-foreground/70">Start a web server in the sandbox and it shows up here.</p>
+            <p className="mt-1 text-xs text-muted-foreground">Start a web server in the sandbox and it shows up here.</p>
           </div>
         )}
       </div>

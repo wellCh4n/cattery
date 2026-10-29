@@ -36,7 +36,7 @@ function extractText(node: unknown): string {
 
 const components: Components = {
   p: ({ className, ...props }) => (
-    <p className={cn("leading-relaxed [&:not(:last-child)]:mb-3", className)} {...props} />
+    <p className={cn("leading-relaxed text-pretty [&:not(:last-child)]:mb-3", className)} {...props} />
   ),
   a: props => <MarkdownLink {...props} />,
   ul: ({ className, ...props }) => (
@@ -49,13 +49,13 @@ const components: Components = {
     <li className={cn("leading-relaxed", className)} {...props} />
   ),
   h1: ({ className, ...props }) => (
-    <h1 className={cn("font-heading text-lg font-semibold mt-4 mb-2 first:mt-0", className)} {...props} />
+    <h1 className={cn("font-heading text-lg font-semibold text-balance mt-4 mb-2 first:mt-0", className)} {...props} />
   ),
   h2: ({ className, ...props }) => (
-    <h2 className={cn("font-heading text-base font-semibold mt-4 mb-2 first:mt-0", className)} {...props} />
+    <h2 className={cn("font-heading text-base font-semibold text-balance mt-4 mb-2 first:mt-0", className)} {...props} />
   ),
   h3: ({ className, ...props }) => (
-    <h3 className={cn("font-heading text-sm font-semibold mt-3 mb-1.5 first:mt-0", className)} {...props} />
+    <h3 className={cn("font-heading text-sm font-semibold text-balance mt-3 mb-1.5 first:mt-0", className)} {...props} />
   ),
   blockquote: ({ className, ...props }) => (
     <blockquote

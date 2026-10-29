@@ -294,7 +294,7 @@ function FrontmatterRow({
     <>
       <dt className={cn("flex items-center gap-1 text-2xs leading-5 text-muted-foreground", mono && "font-mono")} title={title}>
         {name}
-        {tag && <span className="rounded-sm border px-1 text-[10px] leading-3.5 text-muted-foreground/80">{tag}</span>}
+        {tag && <span className="rounded-sm border px-1 text-[10px] leading-3.5 text-muted-foreground">{tag}</span>}
       </dt>
       <dd className="min-w-0">{children}</dd>
     </>
@@ -318,7 +318,7 @@ function FrontmatterValue({ name, value }: { name: string; value: unknown }) {
   }
   if (value && typeof value === "object" && !Array.isArray(value)) {
     const entries = Object.entries(value)
-    if (entries.length === 0) return <span className="leading-5 text-muted-foreground/60">Empty</span>
+    if (entries.length === 0) return <span className="leading-5 text-muted-foreground">Empty</span>
     return (
       <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1">
         {entries.map(([key, v]) => (

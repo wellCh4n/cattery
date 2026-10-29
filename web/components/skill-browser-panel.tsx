@@ -223,7 +223,7 @@ export function SkillBrowserPanel({ active, projectId }: { active: boolean; proj
               <div className="flex flex-col items-center px-4 py-6 text-center">
                 <Puzzle className="size-8 text-muted-foreground/50" />
                 <p className="mt-2 text-xs text-muted-foreground">No skills installed</p>
-                <p className="mt-1 text-xs text-muted-foreground/70">Install one from the library, or upload a .zip.</p>
+                <p className="mt-1 text-xs text-muted-foreground">Install one from the library, or upload a .zip.</p>
                 <Button
                   variant="outline"
                   size="sm"
@@ -415,11 +415,11 @@ function SkillRow({
           {markInstalled && <Badge variant="secondary">Installed</Badge>}
         </div>
         {skill.local ? (
-          <p className="mt-0.5 text-xs text-muted-foreground/70 italic">Not in the library.</p>
+          <p className="mt-0.5 text-xs text-muted-foreground italic">Not in the library.</p>
         ) : skill.valid ? (
           skill.description
             ? <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{skill.description}</p>
-            : <p className="mt-0.5 text-xs text-muted-foreground/70 italic">No description in SKILL.md frontmatter.</p>
+            : <p className="mt-0.5 text-xs text-muted-foreground italic">No description in SKILL.md frontmatter.</p>
         ) : (
           <p className="mt-0.5 text-xs text-destructive/80">{skill.reason ?? "Not a valid skill."}</p>
         )}

@@ -297,7 +297,7 @@ function ChatPanelContent({ session }: Props) {
         ) : (
           <MessageScroller>
             <MessageScrollerViewport>
-              <MessageScrollerContent aria-busy={sending} className="mx-auto max-w-4xl px-4 py-6 md:px-8">
+              <MessageScrollerContent aria-busy={sending} className="mx-auto max-w-3xl px-4 py-6 md:px-8">
                 {/* Keyed by position: the history reload after a reply renames
                     the turns to their saved ids, and remounted items lay out at
                     their content-visibility placeholder size for a frame. In a
@@ -353,7 +353,7 @@ function ChatPanelContent({ session }: Props) {
         )}
       </div>
 
-      <div className="mx-auto w-full max-w-4xl px-4 pb-4 md:px-8">
+      <div className="mx-auto w-full max-w-3xl px-4 pb-4 md:px-8">
         {queue.length > 0 && (
           // Steered messages wait here until the model receives them, after the
           // current tool calls finish.
@@ -387,7 +387,7 @@ function ChatPanelContent({ session }: Props) {
         {!writable ? (
           <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
             <EyeIcon className="size-4 shrink-0" />
-            <span className="min-w-0 flex-1 truncate">
+            <span className="min-w-0 flex-1 basis-48 truncate">
               Read-only, {session.created_by_username ? `${profileName({ name: session.created_by_name, username: session.created_by_username })}'s session` : "only the project owner can send messages"}
             </span>
             {usage && <ContextMeter usage={usage} />}
@@ -664,7 +664,7 @@ function ToolRow({ bubble }: { bubble: Bubble }) {
       <TraceTitle className="min-w-0 truncate">
         {running ? runningVerb : doneVerb}{" "}
         <code className="font-mono text-xs [font-variant-ligatures:none]" title={target}>{target}</code>
-        {meta && <span className="ml-1.5 text-xs text-muted-foreground/60">{meta}</span>}
+        {meta && <span className="ml-1.5 text-xs text-muted-foreground">{meta}</span>}
       </TraceTitle>
     </TraceLine>
   )
