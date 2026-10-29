@@ -91,7 +91,7 @@ export default function AdminSkillsPage() {
           </div>
         ) : catalog.length === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-lg border py-12 text-center">
-            <Puzzle className="size-8 text-muted-foreground/50" />
+            <Puzzle className="size-8 text-muted-foreground opacity-50" />
             <p className="mt-2 text-xs text-muted-foreground">No skills in the library</p>
           </div>
         ) : (

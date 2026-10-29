@@ -221,7 +221,7 @@ export function SkillBrowserPanel({ active, projectId }: { active: boolean; proj
           >
             {installedRows.length === 0 && !uploading && (
               <div className="flex flex-col items-center px-4 py-6 text-center">
-                <Puzzle className="size-8 text-muted-foreground/50" />
+                <Puzzle className="size-8 text-muted-foreground opacity-50" />
                 <p className="mt-2 text-xs text-muted-foreground">No skills installed</p>
                 <p className="mt-1 text-xs text-muted-foreground">Install one from the library, or upload a .zip.</p>
                 <Button

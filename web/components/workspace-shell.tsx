@@ -484,7 +484,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
 
             {currentProject && sessions.length === 0 && (
               <div className="flex h-full flex-col items-center justify-center px-4 text-center">
-                <MessagesSquare className="size-8 text-muted-foreground/50" />
+                <MessagesSquare className="size-8 text-muted-foreground opacity-50" />
                 <p className="mt-2 text-xs text-muted-foreground">No sessions</p>
                 <Button
                   variant="outline"
@@ -724,7 +724,7 @@ function buildSessionNode({
 function NoProjectPlaceholder({ onCreate }: { onCreate: () => void }) {
   return (
     <div className="flex h-full flex-col items-center justify-center px-4 text-center">
-      <FolderOpen className="size-8 text-muted-foreground/50" />
+      <FolderOpen className="size-8 text-muted-foreground opacity-50" />
       <p className="mt-2 text-xs text-muted-foreground">No project selected</p>
       <Button variant="outline" size="sm" className="mt-3" onClick={onCreate}>
         <Plus />

@@ -42,7 +42,7 @@ export default function SessionPage({ params }: { params: Promise<PageParams> })
   if (deleted) {
     return (
       <div className="flex h-full flex-col items-center justify-center px-4 text-center">
-        <Trash2 className="size-8 text-muted-foreground/50" />
+        <Trash2 className="size-8 text-muted-foreground opacity-50" />
         <p className="mt-2 text-sm text-muted-foreground">This session has been deleted</p>
       </div>
     )

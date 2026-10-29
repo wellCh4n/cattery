@@ -117,7 +117,7 @@ export function AppListPanel({ projectId }: { projectId: string }) {
           <Tree items={items} />
         ) : (
           <div className="flex h-full flex-col items-center justify-center px-4 text-center">
-            <AppWindow className="size-8 text-muted-foreground/50" />
+            <AppWindow className="size-8 text-muted-foreground opacity-50" />
             <p className="mt-2 text-xs text-muted-foreground">No apps running</p>
             <p className="mt-1 text-xs text-muted-foreground">Start a web server in the sandbox and it shows up here.</p>
           </div>

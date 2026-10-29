@@ -307,7 +307,7 @@ export function FileBrowserPanel({ projectId, active }: Props) {
       onItemDropped: isDir ? sourcePath => moveEntry(sourcePath, path) : undefined,
       body: (
         <>
-          {!isDir && <FileIcon className="size-4 shrink-0 text-muted-foreground/70" />}
+          {!isDir && <FileIcon className="size-4 shrink-0 text-muted-foreground opacity-70" />}
           <span className="truncate flex-1">{entry.name}</span>
           {!isDir && (
             <span className="hidden sm:inline text-xs text-muted-foreground shrink-0 group-hover/treerow:hidden">
@@ -440,7 +440,7 @@ export function FileBrowserPanel({ projectId, active }: Props) {
         )}
         {!error && rootChildren !== undefined && rootChildren.length === 0 && !rootBusy && (
           <div className="flex h-full flex-col items-center justify-center px-4 text-center">
-            <Folder className="size-8 text-muted-foreground/50" />
+            <Folder className="size-8 text-muted-foreground opacity-50" />
             <p className="mt-2 text-xs text-muted-foreground">No files</p>
             <div className="mt-3 flex w-32 flex-col gap-2">
               <Button

@@ -110,7 +110,7 @@ export function TerminalListPanel({ projectId, active }: { projectId: string; ac
           <div className="flex h-12 items-center justify-center"><Loader2 className="size-4 animate-spin text-muted-foreground" /></div>
         ) : terminals.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center px-4 text-center">
-            <SquareTerminal className="size-8 text-muted-foreground/50" />
+            <SquareTerminal className="size-8 text-muted-foreground opacity-50" />
             <p className="mt-2 text-xs text-muted-foreground">No terminals</p>
             <Button variant="outline" size="sm" className="mt-3" onClick={() => void create()} disabled={creating}>
               {creating ? <Loader2 className="animate-spin" /> : <Plus />}

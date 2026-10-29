@@ -24,7 +24,7 @@ export default function TerminalPage({ params }: { params: Promise<PageParams> }
   if (!resource?.data && !resource?.error) return <div className="flex h-full items-center justify-center"><Loader2 className="size-5 animate-spin text-muted-foreground" /></div>
   return (
     <div className="flex h-full flex-col items-center justify-center text-center">
-      <SquareTerminal className="size-8 text-muted-foreground/50" />
+      <SquareTerminal className="size-8 text-muted-foreground opacity-50" />
       <p className="mt-2 text-xs text-muted-foreground">{resource?.error || "This terminal was deleted."}</p>
       {resource?.error && <Button className="mt-3" variant="outline" onClick={() => void useProjectTerminalsStore.getState().invalidate(projectId)}>Retry</Button>}
     </div>
