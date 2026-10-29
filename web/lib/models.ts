@@ -37,6 +37,14 @@ export function providerOf(catalog: ModelCatalog, model: string): ModelProvider 
   return catalog.providers.find(p => p.models.includes(model))
 }
 
+// The effort model runs at: want when its provider offers it, else the
+// provider's default (as the backend resolves it).
+export function effortFor(catalog: ModelCatalog, model: string, want: string): string {
+  const provider = providerOf(catalog, model)
+  if (!provider) return ""
+  return provider.efforts.includes(want) ? want : provider.default_effort
+}
+
 const EFFORT_LABELS: Record<string, string> = {
   off: "Off",
   minimal: "Minimal",

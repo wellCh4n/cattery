@@ -80,7 +80,7 @@ spec:
               value: registry.example.com/cattery-pi:latest
             - name: SKILLS_DIR
               value: /var/lib/cattery/skills
-          # JWT_SECRET and DATABASE_URL.
+          # JWT_SECRET, DATABASE_URL and CHANNEL_SECRET_KEY.
           envFrom:
             - secretRef: {name: cattery-env}
           livenessProbe:

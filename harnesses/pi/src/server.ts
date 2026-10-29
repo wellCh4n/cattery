@@ -3,9 +3,10 @@
  * HTTP contract:
  *
  *   GET    /session                        → [id]  (readiness probe)
- *   POST   /session {id, model, provider, api?, baseUrl, apiKey, thinkingLevel?, smallModel?}
+ *   POST   /session {id, kind?, model, provider, api?, baseUrl, apiKey, thinkingLevel?, smallModel?}
  *                                          → { id }  (idempotent: reopens an existing transcript,
- *                                                     switching its model if it differs)
+ *                                                     switching its model if it differs; kind
+ *                                                     "channel" keeps a new one in CHANNELS_DIR)
  *   GET    /session/:id                    → { id }
  *   DELETE /session/:id                    → 204 (abort + delete transcript)
  *   POST   /session/:id/fork {id, before?} → { id }  (copy the transcript, or the part before
@@ -67,6 +68,8 @@ const PROMPT     = process.env.AGENT_PROMPT ?? ''
 // Dot-dir on the workspace PVC: transcripts survive sandbox restarts and stay
 // out of the way of project files.
 const SESSIONS_DIR = process.env.SESSIONS_DIR ?? path.join(WORKDIR, '.cattery/sessions')
+// Conversations of chat channels (Feishu, WeChat) are kept apart from sessions.
+const CHANNELS_DIR = process.env.CHANNELS_DIR ?? path.join(WORKDIR, '.cattery/channels')
 // Cattery lists the sandbox's listening ports and previews each one, and
 // opens the agent's http://localhost:<port> links in that preview.
 const PREVIEW_PROMPT = 'Users preview web servers you start here from Cattery, which opens http://localhost:<port> links in a preview of that port. ' +
@@ -74,7 +77,7 @@ const PREVIEW_PROMPT = 'Users preview web servers you start here from Cattery, w
 
 // Align the harness process with the SDK tools and the web terminal too.
 process.chdir(WORKDIR)
-console.log('[startup] SESSIONS:', SESSIONS_DIR)
+console.log('[startup] SESSIONS:', SESSIONS_DIR, 'CHANNELS:', CHANNELS_DIR)
 
 const ledger = new UsageLedger(process.env.USAGE_LEDGER ?? path.join(WORKDIR, '.cattery/usage.jsonl'))
 
@@ -217,6 +220,8 @@ function toHistory(messages: AgentMessage[], thinkingMs: Map<string, number>, en
 interface SmallModel extends Gateway { model: string; provider: string; api?: string }
 interface Session {
   id: string
+  // SESSIONS_DIR or CHANNELS_DIR, fixed when the transcript is created.
+  dir: string
   model: ModelRef
   gateway: Gateway
   sdk: AgentSession
@@ -252,16 +257,30 @@ interface SessionMetadata { version: 2; model: ModelRef; titleAttempted: boolean
 const sessions = new Map<string, Session>()
 // Session ids come from the backend (UUIDs); reject anything path-like.
 const validId = (id: string) => /^[A-Za-z0-9-]{1,64}$/.test(id)
-const transcriptPath = (id: string) => path.join(SESSIONS_DIR, `${id}.json`)
+const metadataPath = (dir: string, id: string) => path.join(dir, `${id}.json`)
+const transcriptPath = (dir: string, id: string) => path.join(dir, `${id}.jsonl`)
+const exists = (file: string) => fs.access(file).then(() => true, () => false)
+const dirFor = (kind: unknown) => kind === 'channel' ? CHANNELS_DIR : SESSIONS_DIR
+
+// The directory holding a session's transcript, by id alone (ids are UUIDs,
+// unique across both), or undefined when it has none yet.
+async function findDir(id: string): Promise<string | undefined> {
+  const cached = sessions.get(id)
+  if (cached) return cached.dir
+  for (const dir of [SESSIONS_DIR, CHANNELS_DIR]) {
+    if (await exists(metadataPath(dir, id))) return dir
+  }
+  return undefined
+}
 
 function persist(sess: Session): Promise<void> {
   // Only platform metadata is stored here; the SDK persists the conversation.
   const pending = (sess.persistQueue ?? Promise.resolve()).catch(() => {}).then(async () => {
     if (sessions.get(sess.id) !== sess) return
-    const file = transcriptPath(sess.id)
+    const file = metadataPath(sess.dir, sess.id)
     const tmp = `${file}.${randomUUID()}.tmp`
     const data: SessionMetadata = { version: 2, model: sess.model, titleAttempted: sess.titleAttempted }
-    await fs.mkdir(SESSIONS_DIR, { recursive: true })
+    await fs.mkdir(sess.dir, { recursive: true })
     await fs.writeFile(tmp, JSON.stringify(data))
     await fs.rename(tmp, file)
   })
@@ -271,9 +290,9 @@ function persist(sess: Session): Promise<void> {
 
 const NO_GATEWAY: Gateway = { baseUrl: '', apiKey: '' }
 
-async function newSession(id: string, ref: ModelRef, gateway: Gateway, titleAttempted = false): Promise<Session> {
-  await fs.mkdir(SESSIONS_DIR, { recursive: true })
-  const manager = SessionManager.open(path.join(SESSIONS_DIR, `${id}.jsonl`), SESSIONS_DIR, WORKDIR)
+async function newSession(id: string, dir: string, ref: ModelRef, gateway: Gateway, titleAttempted = false): Promise<Session> {
+  await fs.mkdir(dir, { recursive: true })
+  const manager = SessionManager.open(transcriptPath(dir, id), dir, WORKDIR)
   const runtime = await ModelRuntime.create({ credentials: new InMemoryCredentialStore(), modelsPath: null, refreshOnCreate: false })
   runtime.registerNativeProvider(createProvider({
     id: 'custom', auth: { apiKey: envApiKeyAuth('API key', []) }, models: [], api: openAICompletionsApi(),
@@ -304,7 +323,7 @@ async function newSession(id: string, ref: ModelRef, gateway: Gateway, titleAtte
     tools: ['read', 'write', 'edit', 'bash', 'grep', 'find', 'ls', 'questionnaire'],
     customTools: [questionnaire.tool],
   })
-  const sess: Session = { id, model: ref, gateway, sdk, manager, runtime,
+  const sess: Session = { id, dir, model: ref, gateway, sdk, manager, runtime,
     titled: manager.getEntries().some(e => e.type === 'message' && e.message.role === 'user'), titleAttempted, busy: false, questionnaire, thinkingStarts: new Map(), live: { toolDone: new Map() } }
   sdk.subscribe(ev => forward(sess, ev))
   sessions.set(id, sess)
@@ -561,15 +580,17 @@ async function openSession(id: string): Promise<Session | null> {
   if (!validId(id)) return null
   const cached = sessions.get(id)
   if (cached) return cached
+  const dir = await findDir(id)
+  if (!dir) return null
   let data: SessionMetadata
   try {
-    data = JSON.parse(await fs.readFile(transcriptPath(id), 'utf8'))
+    data = JSON.parse(await fs.readFile(metadataPath(dir, id), 'utf8'))
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
     throw error
   }
   if (data.version !== 2) throw Object.assign(new Error('Legacy session format is unsupported; delete this session and create a new one'), { status: 409 })
-  return newSession(id, data.model, NO_GATEWAY, data.titleAttempted)
+  return newSession(id, dir, data.model, NO_GATEWAY, data.titleAttempted)
 }
 
 // Takes effect from the next turn. The transcript carries over; pi-ai drops
@@ -775,8 +796,8 @@ app.get('/session', (_req, res) => {
 })
 
 app.post('/session', asyncRoute(async (req, res) => {
-  const { id = randomUUID(), model, provider, api, baseUrl, apiKey, thinkingLevel, smallModel } = (req.body ?? {}) as {
-    id?: string; model?: string; provider?: string; api?: string; baseUrl?: string; apiKey?: string; thinkingLevel?: string; smallModel?: SmallModel
+  const { id = randomUUID(), kind, model, provider, api, baseUrl, apiKey, thinkingLevel, smallModel } = (req.body ?? {}) as {
+    id?: string; kind?: string; model?: string; provider?: string; api?: string; baseUrl?: string; apiKey?: string; thinkingLevel?: string; smallModel?: SmallModel
   }
   if (!validId(id)) return void res.status(400).json({ error: 'invalid id' })
   if (!model || !provider || !baseUrl || !apiKey) {
@@ -787,7 +808,8 @@ app.post('/session', asyncRoute(async (req, res) => {
   const existing = await openSession(id)
   let sess: Session
   if (!existing) {
-    sess = await newSession(id, ref, gateway)
+    // kind only places a new transcript; an existing one never moves.
+    sess = await newSession(id, dirFor(kind), ref, gateway)
   } else {
     // Re-registering with a different model (or endpoint) switches it.
     const changed = existing.model.id !== ref.id || existing.model.provider !== ref.provider || existing.model.api !== ref.api ||
@@ -833,8 +855,10 @@ app.delete('/session/:id', asyncRoute(async (req, res) => {
   if (!validId(req.params.id)) return void res.status(400).end()
   const sess = sessions.get(req.params.id)
   if (!sess) {
-    await fs.rm(transcriptPath(req.params.id), { force: true })
-    await fs.rm(path.join(SESSIONS_DIR, `${req.params.id}.jsonl`), { force: true })
+    for (const dir of [SESSIONS_DIR, CHANNELS_DIR]) {
+      await fs.rm(metadataPath(dir, req.params.id), { force: true })
+      await fs.rm(transcriptPath(dir, req.params.id), { force: true })
+    }
     return void res.status(204).end()
   }
   void abortRun(sess)
@@ -842,8 +866,8 @@ app.delete('/session/:id', asyncRoute(async (req, res) => {
   await sess.run
   sess.sdk.dispose()
   await sess.persistQueue?.catch(() => {})
-  await fs.rm(transcriptPath(sess.id), { force: true })
-  await fs.rm(path.join(SESSIONS_DIR, `${sess.id}.jsonl`), { force: true })
+  await fs.rm(metadataPath(sess.dir, sess.id), { force: true })
+  await fs.rm(transcriptPath(sess.dir, sess.id), { force: true })
   res.status(204).end()
 }))
 
@@ -857,8 +881,8 @@ app.post('/session/:id/fork', asyncRoute(async (req, res) => {
   }
   const src = await openSession(req.params.id)
   if (!src) return void res.status(404).json({ error: 'not found' })
-  const exists = async (file: string) => fs.access(file).then(() => true, () => false)
-  if (sessions.has(id) || await exists(transcriptPath(id)) || await exists(path.join(SESSIONS_DIR, `${id}.jsonl`))) return void res.status(409).json({ error: 'session already exists' })
+  // A fork is always a session, also of a channel's conversation.
+  if (sessions.has(id) || await findDir(id) || await exists(transcriptPath(SESSIONS_DIR, id))) return void res.status(409).json({ error: 'session already exists' })
   const branch = src.manager.getBranch()
   let end = branch.length
   if (before !== undefined) {
@@ -874,12 +898,13 @@ app.post('/session/:id/fork', asyncRoute(async (req, res) => {
   }
   const entries = branch.slice(0, end)
   const header = { ...src.manager.getHeader(), type: 'session', id, timestamp: new Date().toISOString(), cwd: WORKDIR,
-    parentSession: path.join(SESSIONS_DIR, `${src.id}.jsonl`) }
+    parentSession: transcriptPath(src.dir, src.id) }
   // An empty fork gets its title from its first prompt, like a new session.
   const data: SessionMetadata = { version: 2, model: src.model,
     titleAttempted: entries.some(e => e.type === 'message' && e.message.role === 'user') }
-  await fs.writeFile(path.join(SESSIONS_DIR, `${id}.jsonl`), [header, ...entries].map(e => JSON.stringify(e) + '\n').join(''), { flag: 'wx' })
-  await fs.writeFile(transcriptPath(id), JSON.stringify(data), { flag: 'wx' })
+  await fs.mkdir(SESSIONS_DIR, { recursive: true })
+  await fs.writeFile(transcriptPath(SESSIONS_DIR, id), [header, ...entries].map(e => JSON.stringify(e) + '\n').join(''), { flag: 'wx' })
+  await fs.writeFile(metadataPath(SESSIONS_DIR, id), JSON.stringify(data), { flag: 'wx' })
   res.json({ id })
 }))
 

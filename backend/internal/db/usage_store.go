@@ -46,8 +46,9 @@ func (s *UsageStore) Offset(ctx context.Context, projectID uuid.UUID) (int64, er
 
 // Ingest stores records and advances the project's ledger offset together.
 // Records seen before are skipped. Each is charged to its session's creator,
-// falling back to the project owner for sessions without one; records of
-// sessions already deleted keep no user.
+// falling back to the project owner for sessions without one; a channel's
+// records (their session id is the channel id) go to the channel's creator.
+// Records of conversations already deleted keep no user.
 func (s *UsageStore) Ingest(ctx context.Context, projectID uuid.UUID, records []model.UsageRecord, offset int64) error {
 	tx, err := s.db.BeginTxx(ctx, nil)
 	if err != nil {
@@ -60,8 +61,9 @@ func (s *UsageStore) Ingest(ctx context.Context, projectID uuid.UUID, records []
 			SELECT $1, $2, $3, u.user_id, u.username, $4, $5, $6, $7, $8, $9, to_timestamp($10::double precision / 1000)
 			FROM (SELECT 1) one
 			LEFT JOIN sessions s ON s.session_id = $3
-			LEFT JOIN projects p ON p.project_id = s.project_id
-			LEFT JOIN users u ON u.user_id = COALESCE(s.created_by_user_id, p.owner_user_id)
+			LEFT JOIN channels ch ON ch.channel_id = $3
+			LEFT JOIN projects p ON p.project_id = COALESCE(s.project_id, ch.project_id)
+			LEFT JOIN users u ON u.user_id = COALESCE(s.created_by_user_id, ch.created_by_user_id, p.owner_user_id)
 			ON CONFLICT (record_id) DO NOTHING`,
 			r.ID, projectID, r.SessionID, r.Kind, r.Model, r.Input, r.Output, r.CacheRead, r.CacheWrite, r.At,
 		); err != nil {

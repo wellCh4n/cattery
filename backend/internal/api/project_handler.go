@@ -22,11 +22,15 @@ type ProjectHandler struct {
 	sandbox  *sandbox.Manager
 	k8s      *k8s.Client
 	live     *live.Hub
+	onDelete func(projectID uuid.UUID)
 }
 
 func NewProjectHandler(projects *db.ProjectStore, members *db.MemberStore, users *db.UserStore, sandboxMgr *sandbox.Manager, k8sClient *k8s.Client, hub *live.Hub) *ProjectHandler {
 	return &ProjectHandler{projects: projects, members: members, users: users, sandbox: sandboxMgr, k8s: k8sClient, live: hub}
 }
+
+// OnDelete runs f before a project and its sandbox are deleted.
+func (h *ProjectHandler) OnDelete(f func(projectID uuid.UUID)) { h.onDelete = f }
 
 type projectDTO struct {
 	*model.Project
@@ -136,6 +140,9 @@ func (h *ProjectHandler) Delete(c echo.Context) error {
 	access, err := requireManageableProject(c, h.projects)
 	if err != nil {
 		return err
+	}
+	if h.onDelete != nil {
+		h.onDelete(access.Project.ProjectID)
 	}
 	if err := h.sandbox.Destroy(c.Request().Context(), access.Project.ProjectID); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())

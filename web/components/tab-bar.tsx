@@ -6,16 +6,18 @@
 // closable (× button, middle-click, or right-click menu), and closing the
 // active tab falls back to a neighbouring tab — or home when none are left.
 // Titles, icons and status all resolve live from the workspace store, so
-// renames and session title updates reflect immediately. Session and terminal
-// tabs whose target has been deleted are pruned once the workspace has loaded.
+// renames and session title updates reflect immediately. Session, terminal and
+// channel tabs whose target has been deleted are pruned once the workspace has loaded.
 
 import { useEffect, useMemo, useRef } from "react"
 import { usePathname, useRouter } from "next/navigation"
-import { ChartColumn, File as FileIcon, AppWindow, Loader2, MessageSquare, Puzzle, Shield, SquareTerminal, UserRound, X } from "lucide-react"
+import { ChartColumn, File as FileIcon, AppWindow, Loader2, MessageSquare, Plug, Puzzle, Shield, SquareTerminal, UserRound, X } from "lucide-react"
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "@/components/ui/context-menu"
 import { Hint } from "@/components/ui/hint"
 import { cn } from "@/lib/utils"
 import { type Terminal, useProjectTerminalsStore, useTerminalStore } from "@/lib/terminal-store"
+import { findChannel, useProjectChannelsStore } from "@/lib/channels-store"
+import { PlatformIcon } from "@/components/platform-icon"
 import { findSession, type ProjectWithSessions, useWorkspaceStore } from "@/lib/workspace-store"
 import { type Tab, rememberProjectTab, projectTabToRestore, sameTab, tabForPath, tabHref, tabKey, useTabsStore } from "@/lib/tabs-store"
 
@@ -37,7 +39,9 @@ function sessionIconColor(status: string): string {
 // keeps its name. Memory only: a reload has nothing to remember it from.
 const lastSessionTitles = new Map<string, string>()
 
-function resolveTab(tab: Tab, projects: ProjectWithSessions[], terminals: Terminal[]): ResolvedTab {
+type ChannelEntries = ReturnType<typeof useProjectChannelsStore.getState>["entries"]
+
+function resolveTab(tab: Tab, projects: ProjectWithSessions[], terminals: Terminal[], channels: ChannelEntries): ResolvedTab {
   if (tab.kind === "session") {
     const found = findSession(projects, tab.id)
     if (!found) {
@@ -59,6 +63,16 @@ function resolveTab(tab: Tab, projects: ProjectWithSessions[], terminals: Termin
       title: terminal?.title ?? "Terminal",
       exists: terminal !== undefined,
       icon: <SquareTerminal className="size-3.5 shrink-0 text-muted-foreground" />,
+    }
+  }
+  if (tab.kind === "channel") {
+    const channel = findChannel(channels, tab.projectId ?? "", tab.id)
+    return {
+      title: channel?.name ?? "Channel",
+      exists: channel !== undefined || !channels[tab.projectId ?? ""]?.data,
+      icon: channel
+        ? <PlatformIcon type={channel.type} className="size-3.5 shrink-0 text-muted-foreground" />
+        : <Plug className="size-3.5 shrink-0 text-muted-foreground" />,
     }
   }
   if (tab.kind === "port") {
@@ -117,6 +131,7 @@ export function TabBar() {
   const projects = useWorkspaceStore(s => s.projects)
   const terminals = useTerminalStore(s => s.terminals)
   const terminalResources = useProjectTerminalsStore(s => s.entries)
+  const channelResources = useProjectChannelsStore(s => s.entries)
   const loaded = useWorkspaceStore(s => s.loaded)
   const currentProjectId = useWorkspaceStore(s => s.currentProjectId)
   const setCurrentProject = useWorkspaceStore(s => s.setCurrentProject)
@@ -191,7 +206,7 @@ export function TabBar() {
     }
     const owner = routeTab.kind === "session"
       ? findSession(projects, routeTab.id)?.project.project_id
-      : routeTab.kind === "file" || routeTab.kind === "terminal" || routeTab.kind === "port" ? routeTab.projectId : currentProjectId
+      : routeTab.kind === "file" || routeTab.kind === "terminal" || routeTab.kind === "port" || routeTab.kind === "channel" ? routeTab.projectId : currentProjectId
     if (!owner) return
     const routeKey = `${owner}:${pathname}`
     if (openedRoute.current === routeKey) return
@@ -211,12 +226,17 @@ export function TabBar() {
       for (const session of project.sessions) keys.add(tabKey({ kind: "session", id: session.session_id }))
     }
     for (const terminal of terminals) keys.add(tabKey({ kind: "terminal", id: terminal.terminal_id, projectId: terminal.project_id }))
-    // Keep saved tabs until their shared terminal list has actually loaded.
+    for (const [projectId, entry] of Object.entries(channelResources)) {
+      for (const channel of entry.data?.channels ?? []) keys.add(tabKey({ kind: "channel", id: channel.channel_id, projectId }))
+    }
+    // Keep saved tabs until their shared terminal or channel list has actually loaded.
     for (const tab of allTabs) {
-      if (tab.kind === "terminal" && tab.projectId && projects.some(p => p.project_id === tab.projectId) && !terminalResources[tab.projectId]?.data) keys.add(tabKey(tab))
+      const live = tab.projectId && projects.some(p => p.project_id === tab.projectId)
+      if (tab.kind === "terminal" && live && !terminalResources[tab.projectId!]?.data) keys.add(tabKey(tab))
+      if (tab.kind === "channel" && live && !channelResources[tab.projectId!]?.data) keys.add(tabKey(tab))
     }
     return keys
-  }, [projects, terminals, allTabs, terminalResources])
+  }, [projects, terminals, allTabs, terminalResources, channelResources])
 
   // Once the workspace is loaded, drop tabs whose session or terminal is gone. Never prune the route we're currently viewing — a
   // freshly-created session can briefly lag the store mid-poll.
@@ -246,9 +266,9 @@ export function TabBar() {
     <div className="no-scrollbar flex h-9 shrink-0 items-stretch overflow-x-auto border-b bg-muted/20">
       {tabs.map(tab => {
         const key = tabKey(tab)
-        const r = resolveTab(tab, projects, terminals)
+        const r = resolveTab(tab, projects, terminals, channelResources)
         const isActive = activeKey === key
-        const busy = tab.kind === "session" && busySessions.has(tab.id)
+        const busy = (tab.kind === "session" || tab.kind === "channel") && busySessions.has(tab.id)
         return (
           <ContextMenu key={key}>
           <Hint label={r.title} side="top">

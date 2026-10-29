@@ -39,6 +39,11 @@ type Config struct {
 	// per skill. Relative paths resolve against the working directory, so
 	// `make dev` keeps it in backend/data/skills; deployments mount a volume.
 	SkillsDir string
+
+	// ChannelSecretKey seals chat channels' secrets (Feishu app secrets,
+	// WeChat bot tokens) in the database. Empty turns channels off; changing
+	// it makes every channel need its secret, or a WeChat scan, again.
+	ChannelSecretKey string
 }
 
 func Load() *Config {
@@ -56,6 +61,7 @@ func Load() *Config {
 		PreviewURL:       getEnv("PREVIEW_URL", "http://*.localhost:"+port),
 		PiImage:          getEnv("PI_IMAGE", "cattery-pi:dev"),
 		SkillsDir:        getEnv("SKILLS_DIR", "data/skills"),
+		ChannelSecretKey: getEnv("CHANNEL_SECRET_KEY", ""),
 	}
 }
 

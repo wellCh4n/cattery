@@ -84,6 +84,28 @@ type Terminal struct {
 	CreatedAt              time.Time  `db:"created_at" json:"created_at"`
 }
 
+// Channel is a chat channel account (a Feishu bot or a WeChat ClawBot login)
+// bound to a project. It is one conversation, owned by its creator, whose
+// agent id is the channel id. Config holds the plugin's keys, sealed secret
+// and state; it never leaves the backend.
+type Channel struct {
+	ChannelID              uuid.UUID `db:"channel_id" json:"channel_id"`
+	ProjectID              uuid.UUID `db:"project_id" json:"project_id"`
+	Type                   string    `db:"type" json:"type"`
+	Name                   string    `db:"name" json:"name"`
+	Model                  string    `db:"model" json:"model"`
+	Effort                 string    `db:"effort" json:"effort"`
+	Config                 []byte    `db:"config" json:"-"`
+	Enabled                bool      `db:"enabled" json:"enabled"`
+	Status                 string    `db:"status" json:"status"`
+	LastError              *string   `db:"last_error" json:"last_error"`
+	CreatedByUserID        uuid.UUID `db:"created_by_user_id" json:"created_by_user_id"`
+	CreatedByUsername      string    `db:"created_by_username" json:"created_by_username"`
+	CreatedByName          string    `db:"created_by_name" json:"created_by_name"`
+	CreatedByAvatarVersion string    `db:"created_by_avatar_version" json:"created_by_avatar_version"`
+	CreatedAt              time.Time `db:"created_at" json:"created_at"`
+}
+
 // UsageRecord is one model request in a sandbox's usage ledger: the tokens of
 // a reply, a title or a compaction summary. At is in Unix milliseconds.
 type UsageRecord struct {

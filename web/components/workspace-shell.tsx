@@ -17,6 +17,7 @@ import {
   MessagesSquare,
   Pencil,
   Plus,
+  Plug,
   Puzzle,
   Settings,
   Shield,
@@ -32,6 +33,7 @@ import { FileBrowserPanel } from "@/components/file-browser-panel"
 import { ModelIcon } from "@/components/model-icon"
 import { NewProjectDialog } from "@/components/new-project-dialog"
 import { AppListPanel } from "@/components/app-list-panel"
+import { ChannelListPanel } from "@/components/channel-list-panel"
 import { AppWatcher } from "@/components/app-watcher"
 import { ProjectMembersPanel } from "@/components/project-members-panel"
 import { PresenceAvatars } from "@/components/presence-avatars"
@@ -63,13 +65,13 @@ import { watchProject } from "@/lib/live"
 import { compareSessionActivity, sessionActivityTime } from "@/lib/session-activity"
 import { RefreshButton } from "@/components/refresh-button"
 
-type SidebarView = "sessions" | "terminals" | "apps" | "files" | "members" | "skills"
+type SidebarView = "sessions" | "terminals" | "apps" | "files" | "members" | "skills" | "channels"
 const VIEW_STORAGE_KEY = "cattery:sidebar:view"
 
 function readSidebarView(): SidebarView {
   if (typeof window === "undefined") return "sessions"
   const saved = localStorage.getItem(VIEW_STORAGE_KEY)
-  return saved === "files" || saved === "members" || saved === "sessions" || saved === "skills" || saved === "terminals" || saved === "apps" ? saved : "sessions"
+  return saved === "files" || saved === "members" || saved === "sessions" || saved === "skills" || saved === "terminals" || saved === "apps" || saved === "channels" ? saved : "sessions"
 }
 
 export function WorkspaceShell({ children }: { children: React.ReactNode }) {
@@ -394,6 +396,12 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
               onClick={() => switchView("terminals")}
             />
             <ActivityButton
+              icon={<Plug className="size-6" />}
+              label="Channels"
+              active={view === "channels"}
+              onClick={() => switchView("channels")}
+            />
+            <ActivityButton
               icon={<Puzzle className="size-6" />}
               label="Skills"
               active={view === "skills"}
@@ -523,6 +531,15 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
             {visitedViews.has("terminals") && (
               currentProject ? (
                 <TerminalListPanel projectId={currentProject.project_id} active={view === "terminals"} />
+              ) : (
+                <NoProjectPlaceholder onCreate={() => setNewProjectOpen(true)} />
+              )
+            )}
+          </div>
+          <div className={cn("min-h-0 flex-1 overflow-hidden", view === "channels" ? "block" : "hidden")}>
+            {visitedViews.has("channels") && (
+              currentProject ? (
+                <ChannelListPanel key={currentProject.project_id} projectId={currentProject.project_id} active={view === "channels"} />
               ) : (
                 <NoProjectPlaceholder onCreate={() => setNewProjectOpen(true)} />
               )

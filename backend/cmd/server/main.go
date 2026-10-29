@@ -6,8 +6,14 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/wellch4n/cattery/internal/agentrun"
 	"github.com/wellch4n/cattery/internal/api"
 	"github.com/wellch4n/cattery/internal/auth"
+	"github.com/wellch4n/cattery/internal/channel"
+	"github.com/wellch4n/cattery/internal/channel/feishu"
+	"github.com/wellch4n/cattery/internal/channel/lark"
+	"github.com/wellch4n/cattery/internal/channel/larksuite"
+	"github.com/wellch4n/cattery/internal/channel/weixin"
 	"github.com/wellch4n/cattery/internal/config"
 	"github.com/wellch4n/cattery/internal/db"
 	"github.com/wellch4n/cattery/internal/harness"
@@ -96,7 +102,30 @@ func main() {
 	usageH := api.NewUsageHandler(usageStore)
 	liveH := api.NewLiveHandler(hub, userStore, projectStore)
 
-	router := api.NewRouter(database, projectH, sessionH, filesH, terminalH, skillsH, authH, adminH, usersH, portsH, usageH, liveH, signer)
+	// Chat channels connect Feishu and Lark bots and WeChat ClawBot logins to projects.
+	var secretBox *channel.SecretBox
+	if cfg.ChannelSecretKey != "" {
+		if secretBox, err = channel.NewSecretBox(cfg.ChannelSecretKey); err != nil {
+			log.Fatalf("CHANNEL_SECRET_KEY: %v", err)
+		}
+	}
+	weixinPlugin := weixin.New()
+	botPlugins := map[string]*larksuite.Plugin{channel.TypeFeishu: feishu.New(), channel.TypeLark: lark.New()}
+	channelStore := db.NewChannelStore(database)
+	publishChannels := func(projectID uuid.UUID) { hub.Publish(projectID, live.Event{Type: "channels"}) }
+	channelMgr := channel.NewManager(channelStore, secretBox,
+		map[string]channel.Plugin{channel.TypeFeishu: botPlugins[channel.TypeFeishu], channel.TypeLark: botPlugins[channel.TypeLark], channel.TypeWeixin: weixinPlugin},
+		&agentrun.Runner{Harness: harnessClient, Sandbox: sandboxMgr, Models: models},
+		usageCollector.Sync, publishChannels,
+		func(ctx context.Context, projectID, userID uuid.UUID) bool {
+			_, err := projectStore.GetAccessible(ctx, projectID, userID)
+			return err == nil
+		})
+	projectH.OnDelete(channelMgr.StopProject)
+	go channelMgr.Run(context.Background())
+	channelH := api.NewChannelHandler(channelStore, projectStore, sessionH, channelMgr, botPlugins, weixinPlugin, hub)
+
+	router := api.NewRouter(database, projectH, sessionH, filesH, terminalH, skillsH, authH, adminH, usersH, portsH, usageH, liveH, channelH, signer)
 	log.Printf("starting server on :%s", cfg.Port)
 	log.Fatal(router.Start(":" + cfg.Port))
 }

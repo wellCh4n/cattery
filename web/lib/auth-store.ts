@@ -9,6 +9,7 @@ import {
 } from "@/lib/api"
 import { getStoredToken, setStoredToken } from "@/lib/auth-token"
 
+import { useProjectChannelsStore } from "@/lib/channels-store"
 import { fileActions } from "@/lib/files-store"
 import { useMembersStore } from "@/lib/members-store"
 import { skillActions } from "@/lib/skills-store"
@@ -19,6 +20,7 @@ function resetResourceCaches() {
   useMembersStore.getState().reset()
   skillActions.reset()
   useTerminalStore.getState().reset()
+  useProjectChannelsStore.getState().reset()
 }
 
 interface AuthState {

@@ -28,6 +28,8 @@ interface Props {
   effort: string
   disabled?: boolean
   className?: string
+  // Switches something other than a session (a chat channel).
+  onChange?: (change: { model?: string; effort?: string }) => Promise<unknown>
 }
 
 // useSwitch runs a session update, tracking its pending state and error.
@@ -84,7 +86,7 @@ export function EffortBadge({ model, effort }: { model: string; effort: string }
   return <span className={staticPill}>Effort {effortLabel(current)}</span>
 }
 
-export function ModelPicker({ sessionId, model, disabled, className }: Omit<Props, "effort">) {
+export function ModelPicker({ sessionId, model, disabled, className, onChange }: Omit<Props, "effort">) {
   const catalog = useCatalog()
   const setSessionModel = useWorkspaceStore(state => state.setSessionModel)
   const { saving, error, clearError, run } = useSwitch()
@@ -112,7 +114,7 @@ export function ModelPicker({ sessionId, model, disabled, className }: Omit<Prop
         <DropdownMenuRadioGroup
           value={model}
           onValueChange={value => {
-            if (value !== model) void run(() => setSessionModel(sessionId, value as string))
+            if (value !== model) void run(() => onChange ? onChange({ model: value as string }) : setSessionModel(sessionId, value as string))
           }}
         >
           {catalog?.providers.map((provider, index) => (
@@ -135,7 +137,7 @@ export function ModelPicker({ sessionId, model, disabled, className }: Omit<Prop
   )
 }
 
-export function EffortPicker({ sessionId, model, effort, disabled, className }: Props) {
+export function EffortPicker({ sessionId, model, effort, disabled, className, onChange }: Props) {
   const catalog = useCatalog()
   const setSessionEffort = useWorkspaceStore(state => state.setSessionEffort)
   const { saving, error, clearError, run } = useSwitch()
@@ -175,7 +177,7 @@ export function EffortPicker({ sessionId, model, effort, disabled, className }: 
           <DropdownMenuRadioGroup
             value={current}
             onValueChange={value => {
-              if (value !== current) void run(() => setSessionEffort(sessionId, value as string))
+              if (value !== current) void run(() => onChange ? onChange({ effort: value as string }) : setSessionEffort(sessionId, value as string))
             }}
           >
             {provider?.efforts.map(e => (
