@@ -480,21 +480,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
             </div>
           )}
           <div className="min-w-0 flex-1 overflow-y-auto">
-            {!currentProject && (
-              <div className="flex h-full flex-col items-center justify-center px-4 text-center">
-                <FolderOpen className="size-8 text-muted-foreground/50" />
-                <p className="mt-2 text-xs text-muted-foreground">No project selected</p>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="mt-3"
-                  onClick={() => setNewProjectOpen(true)}
-                >
-                  <Plus />
-                  Create project
-                </Button>
-              </div>
-            )}
+            {!currentProject && <NoProjectPlaceholder onCreate={() => setNewProjectOpen(true)} />}
 
             {currentProject && sessions.length === 0 && (
               <div className="flex h-full flex-col items-center justify-center px-4 text-center">
