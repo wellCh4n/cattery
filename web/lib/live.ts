@@ -3,6 +3,8 @@
 import { create } from "zustand"
 import { liveURL, type SandboxApp } from "@/lib/api"
 import { useAppsStore } from "@/lib/apps-store"
+import { useProjectChannelsStore } from "@/lib/channels-store"
+import { useChatStreamStore } from "@/lib/chat-stream-store"
 import { useMembersStore } from "@/lib/members-store"
 import { useInstalledSkillsStore } from "@/lib/skills-store"
 import { useProjectTerminalsStore } from "@/lib/terminal-store"
@@ -25,6 +27,8 @@ export type LiveEvent =
   | { type: "sandbox"; project_id: string; data: { sandbox_status: string } }
   | { type: "session"; project_id: string; data: SessionChange }
   | { type: "terminals" | "members" | "skills"; project_id: string }
+  // The project's chat channels changed; a cleared conversation names its channel.
+  | { type: "channels"; project_id: string; data?: { channel_id?: string; change?: "cleared" } }
   // The project's listening apps, whole, sent when they change.
   | { type: "apps"; project_id: string; data: { apps: SandboxApp[] } }
   // The user lost access to the project; the server already unsubscribed them.
@@ -91,7 +95,7 @@ function subscribe(ws: WebSocket, projectId: string) {
   const workspace = useWorkspaceStore.getState()
   void workspace.refreshProject(projectId).catch(() => {})
   void workspace.refreshSessions(projectId).catch(() => {})
-  for (const store of [useProjectTerminalsStore, useMembersStore, useInstalledSkillsStore]) reload(store, projectId)
+  for (const store of [useProjectTerminalsStore, useMembersStore, useInstalledSkillsStore, useProjectChannelsStore]) reload(store, projectId)
   // The server only sends apps when they change, so a later subscriber reads them.
   if (useAppsStore.getState().projectId === projectId) void useAppsStore.getState().load(projectId)
 }
@@ -201,6 +205,14 @@ function handle(ev: LiveEvent) {
     case "skills":
       later(`skills:${ev.project_id}`, () => reload(useInstalledSkillsStore, ev.project_id))
       break
+    case "channels": {
+      later(`channels:${ev.project_id}`, () => reload(useProjectChannelsStore, ev.project_id))
+      const cleared = ev.data?.change === "cleared" ? ev.data.channel_id : undefined
+      if (cleared && useChatStreamStore.getState().sessions[cleared]) {
+        void useChatStreamStore.getState().loadHistory(cleared, true).catch(() => {})
+      }
+      break
+    }
     case "removed":
       dropPresence(ev.project_id)
       useWorkspaceStore.getState().dropProject(ev.project_id)

@@ -37,6 +37,7 @@ func NewRouter(
 	portsH *PortsHandler,
 	usageH *UsageHandler,
 	liveH *LiveHandler,
+	channelH *ChannelHandler,
 	signer *auth.Signer,
 ) *echo.Echo {
 	e := echo.New()
@@ -172,6 +173,12 @@ func NewRouter(
 	// library skill in. Uninstalling is a plain file delete.
 	projects.POST("/:project_id/skills", skillsH.UploadToProject)
 	projects.POST("/:project_id/skills/:slug", skillsH.Install)
+	// Chat channels (Feishu bots, WeChat ClawBot logins); see ChannelHandler.
+	projects.GET("/:project_id/channels", channelH.List)
+	projects.POST("/:project_id/channels", channelH.Create)
+	projects.POST("/:project_id/channels/weixin/login", channelH.StartWeixinLogin)
+	projects.GET("/:project_id/channels/weixin/login/:login_id", channelH.PollWeixinLogin)
+	projects.POST("/:project_id/channels/weixin/login/:login_id/verify", channelH.VerifyWeixinLogin)
 	projects.GET("/:project_id/apps", portsH.List)
 	projects.DELETE("/:project_id/apps/:port", portsH.Stop)
 
@@ -190,6 +197,19 @@ func NewRouter(
 	sessions.GET("/:session_id/export", sessionH.Export)
 	sessions.PATCH("/:session_id", sessionH.Update)
 	sessions.DELETE("/:session_id", sessionH.Delete)
+
+	channels := protected.Group("/channels")
+	channels.GET("/:channel_id", channelH.Get)
+	channels.PATCH("/:channel_id", channelH.Update)
+	channels.DELETE("/:channel_id", channelH.Delete)
+	channels.POST("/:channel_id/clear", channelH.Clear)
+	channels.GET("/:channel_id/history", channelH.History)
+	channels.GET("/:channel_id/events", channelH.Events)
+	channels.POST("/:channel_id/message", channelH.SendMessage)
+	channels.POST("/:channel_id/abort", channelH.Abort)
+	channels.POST("/:channel_id/fork", channelH.Fork)
+	channels.DELETE("/:channel_id/queue/:index", channelH.WithdrawQueued)
+	channels.POST("/:channel_id/questionnaire/:tool_id", channelH.AnswerQuestionnaire)
 
 	// Global skill library, served from the backend's SKILLS_DIR.
 	// Not project-scoped. Everyone can browse it; only admins change it.

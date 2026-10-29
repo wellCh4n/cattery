@@ -61,7 +61,7 @@ func TestProfileIntegration(t *testing.T) {
 	token, _ := signer.Issue(member.UserID, false)
 	authH := NewAuthHandler(users, signer)
 	hosts, _ := NewPreviewHosts("http://*.localhost:8081")
-	router := NewRouter(database, nil, nil, nil, nil, nil, authH, nil, NewUsersHandler(users), NewPortsHandler(nil, nil, signer, hosts, nil), nil, nil, signer)
+	router := NewRouter(database, nil, nil, nil, nil, nil, authH, nil, NewUsersHandler(users), NewPortsHandler(nil, nil, signer, hosts, nil), nil, nil, nil, signer)
 	request := func(method, path string, body []byte, contentType, bearer string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(method, path, bytes.NewReader(body))
 		if contentType != "" {

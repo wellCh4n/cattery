@@ -39,15 +39,24 @@ type AgentModel struct {
 	ThinkingLevel string `json:"thinkingLevel"`
 }
 
+// Kinds of agent conversation: a channel's is kept apart from sessions (in
+// ~/.cattery/channels).
+const (
+	KindSession = "session"
+	KindChannel = "channel"
+)
+
 // CreateSession 在 sandbox 内创建（或确认已存在）一个 agent session。agent 用
 // 平台的 session id 作为 transcript 的 key，所以不需要另存一份 agent 侧 id。
 // 对已存在的 session 再次调用会切换到 m（agent 只把 endpoint/key 留在内存里）。
-func (c *Client) CreateSession(ctx context.Context, sandboxURL, sessionID string, m AgentModel, smallModel AgentModel) error {
+// kind 只决定新 transcript 放在哪；smallModel 为 nil 时不生成标题。
+func (c *Client) CreateSession(ctx context.Context, sandboxURL, sessionID, kind string, m AgentModel, smallModel *AgentModel) error {
 	body, _ := json.Marshal(struct {
-		ID string `json:"id"`
+		ID   string `json:"id"`
+		Kind string `json:"kind,omitempty"`
 		AgentModel
-		SmallModel AgentModel `json:"smallModel"`
-	}{sessionID, m, smallModel})
+		SmallModel *AgentModel `json:"smallModel,omitempty"`
+	}{sessionID, kind, m, smallModel})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, sandboxURL+"/session", bytes.NewReader(body))
 	if err != nil {
 		return err
@@ -287,6 +296,33 @@ func (c *Client) StreamEvents(ctx context.Context, sandboxURL, sessionID string,
 }
 
 func (c *Client) streamEvents(ctx context.Context, sandboxURL, sessionID string, w io.Writer, onEvent func(*PlatformEvent) bool, start func() error, untilIdle bool) error {
+	flush := func() {
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+	}
+	return c.consumeEvents(ctx, sandboxURL, sessionID, start, untilIdle, func() {
+		// Keepalive from the agent; pass it on so idle proxies keep the stream open.
+		fmt.Fprint(w, ": ping\n\n")
+		flush()
+	}, func(ev *PlatformEvent) {
+		if onEvent != nil && !onEvent(ev) {
+			return
+		}
+		b, _ := json.Marshal(ev)
+		fmt.Fprintf(w, "event: message\ndata: %s\n\n", b)
+		flush()
+	})
+}
+
+// ConsumeEventsUntilIdle is StreamEventsUntilIdle for callers that are not an
+// HTTP response: each of the session's events goes to handle, until its
+// session.idle (which handle also receives).
+func (c *Client) ConsumeEventsUntilIdle(ctx context.Context, sandboxURL, sessionID string, start func() error, handle func(*PlatformEvent)) error {
+	return c.consumeEvents(ctx, sandboxURL, sessionID, start, true, nil, handle)
+}
+
+func (c *Client) consumeEvents(ctx context.Context, sandboxURL, sessionID string, start func() error, untilIdle bool, ping func(), handle func(*PlatformEvent)) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, sandboxURL+"/event", nil)
 	if err != nil {
 		return err
@@ -307,19 +343,14 @@ func (c *Client) streamEvents(ctx context.Context, sandboxURL, sessionID string,
 		}
 	}
 
-	flush := func() {
-		if f, ok := w.(http.Flusher); ok {
-			f.Flush()
-		}
-	}
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 1024*1024), 4*1024*1024)
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.HasPrefix(line, ":") {
-			// Keepalive from the agent; pass it on so idle proxies keep the stream open.
-			fmt.Fprint(w, ": ping\n\n")
-			flush()
+			if ping != nil {
+				ping()
+			}
 			continue
 		}
 		if !strings.HasPrefix(line, "data:") {
@@ -332,13 +363,7 @@ func (c *Client) streamEvents(ctx context.Context, sandboxURL, sessionID string,
 		if ev.SessionID != sessionID {
 			continue
 		}
-		platEv := &PlatformEvent{Seq: ev.Seq, Type: ev.Type, Data: ev.Data}
-		if onEvent != nil && !onEvent(platEv) {
-			continue
-		}
-		b, _ := json.Marshal(platEv)
-		fmt.Fprintf(w, "event: message\ndata: %s\n\n", b)
-		flush()
+		handle(&PlatformEvent{Seq: ev.Seq, Type: ev.Type, Data: ev.Data})
 		if untilIdle && ev.Type == EventSessionIdle {
 			return nil
 		}

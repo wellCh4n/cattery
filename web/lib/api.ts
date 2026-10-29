@@ -192,6 +192,23 @@ export class SessionNotFoundError extends Error {
   constructor() { super("session not found") }
 }
 
+// A chat channel is one conversation, driven like a session through the same
+// routes under /channels instead of /sessions; its id is the channel id. The
+// channel tab registers its id, so the chat code below needs no other change.
+const channelConversations = new Set<string>()
+
+export function registerChannelConversation(channelId: string) {
+  channelConversations.add(channelId)
+}
+
+export function isChannelConversation(id: string): boolean {
+  return channelConversations.has(id)
+}
+
+function conversationURL(id: string): string {
+  return `${API_BASE}/api/v1/${channelConversations.has(id) ? "channels" : "sessions"}/${id}`
+}
+
 export async function getSession(sessionId: string): Promise<Session> {
   const res = await authedFetch(`${API_BASE}/api/v1/sessions/${sessionId}`, { cache: "no-store" })
   if (res.status === 404) throw new SessionNotFoundError()
@@ -212,7 +229,7 @@ export async function updateSession(sessionId: string, data: { title?: string; m
 // Copies the session into a new one owned by the caller: all of it, or only
 // what precedes the user message `before` (a history messageId).
 export async function forkSession(sessionId: string, before?: string): Promise<Session> {
-  const res = await authedFetch(`${API_BASE}/api/v1/sessions/${sessionId}/fork`, {
+  const res = await authedFetch(`${conversationURL(sessionId)}/fork`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ before }),
@@ -226,7 +243,7 @@ export async function deleteSession(sessionId: string): Promise<void> {
 }
 
 export async function abortSession(sessionId: string): Promise<void> {
-  await authedFetch(`${API_BASE}/api/v1/sessions/${sessionId}/abort`, { method: "POST" })
+  await authedFetch(`${conversationURL(sessionId)}/abort`, { method: "POST" })
 }
 
 // Returns the reply stream, or null when the session was busy and the text was
@@ -236,7 +253,7 @@ export async function sendSessionMessageStream(
   text: string,
   signal?: AbortSignal,
 ): Promise<ReadableStreamDefaultReader<Uint8Array> | null> {
-  const res = await authedFetch(`${API_BASE}/api/v1/sessions/${sessionId}/message`, {
+  const res = await authedFetch(`${conversationURL(sessionId)}/message`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text }),
@@ -253,7 +270,7 @@ export async function sendSessionMessageStream(
 // agent subscription is in place, so a history snapshot loaded afterwards plus
 // the events after its seq form a gapless view.
 export async function openSessionEvents(sessionId: string, signal: AbortSignal): Promise<ReadableStreamDefaultReader<Uint8Array>> {
-  const res = await authedFetch(`${API_BASE}/api/v1/sessions/${sessionId}/events`, { cache: "no-store", signal })
+  const res = await authedFetch(`${conversationURL(sessionId)}/events`, { cache: "no-store", signal })
   if (!res.ok || !res.body) throw new Error(await readErrorMessage(res, "failed to follow session"))
   return res.body.getReader()
 }
@@ -261,7 +278,7 @@ export async function openSessionEvents(sessionId: string, signal: AbortSignal):
 // Takes back a steered message before it reaches the model. Returns the
 // remaining queue, or null when the message was already delivered.
 export async function withdrawQueuedMessage(sessionId: string, index: number, text: string): Promise<string[] | null> {
-  const res = await authedFetch(`${API_BASE}/api/v1/sessions/${sessionId}/queue/${index}`, {
+  const res = await authedFetch(`${conversationURL(sessionId)}/queue/${index}`, {
     method: "DELETE",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text }),
@@ -286,7 +303,7 @@ export function exportSessionURL(sessionId: string, format: "md" | "json"): stri
 }
 
 export async function getHistory(sessionId: string): Promise<PlatformHistoryItem[]> {
-  const res = await authedFetch(`${API_BASE}/api/v1/sessions/${sessionId}/history`, { cache: "no-store" })
+  const res = await authedFetch(`${conversationURL(sessionId)}/history`, { cache: "no-store" })
   if (!res.ok) throw new Error("failed to get history")
   return res.json()
 }
@@ -771,7 +788,7 @@ export async function answerQuestionnaire(sessionId: string, toolId: string, res
   answers: Array<{ id: string; value: string; wasCustom: boolean }>
   cancelled: boolean
 }): Promise<void> {
-  const res = await authedFetch(`${API_BASE}/api/v1/sessions/${sessionId}/questionnaire/${encodeURIComponent(toolId)}`, {
+  const res = await authedFetch(`${conversationURL(sessionId)}/questionnaire/${encodeURIComponent(toolId)}`, {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(response),
   })
   if (!res.ok) throw new Error(await readErrorMessage(res, "Unable to submit answers"))
@@ -825,4 +842,112 @@ export async function fetchAvatar(userId: string, version: string, signal?: Abor
   const res = await authedFetch(`${API_BASE}/api/v1/users/${encodeURIComponent(userId)}/avatar?v=${encodeURIComponent(version)}`, { signal })
   if (!res.ok) throw new Error("Could not load avatar")
   return res.blob()
+}
+
+// ---- chat channels (Feishu bots, WeChat ClawBot logins) ----
+
+// Feishu and Lark (its international edition) are separate platforms.
+export type ChannelType = "feishu" | "lark" | "weixin"
+export type BotChannelType = Exclude<ChannelType, "weixin">
+export type ChannelStatus = "connecting" | "connected" | "expired" | "error" | "disabled"
+
+export interface Channel {
+  channel_id: string
+  project_id: string
+  type: ChannelType
+  name: string
+  model: string
+  effort: string
+  enabled: boolean
+  status: ChannelStatus
+  last_error: string | null
+  created_by_user_id: string
+  created_by_username: string
+  created_by_name: string
+  created_by_avatar_version: string
+  created_at: string
+  // The account's id on its platform (a Feishu or Lark app id, a WeChat bot id).
+  account: string
+  // Whether the channel knows its owner's chat account; until then a Feishu
+  // or Lark channel shows its creator the code to send its bot.
+  bound: boolean
+  bind_code?: string
+}
+
+export interface ChannelList {
+  // False when the server has no CHANNEL_SECRET_KEY.
+  enabled: boolean
+  channels: Channel[]
+}
+
+export async function listChannels(projectId: string): Promise<ChannelList> {
+  const res = await authedFetch(`${API_BASE}/api/v1/projects/${projectId}/channels`, { cache: "no-store" })
+  if (!res.ok) throw new Error(await readErrorMessage(res, "failed to list channels"))
+  return res.json()
+}
+
+// Adds a Feishu or Lark bot; WeChat channels come from a QR login.
+export async function createBotChannel(projectId: string, data: {
+  type: BotChannelType; name: string; app_id: string; app_secret: string; model: string; effort: string
+}): Promise<Channel> {
+  const res = await authedFetch(`${API_BASE}/api/v1/projects/${projectId}/channels`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
+  })
+  if (!res.ok) throw new Error(await readErrorMessage(res, "failed to add the bot"))
+  return res.json()
+}
+
+export async function updateChannel(channelId: string, data: {
+  name?: string; model?: string; effort?: string; enabled?: boolean; app_secret?: string
+}): Promise<Channel> {
+  const res = await authedFetch(`${API_BASE}/api/v1/channels/${channelId}`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
+  })
+  if (!res.ok) throw new Error(await readErrorMessage(res, "failed to update channel"))
+  return res.json()
+}
+
+export async function deleteChannel(channelId: string): Promise<void> {
+  const res = await authedFetch(`${API_BASE}/api/v1/channels/${channelId}`, { method: "DELETE" })
+  if (!res.ok) throw new Error(await readErrorMessage(res, "failed to delete channel"))
+}
+
+// Deletes the channel's conversation; its next message starts a new one.
+export async function clearChannel(channelId: string): Promise<void> {
+  const res = await authedFetch(`${API_BASE}/api/v1/channels/${channelId}/clear`, { method: "POST" })
+  if (!res.ok) throw new Error(await readErrorMessage(res, "failed to clear the conversation"))
+}
+
+// A WeChat QR login: qr is the code as an image (a data URL). Once confirmed,
+// channel is the new (or renewed) channel.
+export interface WeixinLogin {
+  login_id: string
+  qr?: string
+  expires_at: string
+  status: "wait" | "scaned" | "need_verifycode" | "verify_code_blocked" | "expired" | "confirmed"
+  error?: string
+  channel?: Channel
+}
+
+// Starts a login for a new channel, or with channelId to renew that one's.
+export async function startWeixinLogin(projectId: string, data: { channel_id?: string; name?: string; model?: string; effort?: string }): Promise<WeixinLogin> {
+  const res = await authedFetch(`${API_BASE}/api/v1/projects/${projectId}/channels/weixin/login`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
+  })
+  if (!res.ok) throw new Error(await readErrorMessage(res, "failed to get a WeChat QR code"))
+  return res.json()
+}
+
+// Waits (up to about half a minute) for the login to move on.
+export async function pollWeixinLogin(projectId: string, loginId: string, signal?: AbortSignal): Promise<WeixinLogin> {
+  const res = await authedFetch(`${API_BASE}/api/v1/projects/${projectId}/channels/weixin/login/${loginId}`, { cache: "no-store", signal })
+  if (!res.ok) throw new Error(await readErrorMessage(res, "failed to check the WeChat login"))
+  return res.json()
+}
+
+export async function verifyWeixinLogin(projectId: string, loginId: string, code: string): Promise<void> {
+  const res = await authedFetch(`${API_BASE}/api/v1/projects/${projectId}/channels/weixin/login/${loginId}/verify`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code }),
+  })
+  if (!res.ok) throw new Error(await readErrorMessage(res, "failed to send the code"))
 }

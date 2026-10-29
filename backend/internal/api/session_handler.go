@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
+	"github.com/wellch4n/cattery/internal/agentrun"
 	"github.com/wellch4n/cattery/internal/config"
 	"github.com/wellch4n/cattery/internal/db"
 	"github.com/wellch4n/cattery/internal/harness"
@@ -107,24 +108,21 @@ func (h *SessionHandler) Models(c echo.Context) error {
 // resolveModel picks the requested model, or the default when empty. Only
 // configured models are accepted.
 func (h *SessionHandler) resolveModel(id string) (string, error) {
-	id = strings.TrimSpace(id)
-	if id == "" {
-		return h.models.Default, nil
+	return resolveModel(h.models, id)
+}
+
+func resolveModel(models *config.Models, id string) (string, error) {
+	modelID, err := agentrun.ResolveModel(models, id)
+	if err != nil {
+		return "", echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
-	if _, ok := h.models.Get(id); !ok {
-		return "", echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("unknown model %q", id))
-	}
-	return id, nil
+	return modelID, nil
 }
 
 // effortFor is the effort a session on modelID runs at: want when the model's
 // provider offers it, else the provider's default. modelID must be configured.
 func (h *SessionHandler) effortFor(modelID, want string) string {
-	m, _ := h.models.Get(modelID)
-	if m.Provider.HasEffort(want) {
-		return want
-	}
-	return m.Provider.DefaultEffort()
+	return agentrun.EffortFor(h.models, modelID, want)
 }
 
 type createSessionRequest struct {
@@ -201,19 +199,11 @@ func (h *SessionHandler) bringUp(sess *model.Session) {
 // transcript is reopened, switching model if it changed), so it's called
 // before every prompt — which is also how a model switch reaches the agent.
 func (h *SessionHandler) ensureAgentSession(ctx context.Context, sandboxURL string, sess *model.Session) error {
-	m, ok := h.models.Get(sess.Model)
-	if !ok {
-		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("model %q is no longer configured; switch to another model", sess.Model))
-	}
-	small, _ := h.models.Get(h.models.SmallModel)
-	err := h.harnessClient.CreateSession(ctx, sandboxURL, sess.SessionID.String(), harness.AgentModel{
-		ID: m.ID, Provider: m.Provider.Type, API: m.Provider.API, BaseURL: m.Provider.Endpoint, APIKey: m.Provider.Key,
-		ThinkingLevel: h.effortFor(m.ID, sess.Effort),
-	}, harness.AgentModel{
-		ID: small.ID, Provider: small.Provider.Type, API: small.Provider.API, BaseURL: small.Provider.Endpoint, APIKey: small.Provider.Key,
+	err := agentrun.Register(ctx, h.harnessClient, h.models, sandboxURL, agentrun.Conversation{
+		ID: sess.SessionID, ProjectID: sess.ProjectID, Kind: harness.KindSession, Model: sess.Model, Effort: sess.Effort,
 	})
 	if err != nil {
-		return err
+		return registerError(err)
 	}
 	_, _, err = h.sessionStore.SyncTitle(ctx, sess.SessionID, nil, false, func(name string) (string, error) {
 		return h.harnessClient.SetSessionName(ctx, sandboxURL, sess.SessionID.String(), name)
@@ -693,4 +683,14 @@ func (h *SessionHandler) AnswerQuestionnaire(c echo.Context) error {
 		return echo.NewHTTPError(status, message)
 	}
 	return c.NoContent(http.StatusNoContent)
+}
+
+// registerError turns a model removed from the catalog into a 400; other
+// registration failures are the agent's.
+func registerError(err error) error {
+	var gone *agentrun.ModelGoneError
+	if errors.As(err, &gone) {
+		return echo.NewHTTPError(http.StatusBadRequest, gone.Error())
+	}
+	return err
 }

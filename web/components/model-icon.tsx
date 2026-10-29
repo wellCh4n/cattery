@@ -5,7 +5,7 @@ import { Sparkles } from "lucide-react"
 
 type SimpleIcon = { path: string; title: string }
 
-function BrandSvg({ icon, className }: { icon: SimpleIcon; className?: string }) {
+export function BrandSvg({ icon, className }: { icon: SimpleIcon; className?: string }) {
   return (
     <svg
       role="img"

@@ -54,7 +54,9 @@ import { useAuthStore } from "@/lib/auth-store"
 import { Markdown, SandboxLinkProject } from "@/components/markdown"
 import { EffortBadge, EffortPicker, ModelBadge, ModelPicker } from "@/components/model-picker"
 import { ContextMeter } from "@/components/context-meter"
-import { type Session } from "@/lib/api"
+import { type Channel, type Session, updateChannel } from "@/lib/api"
+import { applyChannel, platformName } from "@/lib/channels-store"
+import { writeLastEffort, writeLastModel } from "@/lib/models"
 import {
   takeFirstPrompt,
   useChatStreamStore,
@@ -67,6 +69,9 @@ import { cn } from "@/lib/utils"
 
 interface Props {
   session: Session
+  // Set when this is a chat channel's conversation (session then stands in
+  // for it: its id is the channel id, its creator the channel's).
+  channel?: Channel
 }
 
 const EMPTY_BUBBLES: Bubble[] = []
@@ -120,18 +125,18 @@ function toSegments(bubbles: Bubble[]): Segment[] {
   return segments
 }
 
-export function ChatPanel({ session }: Props) {
+export function ChatPanel({ session, channel }: Props) {
   return (
     <MessageScrollerProvider key={session.session_id} autoScroll>
       {/* The agent's localhost links open its sandbox's port previews. */}
       <SandboxLinkProject value={session.project_id}>
-        <ChatPanelContent session={session} />
+        <ChatPanelContent session={session} channel={channel} />
       </SandboxLinkProject>
     </MessageScrollerProvider>
   )
 }
 
-function ChatPanelContent({ session }: Props) {
+function ChatPanelContent({ session, channel }: Props) {
   const { scrollToEnd } = useMessageScroller()
   const [submission, setSubmission] = useState(0)
 
@@ -243,11 +248,22 @@ function ChatPanelContent({ session }: Props) {
   // run is the creator's. The creator follows only a run already going when the
   // session loaded (from another tab); runs this tab starts arrive on their own
   // stream, and holding a follow connection meanwhile would only cost one.
-  const following = ready && (!writable || (!!chat?.recovering && !chat.sending))
+  // A channel's runs mostly start in its chat, so its tab always follows.
+  const following = ready && (!writable || !!channel || (!!chat?.recovering && !chat.sending))
   useEffect(() => {
     if (!following) return
     return follow(session.session_id)
   }, [following, follow, session.session_id])
+
+  // A channel keeps its model and effort on the channel; like a session's
+  // switch, the pick is what the next new conversation starts on.
+  async function setChannel(change: { model?: string; effort?: string }) {
+    if (!channel) return
+    const updated = await updateChannel(channel.channel_id, change)
+    if (change.model) writeLastModel(updated.model)
+    if (change.effort) writeLastEffort(updated.effort)
+    applyChannel(updated)
+  }
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -288,9 +304,11 @@ function ChatPanelContent({ session }: Props) {
               <EmptyMedia variant="icon">
                 <MessageCircleDashedIcon />
               </EmptyMedia>
-              <EmptyTitle>What should we build?</EmptyTitle>
+              <EmptyTitle>{channel ? "No messages yet" : "What should we build?"}</EmptyTitle>
               <EmptyDescription>
-                The agent can read the project&apos;s files, run commands and make changes.
+                {channel
+                  ? `Messages sent to this ${platformName(channel.type)} channel, and the agent's replies, show up here.`
+                  : "The agent can read the project's files, run commands and make changes."}
               </EmptyDescription>
             </EmptyHeader>
           </Empty>
@@ -388,7 +406,7 @@ function ChatPanelContent({ session }: Props) {
           <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
             <EyeIcon className="size-4 shrink-0" />
             <span className="min-w-0 flex-1 basis-48 truncate">
-              Read-only, {session.created_by_username ? `${profileName({ name: session.created_by_name, username: session.created_by_username })}'s session` : "only the project owner can send messages"}
+              Read-only, {session.created_by_username ? `${profileName({ name: session.created_by_name, username: session.created_by_username })}'s ${channel ? "channel" : "session"}` : "only the project owner can send messages"}
             </span>
             {usage && <ContextMeter usage={usage} />}
             {/* The creator's settings, shown but not changeable. */}
@@ -409,7 +427,7 @@ function ChatPanelContent({ session }: Props) {
                   <GitForkIcon />
                   Fork
                 </TooltipTrigger>
-                <TooltipContent>Continue in your own copy of this session</TooltipContent>
+                <TooltipContent>Continue in your own copy of this {channel ? "conversation" : "session"}</TooltipContent>
               </Tooltip>
             )}
           </div>
@@ -426,7 +444,7 @@ function ChatPanelContent({ session }: Props) {
               value={input}
               disabled={!!question}
               onChange={e => { setInput(e.target.value); setRecall(null) }}
-              placeholder={question ? "Answer the questions above first" : sending ? "Steer the agent…" : "Ask the agent to change your code…"}
+              placeholder={question ? "Answer the questions above first" : sending ? "Steer the agent…" : channel ? "Message the agent here; replies to it stay in Cattery…" : "Ask the agent to change your code…"}
               aria-label="Message"
               rows={1}
               className="max-h-48 min-h-0 px-4 pt-4 text-base md:text-sm [field-sizing:content]"
@@ -447,6 +465,7 @@ function ChatPanelContent({ session }: Props) {
                     sessionId={session.session_id}
                     model={session.model}
                     disabled={sending}
+                    onChange={channel && setChannel}
                   />
                 </div>
                 <EffortPicker
@@ -454,6 +473,7 @@ function ChatPanelContent({ session }: Props) {
                   model={session.model}
                   effort={session.effort}
                   disabled={sending}
+                  onChange={channel && setChannel}
                 />
               </div>
               {sending && !canSend ? (

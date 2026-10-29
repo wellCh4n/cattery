@@ -9,6 +9,7 @@ import {
   forkSession as apiForkSession,
   getProject,
   getSession,
+  isChannelConversation,
   listProjects,
   listSessions,
   updateProject,
@@ -262,6 +263,8 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   },
 
   refreshSession: async (sessionId: string) => {
+    // A channel's conversation has no session to reread.
+    if (isChannelConversation(sessionId)) throw new Error("not a session")
     const session = await getSession(sessionId)
     set(state => ({
       projects: mapSessions(state.projects, session.project_id, sessions =>
